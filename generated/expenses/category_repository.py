@@ -69,89 +69,74 @@ class CategoryRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def find_expenses_by_category(self, category_id: int) -> List[Expense]:
+    def find_expenses_for_category(self, category_id: int) -> List[Expense]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM expenses WHERE category_id = ?", (category_id,)
+            ).fetchall()
+            return [Expense(**dict(row)) for row in rows]
+
+    def get_category_total_spending(self, category_id: int, start_date: date, end_date: date) -> int:
         with self.db.connect() as conn:
             cur = conn.execute(
-                "SELECT e.id, e.amount, e.date, e.category_id FROM expenses e WHERE e.category_id = ?",
-                (category_id,)
-            ).fetchall()
-            return [Expense(**dict(row)) for row in cur.fetchall()]
-
-    def get_category_total_spending(self, category_id: int, start_date: Optional[date] = None, end_date: Optional[date] = None) -> int:
-        query = "SELECT SUM(e.amount) FROM expenses e WHERE e.category_id = ?"
-        params = [category_id]
-
-        if start_date:
-            query += " AND e.date >= ?"
-            params.append(start_date)
-        if end_date:
-            query += " AND e.date <= ?"
-            params.append(end_date)
-
-        with self.db.connect() as conn:
-            cur = conn.execute(query, params)
+                """
+                SELECT SUM(amount) 
+                FROM expenses 
+                WHERE category_id = ? 
+                  AND date >= ? 
+                  AND date <= ?
+                """,
+                (category_id, start_date, end_date),
+            )
             total = cur.fetchone()[0]
             return total or 0
 
+    def get_category_spending_breakdown_by_month(self, category_id: int, start_date: date, end_date: date) -> Dict[str, int]:
+        with self.db.connect() as conn:
+            # Extract month-year from date and group by month
+            rows = conn.execute(
+                """
+                SELECT 
+                    strftime('%Y-%m', date) AS month,
+                    SUM(amount) AS total_spent
+                FROM expenses 
+                WHERE category_id = ? 
+                  AND date >= ? 
+                  AND date <= ?
+                GROUP BY strftime('%Y-%m', date)
+                ORDER BY month
+                """,
+                (category_id, start_date, end_date),
+            ).fetchall()
+            return {
+                row[0]: row[1] for row in rows
+            }
+
     def get_category_budget_status(self, category_id: int, month: str) -> str:
         # Example: "Under Budget", "On Budget", "Over Budget"
-        # month format: "2024-03"
-        try:
-            year, month_num = month.split('-')
-            month_num = int(month_num)
-        except ValueError:
-            raise ValueError("Invalid month format. Expected 'YYYY-MM'")
-
-        # Get monthly budget
         with self.db.connect() as conn:
+            # Get total spending for the given month
             cur = conn.execute(
-                "SELECT monthly_budget FROM categories WHERE id = ?",
-                (category_id,)
-            ).fetchone()
-            monthly_budget = cur[0] if cur else 0
-
-            # Get total spending for the month
-            start_date = date(int(year), month_num, 1)
-            end_date = date(int(year), month_num, 1) + date(1, 1, 1) - date(1, 1, 1)
-            total_spending = self.get_category_total_spending(
-                category_id=category_id,
-                start_date=start_date,
-                end_date=end_date
+                """
+                SELECT SUM(amount) AS total_spent
+                FROM expenses 
+                WHERE category_id = ? 
+                  AND strftime('%Y-%m', date) = ?
+                """,
+                (category_id, month),
             )
+            total_spent = cur.fetchone()[0] or 0
 
-            if total_spending < monthly_budget:
+            # Get monthly budget from category
+            category_row = conn.execute(
+                "SELECT monthly_budget FROM categories WHERE id = ?", (category_id,)
+            ).fetchone()
+            monthly_budget = category_row[0] if category_row else 0
+
+            if total_spent < monthly_budget:
                 return "Under Budget"
-            elif total_spending == monthly_budget:
+            elif total_spent == monthly_budget:
                 return "On Budget"
             else:
                 return "Over Budget"
-        return "Unknown"
-
-    def get_category_with_expenses(self, category_id: int, start_date: Optional[date] = None, end_date: Optional[date] = None) -> Dict[str, Any]:
-        with self.db.connect() as conn:
-            # Fetch category details
-            category_row = conn.execute(
-                "SELECT * FROM categories WHERE id = ?",
-                (category_id,)
-            ).fetchone()
-            if not category_row:
-                raise CategoryNotFoundError(category_id)
-
-            category = Category(**dict(category_row))
-
-            # Fetch expenses for the category with optional date filtering
-            expenses = self.find_expenses_by_category(category_id)
-
-            # Filter expenses by date if provided
-            if start_date and end_date:
-                expenses = [e for e in expenses if start_date <= e.date <= end_date]
-            elif start_date:
-                expenses = [e for e in expenses if start_date <= e.date]
-            elif end_date:
-                expenses = [e for e in expenses if e.date <= end_date]
-
-            return {
-                "category": category,
-                "expenses": expenses
-            }
 

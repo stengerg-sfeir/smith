@@ -18,7 +18,7 @@ class Category:
 class Expense:
     amount_cents: int
     description: str
-    expense_date: str
+    expense_date: date
     category_id: int
     payment_method: str
     is_recurring: bool

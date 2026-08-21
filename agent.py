@@ -770,6 +770,22 @@ def _entities_schema():
                                 "items": {"type": "string"},
                             },
                         },
+                        "list_filters": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "param": {"type": "string"},
+                                    "column": {"type": "string"},
+                                    "op": {
+                                        "type": "string",
+                                        "enum": ["eq", "gte", "lte"],
+                                    },
+                                },
+                                "required": ["param", "column", "op"],
+                                "additionalProperties": False,
+                            },
+                        },
                     },
                     "required": ["name", "fields"],
                     "additionalProperties": False,
@@ -781,7 +797,24 @@ def _entities_schema():
     }
 
 
+_IMPL_KINDS = (
+    "total_in_period", "total_filtered", "export_csv", "duplicate_groups",
+)
+
+
 def _methods_schema():
+    """Method design schema with an optional declarative `impl` object.
+
+    `impl` tells the deterministic renderer HOW to build the method body
+    (which entity/fields/params it operates on) so agent.py needs no
+    name- or suffix-based domain heuristics. Kinds:
+      - total_in_period: sum value_field over a month/year bucket of
+        date_field; period taken from period_param.
+      - total_filtered:  sum value_field over rows filtered by the method's
+        own params that match the entity's declared list_filters.
+      - export_csv:      write filtered rows to file_param as CSV.
+      - duplicate_groups: group rows by group_by fields, keep count >= min_count.
+    """
     return {
         "type": "object",
         "properties": {
@@ -804,6 +837,29 @@ def _methods_schema():
                             },
                         },
                         "returns": {"type": "string"},
+                        "impl": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string", "enum": list(_IMPL_KINDS)},
+                                "entity": {"type": "string"},
+                                "value_field": {"type": "string"},
+                                "date_field": {"type": "string"},
+                                "period_param": {"type": "string"},
+                                "granularity": {
+                                    "type": "string",
+                                    "enum": ["month", "year"],
+                                },
+                                "result_key": {"type": "string"},
+                                "file_param": {"type": "string"},
+                                "group_by": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "min_count": {"type": "integer"},
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": False,
+                        },
                     },
                     "required": ["name", "params", "returns"],
                     "additionalProperties": False,
@@ -864,7 +920,154 @@ def _v_entities(d):
                 errs.append("%s: bad field name %r" % (name, fname))
             if ftype not in ("str", "int", "float", "bool", "date", "datetime"):
                 errs.append("%s: bad type %r for field %r" % (name, ftype, fname))
+        # Declared list() filters: param/column snake_case, column must be a
+        # real field of THIS entity, params unique. This declaration replaces
+        # every suffix-based filter heuristic in the renderers.
+        lf = ent.get("list_filters")
+        if lf is not None:
+            if not isinstance(lf, list):
+                errs.append("%s: list_filters must be an array" % (name,))
+            else:
+                seen_params = set()
+                for spec in lf:
+                    if not isinstance(spec, dict):
+                        errs.append("%s: list_filter not an object" % (name,))
+                        continue
+                    p, c = spec.get("param"), spec.get("column")
+                    op = spec.get("op")
+                    if not isinstance(p, str) or not _NAME_SNAKE.match(p):
+                        errs.append("%s: bad list_filter param %r" % (name, p))
+                    if not isinstance(c, str) or not _NAME_SNAKE.match(c):
+                        errs.append("%s: bad list_filter column %r" % (name, c))
+                    elif c not in {f.get("name") for f in fields}:
+                        errs.append(
+                            "%s: list_filter column %r is not a field" % (name, c)
+                        )
+                    if op not in ("eq", "gte", "lte"):
+                        errs.append("%s: bad list_filter op %r" % (name, op))
+                    if isinstance(p, str) and p in seen_params:
+                        errs.append("%s: duplicate list_filter param %r" % (name, p))
+                    seen_params.add(p if isinstance(p, str) else "")
     return errs
+
+
+# Per-kind required bindings for a declarative service `impl`. Entity/field/
+# param references are cross-checked against the designs at render time
+# (_sanitize_impls); here we only enforce shape.
+_IMPL_REQUIRED = {
+    "total_in_period": (
+        "entity", "value_field", "date_field", "period_param",
+        "granularity", "result_key",
+    ),
+    "total_filtered": ("entity", "value_field", "result_key"),
+    "export_csv": ("entity", "file_param"),
+    "duplicate_groups": ("entity", "group_by"),
+}
+
+
+def _v_impl(m, label):
+    impl = m.get("impl")
+    if impl is None:
+        return []
+    if not isinstance(impl, dict):
+        return ["%s.%s: impl must be an object" % (label, m.get("name"))]
+    errs = []
+    kind = impl.get("kind")
+    if kind not in _IMPL_KINDS:
+        errs.append("%s.%s: unknown impl kind %r" % (label, m.get("name"), kind))
+        return errs
+    for key in _IMPL_REQUIRED[kind]:
+        v = impl.get(key)
+        if v is None or v == "" or v == []:
+            errs.append("%s.%s: impl.%s missing for kind %s"
+                        % (label, m.get("name"), key, kind))
+    ent = impl.get("entity")
+    if (
+        isinstance(ent, str) and ent
+        and not (_NAME_SNAKE.match(ent) or _NAME_CLASS.match(ent))
+    ):
+        errs.append("%s.%s: impl.entity must be an identifier"
+                    % (label, m.get("name")))
+    for key in ("value_field", "date_field", "period_param", "file_param"):
+        v = impl.get(key)
+        if isinstance(v, str) and v and not _NAME_SNAKE.match(v):
+            errs.append("%s.%s: impl.%s must be snake_case"
+                        % (label, m.get("name"), key))
+    rk = impl.get("result_key")
+    if isinstance(rk, str) and rk and not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", rk):
+        errs.append("%s.%s: impl.result_key must be an identifier"
+                    % (label, m.get("name")))
+    gb = impl.get("group_by")
+    if isinstance(gb, list):
+        for g in gb:
+            if not isinstance(g, str) or not _NAME_SNAKE.match(g):
+                errs.append("%s.%s: impl.group_by entries must be snake_case"
+                            % (label, m.get("name")))
+    mc = impl.get("min_count")
+    if mc is not None and (not isinstance(mc, int) or isinstance(mc, bool) or mc < 2):
+        errs.append("%s.%s: impl.min_count must be an integer >= 2"
+                    % (label, m.get("name")))
+    return errs
+
+
+def _normalize_impl(m):
+    """Rescue common formatting mistakes in a designed impl object.
+
+    The 4B model frequently emits near-miss bindings: "monthly" instead of
+    "month", type annotations glued to names ("month: str"), PascalCase or
+    pluralized references, string numbers. Normalizing these beats
+    rejecting them — an impl that survives normalization renders
+    deterministically instead of degrading to a stub.
+    """
+    impl = m.get("impl")
+    if not isinstance(impl, dict):
+        return
+
+    def clean_ident(v, lower=False):
+        v = str(v).split(":")[0].split("(")[0].strip().strip("$").strip()
+        return v.lower() if lower else _snake(v)
+
+    g = impl.get("granularity")
+    if g == "monthly":
+        impl["granularity"] = "month"
+    elif g == "yearly":
+        impl["granularity"] = "year"
+
+    for key in ("entity", "value_field", "date_field", "period_param",
+                "result_key", "file_param"):
+        if isinstance(impl.get(key), str) and impl[key]:
+            impl[key] = clean_ident(impl[key], lower=(key == "entity"))
+
+    gb = impl.get("group_by")
+    if isinstance(gb, list):
+        impl["group_by"] = [
+            clean_ident(g) for g in gb
+            if isinstance(g, (str, int)) and str(g).strip()
+        ]
+
+    mc = impl.get("min_count")
+    if isinstance(mc, str) and mc.strip().isdigit():
+        impl["min_count"] = int(mc.strip())
+
+
+def _strip_invalid_impls(d):
+    """Remove impl objects that still fail shape validation after
+    normalization (services design).
+
+    An invalid impl is a malformed optimization hint, not a structural
+    error: the affected method simply degrades to CRUD delegation or a
+    locked stub. Stripping keeps a bad hint from burning design retries
+    or failing the whole pipeline. Returns the number of impls removed.
+    """
+    removed = 0
+    for m in d.get("methods") or []:
+        if not isinstance(m, dict) or m.get("impl") is None:
+            continue
+        _normalize_impl(m)
+        if _v_impl(m, ""):
+            del m["impl"]
+            removed += 1
+    return removed
 
 
 def _v_methods(d, label):
@@ -889,6 +1092,7 @@ def _v_methods(d, label):
                 continue
             if not isinstance(p.get("name"), str) or not _NAME_SNAKE.match(p.get("name")):
                 errs.append("%s.%s: bad param %r" % (label, nm, p.get("name")))
+        errs.extend(_v_impl(m, label))
     return errs
 
 
@@ -908,8 +1112,14 @@ _DESIGN_SYSTEMS = {
         'datetime. Set "unique": true for columns the spec says must be unique. '
         'Set "nullable": true for optional columns (default None), including '
         'the primary key id. When the spec names table-level uniqueness '
-        '(e.g. "UNIQUE(a, b)"), fill the entity\'s "unique_together" pairs. '
-        "Do not invent fields the spec does not imply."
+        '(e.g. "UNIQUE(a, b)"), fill the "unique_together" pairs of that '
+        'entity. Also declare the "list_filters" of each entity: the query '
+        'parameters its repository list() should accept, as {"param", '
+        '"column", "op"} entries where op is "eq" (equality) or "gte"/"lte" '
+        '(lower/upper bound of a range over a date-like column). Declare only '
+        'filters the listing/filtering features in the spec imply; omit '
+        '"list_filters" when none apply. Do not invent fields the spec does '
+        "not imply."
     ),
     "repositories": (
         "You are an expert Python architect. Design the CUSTOM methods of a "
@@ -926,7 +1136,28 @@ _DESIGN_SYSTEMS = {
         '"methods" array. Each method: {"name", "params": [{"name", "type"}], '
         '"returns"}. Use "Optional[T]"/"List[T]"/"Dict" for shapes. Use the '
         "exact field names and exceptions from the spec. One method per use "
-        'case the spec describes. Use "" for no params or returns.'
+        'case the spec describes. Use "" for no params or returns. '
+        "When a use case matches one of these mechanical shapes, add an "
+        '"impl" object to that method: every method that totals a numeric '
+        "field, exports rows to a CSV file, or finds repeated rows MUST "
+        "carry impl so its body is generated deterministically: "
+        '{"kind": "total_in_period", "entity": "<entity snake_case>", '
+        '"value_field": "<numeric field>", "date_field": "<date-like field>", '
+        '"period_param": "<param holding a YYYY-MM month or a YYYY year>", '
+        '"granularity": "month"|"year", "result_key": "<dict key for the '
+        'total>"} (total over one period bucket; pick a short snake_case '
+        "result_key naming the total, like total_spent); "
+        '{"kind": "total_filtered", "entity": ..., "value_field": ..., '
+        '"result_key": ...} (total over rows filtered by the params of this '
+        "method that match the declared list_filters of the entity); "
+        '{"kind": "export_csv", "entity": ..., "file_param": "<param receiving '
+        'the output file path>"} (write filtered rows as CSV); '
+        '{"kind": "duplicate_groups", "entity": ..., "group_by": ["<field>", '
+        '...], "min_count": 2} (rows sharing the same group_by values, '
+        "repeated occurrences). "
+        "impl bindings must reference EXACTLY the entity/field/param names "
+        "already designed; entity is the snake_case name of a designed "
+        "entity. Methods that match none of these shapes get no impl."
     ),
 }
 
@@ -1099,6 +1330,16 @@ def _design_module(path, kind, prompt_text, context, verbose=False):
             print("    [design] %s: no JSON (attempt %d)" % (path, attempt + 1))
             continue
         errs = validator(data)
+        if errs and kind == "services":
+            # Malformed impl hints degrade gracefully instead of failing
+            # the design: strip them and re-validate what remains.
+            stripped = _strip_invalid_impls(data)
+            if stripped:
+                errs = validator(data)
+                if not errs:
+                    print("    [design] %s: dropped %d invalid impl(s), accepted"
+                          % (path, stripped))
+                    return data
         if not errs:
             return data
         if verbose:
@@ -1205,33 +1446,6 @@ def _bare(t):
     return (t or "").replace("Optional[", "").replace("]", "").strip()
 
 
-def _entity_filters(fields):
-    """Derived list()-filter API for an entity, from its DESIGNED fields.
-
-    Domain-generic suffix conventions (no prompt text, no fixed names):
-      - every foreign-key column (``*_id``, except ``id``) -> equality filter
-      - the first ``*_date`` column -> ``start_date``/``end_date`` range
-      - otherwise a ``month`` column -> equality filter
-      - every ``*_method`` column -> equality filter
-    Returns [(param_name, column, op)] with op in {"eq", "gte", "lte"},
-    in the stable order the repository renderer emits them.
-    """
-    specs = []
-    for f in sorted(fields):
-        if f.endswith("_id") and f != "id":
-            specs.append((f, f, "eq"))
-    date_col = next((f for f in sorted(fields) if f.endswith("_date")), None)
-    if date_col:
-        specs.append(("start_date", date_col, "gte"))
-        specs.append(("end_date", date_col, "lte"))
-    elif "month" in fields:
-        specs.append(("month", "month", "eq"))
-    for f in sorted(fields):
-        if f.endswith("_method"):
-            specs.append((f, f, "eq"))
-    return specs
-
-
 def _render_exceptions_file(design):
     names = design.get("exceptions") or []
     lines = ['"""Custom exceptions."""', "from __future__ import annotations", ""]
@@ -1335,8 +1549,8 @@ def _repo_method_body(m, ent, ent_snake, model):
         p.get("name") for p in (m.get("params") or [])
         if isinstance(p, dict)
     ]
-    # The deterministic list() accepts these keyword filters only.
-    valid = [p for p, _, _ in _entity_filters(fields)]
+    # The deterministic list() accepts these DECLARED keyword filters only.
+    valid = _filter_params(ent)
 
     low = name.lower()
     # find_<x>_by_date_range or find_<x>_by_filters -> self.list(**valid params)
@@ -1397,9 +1611,8 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
 
     - create/get_by_id/get_all/update/delete are rendered with real bodies.
-    - `list(**filters)` is derived from the entity's designed fields via
-      _entity_filters: FK equality, a start/end range over the first *_date
-      column, plus month/*_method equality (design-driven, no LLM).
+    - `list(**filters)` is built from the entity's declared "list_filters"
+      design entries (param/column/op) — no suffix heuristics, no LLM.
     - a designed unique_together pair renders
       get_by_<a>_and_<b> and delete(a, b) replacing the id-based delete.
     - update raises "<Model>NotFoundError" when the row is missing, if that
@@ -1415,10 +1628,9 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     nonid = [c for c in cols if not c[2]]
     col_names = [c[0] for c in nonid]
     table = _plural(ent_snake)
-    model_fields = {f.get("name") for f in (ent.get("fields") or [])}
 
-    # --- derived filter API (from the designed fields, via _entity_filters) --
-    filter_specs = _entity_filters(model_fields)
+    # --- declared filter API (from the entity design's list_filters) --------
+    filter_specs = _declared_filters(ent)
     filter_params = [(p, None) for p, _, _ in filter_specs]
     _FRAG = {"eq": " AND %s = ?", "gte": " AND %s >= ?", "lte": " AND %s <= ?"}
     filter_where = [(_FRAG[op] % col, p) for p, col, op in filter_specs]
@@ -1736,267 +1948,266 @@ def _entity_design(entities_by_class, name):
     return ent if isinstance(ent, dict) else None
 
 
-def _domain_fields(entity, ent):
-    """Resolve the field names a service recipe should use for `entity`.
+def _declared_filters(ent):
+    """[(param, column, op)] exactly as the entity design declared them.
 
-    Pure suffix-pattern resolution over the DESIGNED fields (_id, _cents,
-    _date, _method, is_*, _limit_cents) — no fixed domain names. When the
-    design is falsy, every slot is "" so callers can detect absence.
+    The repository's list() API is built from this declaration alone — no
+    suffix conventions, no field-name heuristics anywhere.
     """
-    d = {
-        "entity": entity,
-        "var": _snake(entity),
-        "repo": _snake(entity) + "_repo",
-        "fk": "", "amount": "", "date": "", "method": "",
-        "recurring": "", "desc": "", "month": "", "limit": "",
-    }
-    if not ent:
-        return d
-    have = {f.get("name") for f in (ent.get("fields") or [])}
-
-    def pick(*patterns, preferred=""):
-        for f in sorted(have):
-            if preferred and f == preferred:
-                return f
-        for f in sorted(have):
-            if any(f.endswith(p) for p in patterns):
-                return f
-        return preferred
-
-    d.update({
-        "fk": pick("_id"),
-        "amount": pick("_cents"),
-        "date": pick("_date"),
-        "method": pick("_method"),
-        "recurring": pick("is_"),
-        "desc": pick(preferred="description"),
-        "month": pick(preferred="month"),
-        "limit": pick("_limit_cents"),
-    })
-    return d
+    out = []
+    for spec in ent.get("list_filters") or []:
+        if (
+            isinstance(spec, dict)
+            and isinstance(spec.get("param"), str) and spec["param"]
+            and isinstance(spec.get("column"), str) and spec["column"]
+        ):
+            out.append((spec["param"], spec["column"], spec.get("op", "eq")))
+    return out
 
 
-def _find_primary_entity(entities_by_class):
-    """The transaction-like entity: has BOTH a *_cents amount and a *_date
-    field (design-driven discovery — no hardcoded entity names). Ties break
-    toward the entity with the most fields."""
-    best_cls, best_n = None, -1
-    for cls, ent in entities_by_class.items():
-        fields = {
-            f.get("name") for f in (ent.get("fields") or [])
-            if isinstance(f, dict)
-        }
-        if not any(f.endswith("_cents") for f in fields):
-            continue
-        if not any(f.endswith("_date") for f in fields):
-            continue
-        if len(fields) > best_n:
-            best_cls, best_n = cls, len(fields)
-    return best_cls
-
-
-def _find_limit_entity(entities_by_class):
-    """A budget-like entity: has a *_limit_cents field (design-driven)."""
-    for cls, ent in entities_by_class.items():
-        fields = {
-            f.get("name") for f in (ent.get("fields") or [])
-            if isinstance(f, dict)
-        }
-        if any(f.endswith("_limit_cents") for f in fields):
-            return cls, ent
-    return None, None
+def _filter_params(ent):
+    """Declared list() filter parameter names, in declaration order."""
+    return [p for p, _, _ in _declared_filters(ent)]
 
 
 def _csv_chunk(items, size):
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
+def _impl_bindings_ok(impl, m, entities_by_class):
+    """Cross-check an impl's references against the DESIGNED entities.
+
+    Returns (class_name, ent_design) when every binding resolves against an
+    existing entity and the method's own params; otherwise (None, None) so
+    the caller degrades to CRUD delegation / a locked stub deterministically.
+    """
+    kind = impl.get("kind")
+    # Placement guard: the impl's implied output shape must match the
+    # DESIGNED return type — totals/groups aggregate into a Dict, CSV
+    # export writes a file (None/str). This rejects impls attached to
+    # listing/CRUD methods (List[Entity] / None returns) without any
+    # method-name or domain heuristics.
+    returns = m.get("returns") or ""
+    if kind == "export_csv":
+        if (
+            returns and returns != "None"
+            and "str" not in returns and "Path" not in returns
+        ):
+            return None, None
+    else:
+        # totals/groups may return an aggregate Dict OR a bare numeric
+        # scalar (the handler adapts its output shape to the designed
+        # return type); anything else (List[Entity], None, ...) means the
+        # impl is misplaced on a listing/CRUD method.
+        has_dict = "Dict" in returns or "dict" in returns
+        numeric = "int" in returns.lower() or "float" in returns.lower()
+        if not has_dict and not numeric:
+            return None, None
+    name = impl.get("entity") or ""
+    ent = entities_by_class.get(_camel(name))
+    if not isinstance(ent, dict) and name.endswith("s"):
+        # tolerate a pluralized entity reference from the design
+        ent = entities_by_class.get(_camel(name[:-1]))
+    if not isinstance(ent, dict):
+        return None, None
+    fields = {
+        f.get("name") for f in (ent.get("fields") or [])
+        if isinstance(f, dict)
+    }
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict)
+    ]
+    field_keys = {
+        "total_in_period": ("value_field", "date_field"),
+        "total_filtered": ("value_field",),
+        "export_csv": (),
+        "duplicate_groups": (),
+    }.get(kind)
+    if field_keys is None:
+        return None, None
+    for key in field_keys:
+        if impl.get(key) not in fields:
+            return None, None
+    param_keys = {
+        "total_in_period": ("period_param",),
+        "export_csv": ("file_param",),
+    }
+    for key in param_keys.get(kind, ()):
+        if impl.get(key) not in params:
+            return None, None
+    gb = impl.get("group_by")
+    if kind == "duplicate_groups":
+        if not isinstance(gb, list) or not gb or any(g not in fields for g in gb):
+            return None, None
+    return _camel(impl["entity"]), ent
+
+
+def _h_total_in_period(m, impl, ent, entities_by_class):
+    """Sum value_field over one month/year bucket of date_field."""
+    var = _snake(impl["entity"])
+    vf, df = impl["value_field"], impl["date_field"]
+    pp, gran = impl["period_param"], impl["granularity"]
+    rk = impl.get("result_key") or "total"
+    # The generated repo list() only accepts DECLARED filter params: find
+    # the declared gte/lte pair over date_field.
+    p_start = p_end = None
+    for p, c, op in _declared_filters(ent):
+        if c == df and op == "gte" and p_start is None:
+            p_start = p
+        elif c == df and op == "lte" and p_end is None:
+            p_end = p
+    if not p_start or not p_end:
+        return None
+    if gran == "month":
+        lo = "%s + '-01'" % pp
+        hi = "%s + '-31'" % pp
+    else:
+        lo = "str(%s) + '-01-01'" % pp
+        hi = "str(%s) + '-12-31'" % pp
+    rows_lines = [
+        "        rows = self.%s_repo.list(" % var,
+        "            %s=%s," % (p_start, lo),
+        "            %s=%s," % (p_end, hi),
+        "        )",
+    ]
+    returns = m.get("returns") or ""
+    if "Dict" not in returns and "dict" not in returns:
+        # designed scalar return: yield the bare total
+        return rows_lines + ["        return sum(e.%s for e in rows)" % vf]
+    return rows_lines + [
+        "        total = sum(e.%s for e in rows)" % vf,
+        "        return {'%s': %s, '%s': total}" % (pp, pp, rk),
+    ]
+
+
+def _h_total_filtered(m, impl, ent, entities_by_class):
+    """Sum value_field over rows filtered by the method's declared params."""
+    var = _snake(impl["entity"])
+    vf = impl["value_field"]
+    rk = impl.get("result_key") or "total"
+    declared = set(_filter_params(ent))
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict)
+    ]
+    kwargs = [p for p in params if p in declared]
+    if not kwargs:
+        return None
+    call = ", ".join("%s=%s" % (p, p) for p in kwargs)
+    head = ["        rows = self.%s_repo.list(%s)" % (var, call)]
+    returns = m.get("returns") or ""
+    if "Dict" not in returns and "dict" not in returns:
+        # designed scalar return: yield the bare total
+        return head + ["        return sum(e.%s for e in rows)" % vf]
+    return head + [
+        "        total = sum(e.%s for e in rows)" % vf,
+        "        return {'%s': total}" % rk,
+    ]
+
+
+def _h_export_csv(m, impl, ent, entities_by_class):
+    """Write filtered rows to the declared file param as CSV."""
+    var = _snake(impl["entity"])
+    fp = impl["file_param"]
+    headers = [
+        f.get("name")
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    ]
+    declared = set(_filter_params(ent))
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict)
+    ]
+    kwargs = [p for p in params if p in declared and p != fp]
+    args = ", ".join("%s=%s" % (p, p) for p in kwargs)
+    suffix = ", " if args else ""
+    lines = [
+        "        rows = self.%s_repo.list(%s%s)" % (var, args, suffix),
+        '        with open(%s, "w", newline="", encoding="utf-8") as f:' % fp,
+        "            writer = csv.writer(f)",
+        "            writer.writerow([",
+    ]
+    lines += [
+        "                " + ", ".join("'%s'" % h for h in chunk) + ","
+        for chunk in _csv_chunk(headers, 4)
+    ]
+    lines += [
+        "            ])",
+        "            for row in rows:",
+        "                writer.writerow([",
+    ]
+    lines += [
+        "                    " + ", ".join("row.%s" % h for h in chunk) + ","
+        for chunk in _csv_chunk(headers, 4)
+    ]
+    lines += [
+        "                ])",
+    ]
+    return lines
+
+
+def _h_duplicate_groups(m, impl, ent, entities_by_class):
+    """Group rows by the declared fields; keep groups of >= min_count."""
+    var = _snake(impl["entity"])
+    gb = list(impl["group_by"])
+    mc = impl.get("min_count") or 2
+    declared = set(_filter_params(ent))
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict)
+    ]
+    kwargs = [p for p in params if p in declared]
+    args = ", ".join("%s=%s" % (p, p) for p in kwargs)
+    key_tuple = ", ".join("row.%s" % g for g in gb)
+    entries = []
+    for i, g in enumerate(gb):
+        entries.append("                    '%s': key[%d]," % (g, i))
+    return [
+        "        results = []",
+        "        groups = {}",
+        "        for row in self.%s_repo.list(%s):" % (var, args),
+        "            key = (%s)" % key_tuple,
+        "            groups.setdefault(key, []).append(row)",
+        "        for key, group in groups.items():",
+        "            if len(group) >= %d:" % mc,
+        "                results.append({",
+    ] + entries + [
+        "                    'count': len(group),",
+        "                })",
+        "        return results",
+    ]
+
+
+_IMPL_HANDLERS = {
+    "total_in_period": _h_total_in_period,
+    "total_filtered": _h_total_filtered,
+    "export_csv": _h_export_csv,
+    "duplicate_groups": _h_duplicate_groups,
+}
+
+
 def _service_method_body(m, entities_by_class, exception_names):
     """Deterministic body lines for a service method, or None (=> stub).
 
-    Tier 1: business-logic recipes (budget-checked create, period reports,
-    CSV export, recurrence detection), parameterized by suffix-derived
-    domain fields (_domain_fields) instead of literal names. They fire only
-    when the DESIGNED entities/methods match the recipe shapes.
-    Tier 2: generic deterministic CRUD delegation (add_/create_<entity>,
-    list_<entity>, get_<entity>_by_id, update_<entity>, delete_<entity>)
-    for ANY entity, so plain CRUD never needs the LLM.
+    Fully declarative: a designed method may carry an `impl` object naming
+    the entity/fields/params its body operates on; generic handlers render
+    the body from those declarations alone. There are NO method-name
+    patterns, NO field-suffix heuristics, and NO domain vocabulary here.
+    Methods without a resolvable impl fall through to generic CRUD
+    delegation (add_/list_/get_/update_/delete_<entity> convention), then
+    to a locked stub for the LLM fill phase.
     """
-    name = m.get("name")
-    # Design-driven discovery: the transaction entity (has *_cents + *_date),
-    # a budget-like limit entity (*_limit_cents), and the FK reference of
-    # the transaction. No hardcoded domain names anywhere.
-    primary_cls = _find_primary_entity(entities_by_class)
-    if not primary_cls:
-        return _generic_service_delegation(m, entities_by_class, exception_names)
-    d = _domain_fields(primary_cls, entities_by_class[primary_cls])
-    has_amount = bool(d["amount"])
-    limit_cls, limit_ent = _find_limit_entity(entities_by_class)
-    has_limit = limit_cls is not None and limit_ent is not None
-    # Bind recipes to the method's ACTUAL designed parameter names (the model
-    # may choose <entity>_data/<entity>_id instead of entity/ent_id). The recipes
-    # never reference a name the designed signature does not declare; if the
-    # signature does not match the recipe's needs, return None (=> stub/LLM
-    # fill) instead of emitting a broken body.
-    params = [p.get("name") for p in (m.get("params") or []) if isinstance(p, dict)]
-
-    # Budget-checked create: add_/create_<primary> with one entity-object
-    # param, when a limit entity exists whose FK matches the primary's FK
-    # and a unique_together pair links that FK to a month column.
-    fk_ref = d["fk"][: -len("_id")] if d["fk"].endswith("_id") else ""
-    pair = None
-    if has_limit and d["fk"]:
-        for up in (limit_ent.get("unique_together") or []):
-            if (
-                isinstance(up, list) and len(up) == 2
-                and d["fk"] in up and "month" in up
-            ):
-                pair = list(up)
-                break
-    if (
-        name in ("add_" + d["var"], "create_" + d["var"])
-        and has_limit and pair and d["fk"] and d["date"] and d["amount"]
-    ):
-        if len(params) != 1:
-            return None
-        # The recipe does attribute access on the param and only makes
-        # sense when it is an entity object, not a Dict — otherwise fall
-        # through to a stub -> LLM fill.
-        ptype = ""
-        for p in m.get("params") or []:
-            if isinstance(p, dict) and p.get("name") == params[0]:
-                ptype = _bare(p.get("type", ""))
-                break
-        if primary_cls.lower() not in ptype.lower():
-            return None
-        ref_var = _snake(fk_ref) if fk_ref else ""
-        not_found = "%sNotFoundError" % (_camel(fk_ref) if fk_ref else "")
-        lines = []
-        if fk_ref and ref_var in entities_by_class and not_found in exception_names:
-            lines += [
-                "        if %(ent)s.%(fk)s is not None:" % d,
-                "            %(ref)s = self.%(ref_repo)s.get_by_id(%(ent)s.%(fk)s)" % dict(d, ref=ref_var, ref_repo=ref_var + "_repo"),
-                "            if %(ref)s is None:" % dict(d, ref=ref_var),
-                "                raise %(nf)s(%(ent)s.%(fk)s)" % dict(d, nf=not_found),
-            ]
-        created = "created_id"
-        lines += [
-            "        %(created)s = self.%(repo)s.create(%(ent)s)" % dict(d, created=created),
-            "        month = (%(ent)s.%(date)s or '')[:7]"
-            " if isinstance(%(ent)s.%(date)s, str) else None" % d,
-            "        if month is not None and %(ent)s.%(fk)s is not None:" % d,
-            "            limit_row = self.%(limit_repo)s.get_by_%(a_fn)s_and_month("
-            "%(ent)s.%(fk)s, month)" % dict(
-                d,
-                limit_repo=_snake(limit_cls),
-                a_fn=fk_ref,
-            ),
-            "            if limit_row is not None and limit_row.%(limit)s is not None:" % d,
-            "                month_starts = month + '-01'",
-            "                month_ends = month + '-31'",
-            "                total = sum(",
-            "                    e.%(amount)s" % d,
-            "                    for e in self.%(repo)s.list(" % d
-            + "%(fk)s=%(ent)s.%(fk)s," % d,
-            "                                            start_date=month_starts,",
-            "                                            end_date=month_ends)",
-            "                )",
-            "                if total - %(ent)s.%(amount)s >= limit_row.%(limit)s:" % d,
-            "                    raise %(lim_exc)s("
-            "%(ent)s.%(fk)s, month, total, limit_row.%(limit)s)" % dict(
-                d,
-                lim_exc="%sExceededException" % _camel(limit_cls),
-            ),
-            "        return %(created)s" % dict(created=created),
-        ]
-        return lines
-    # Plain CRUD (list/get_by_id/update/delete) falls through to Tier 2's
-    # generic delegation below — no per-entity duplicates here.
-    # Period-total report: *_report/*_summary whose name names a period.
-    if (
-        name.endswith("_report") or name.endswith("_summary")
-    ) and has_amount and d["date"]:
-        low = name.lower()
-        if "monthly" in low or low.endswith("month"):
-            return [
-                "        rows = self.%(repo)s.list(" % d,
-                "            start_date=month + '-01', end_date=month + '-31',",
-                "        )",
-                "        total = sum(e.%(amount)s for e in rows)" % d,
-                "        return {'month': month, 'total_spent': total}",
-            ]
-        if "yearly" in low or low.endswith("year"):
-            return [
-                "        rows = self.%(repo)s.list(" % d,
-                "            start_date=str(year) + '-01-01',",
-                "            end_date=str(year) + '-12-31',",
-                "        )",
-                "        total = sum(e.%(amount)s for e in rows)" % d,
-                "        return {'year': year, 'total_yearly': total}",
-            ]
-    # Per-group spending aggregate: *_spending with an FK param.
-    if (
-        name.endswith("_spending") and has_amount and d["fk"]
-        and any(p == d["fk"] for p in params)
-    ):
-        return [
-            "        rows = self.%(repo)s.list(" % d,
-            "            %(fk)s=%(fk)s," % d,
-            "            start_date=start_date,",
-            "            end_date=end_date,",
-            "        )",
-            "        total = sum(e.%(amount)s for e in rows)" % d,
-            "        return {'total_spent': total}",
-        ]
-    if name.endswith("_to_csv") and has_amount:
-        csv_headers = [
-            f.get("name")
-            for f in (entities_by_class[primary_cls].get("fields") or [])
-            if f.get("name")
-        ]
-        return (
-            [
-                "        rows = self.%(repo)s.list(" % d,
-                "            start_date=start_date, end_date=end_date,",
-                "        )",
-                '        with open(file_path, "w", newline="", encoding="utf-8") as f:',
-                "            writer = csv.writer(f)",
-                "            writer.writerow([",
-            ]
-            + [
-                "                " + ", ".join("'%s'" % h for h in chunk) + ","
-                for chunk in _csv_chunk(csv_headers, 4)
-            ]
-            + [
-                "            ])",
-                "            for row in rows:",
-                "                writer.writerow([",
-            ]
-            + [
-                "                    " + ", ".join("row.%s" % h for h in chunk) + ","
-                for chunk in _csv_chunk(csv_headers, 4)
-            ]
-            + [
-                "                ])",
-            ]
-        )
-    if name.startswith("detect_") and "recurring" in name and has_amount:
-        return [
-            "        results = []",
-            "        groups = {}",
-            "        for row in self.%(repo)s.list():" % d,
-            "            key = (row.%(fk)s, row.%(desc)s, row.%(amount)s)" % d,
-            "            groups.setdefault(key, []).append(row)",
-            "        for key, group in groups.items():",
-            "            if len(group) >= 2:",
-            "                results.append({",
-            "                    '%(fk)s': key[0]," % d,
-            "                    '%(desc)s': key[1]," % d,
-            "                    '%(amount)s': key[2]," % d,
-            "                    'count': len(group),",
-            "                })",
-            "        return results",
-        ]
+    impl = m.get("impl")
+    if isinstance(impl, dict):
+        handler = _IMPL_HANDLERS.get(impl.get("kind"))
+        if handler is not None:
+            cls, ent = _impl_bindings_ok(impl, m, entities_by_class)
+            if cls is not None:
+                lines = handler(m, impl, ent, entities_by_class)
+                if lines is not None:
+                    return lines
     return _generic_service_delegation(m, entities_by_class, exception_names)
 
 
@@ -2019,8 +2230,8 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
     for ent_name, ent in entities_by_class.items():
         var = _snake(ent_name)
         fields = {f.get("name") for f in (ent.get("fields") or [])}
-        # Mirror the deterministic repo list() filters (_entity_filters).
-        filters = [p for p, _, _ in _entity_filters(fields)]
+        # Mirror the deterministic repo list() filters (declared list_filters).
+        filters = _filter_params(ent)
 
         if name in ("add_" + var, "create_" + var):
             kwargs = ["%s=%s" % (p, p) for p in param_names if p in fields]
@@ -2090,6 +2301,157 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
             idp = param_names[0] if param_names else "id"
             return ["        return self.%s_repo.delete(%s)" % (var, idp)]
     return None
+
+
+def _apply_filter_floors(entities_by_class, designs):
+    """Deterministic floor for entity list_filters, derived ONLY from the
+    designed method signatures — never from prompt text or field-name
+    suffixes:
+
+    - a designed parameter whose name equals a non-id field of the entity
+      becomes an equality filter for that column;
+    - a designed start_<x>/end_<x> parameter pair becomes a gte/lte range
+      over the entity's only date/datetime-typed field, when exactly one
+      such field exists.
+
+    Declared list_filters always win; floors only fill gaps so the
+    repository list() API covers the parameters the designed service and
+    repository methods actually take.
+    """
+    uniq = []
+    seen = set()
+    for path, kind, data in designs:
+        if kind not in ("repositories", "services") or not isinstance(data, dict):
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict):
+                continue
+            for p in m.get("params") or []:
+                if isinstance(p, dict) and p.get("name") and p["name"] not in seen:
+                    seen.add(p["name"])
+                    uniq.append(p["name"])
+    uniq_set = set(uniq)
+    start_sufs = {p[6:] for p in uniq if p.startswith("start_") and len(p) > 6}
+    end_sufs = {p[4:] for p in uniq if p.startswith("end_") and len(p) > 4}
+    range_sufs = sorted(start_sufs & end_sufs)
+
+    for ent in entities_by_class.values():
+        fields = {
+            f.get("name"): f
+            for f in (ent.get("fields") or [])
+            if isinstance(f, dict) and f.get("name")
+        }
+        lf = [
+            s for s in (ent.get("list_filters") or [])
+            if isinstance(s, dict) and s.get("param")
+        ]
+        declared = {s["param"] for s in lf}
+        covered_ops = {(s.get("column"), s.get("op")) for s in lf}
+
+        for fname in sorted(fields):
+            if fname != "id" and fname in uniq_set and fname not in declared:
+                lf.append({"param": fname, "column": fname, "op": "eq"})
+                declared.add(fname)
+
+        date_cols = [
+            n for n in sorted(fields)
+            if fields[n].get("type") in ("date", "datetime")
+        ]
+        if len(date_cols) == 1:
+            col = date_cols[0]
+            if (col, "gte") not in covered_ops and (col, "lte") not in covered_ops:
+                for suf in range_sufs:
+                    pa, pb = "start_" + suf, "end_" + suf
+                    if pa in declared or pb in declared:
+                        continue
+                    lf.append({"param": pa, "column": col, "op": "gte"})
+                    lf.append({"param": pb, "column": col, "op": "lte"})
+                    declared.update((pa, pb))
+                    break
+        ent["list_filters"] = lf
+
+
+def _apply_impl_floors(entities_by_class, designs):
+    """Deterministic floor for declarative service impls, derived ONLY from
+    the designed signatures and entity shapes — no method-name patterns,
+    no domain vocabulary:
+
+    - period total: a Dict-returning method whose params are exactly one
+      scalar that is NOT a declared list_filter of the (unique) entity
+      having exactly one date-typed and one numeric field. A str period
+      binds to a month bucket ("YYYY-MM"), an int period to a year bucket.
+    - filtered total: a Dict-returning method whose params all match the
+      candidate entity's declared list_filters.
+
+    Only fills gaps: methods already carrying a valid impl are untouched.
+    """
+    for path, kind, data in designs:
+        if kind != "services" or not isinstance(data, dict):
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or m.get("impl") is not None:
+                continue
+            returns = m.get("returns") or ""
+            low_ret = returns.lower()
+            if (
+                "Dict" not in returns and "dict" not in returns
+                and "int" not in low_ret and "float" not in low_ret
+            ):
+                continue
+            params = [
+                p.get("name")
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            # unique aggregate-capable entity: exactly one date + one numeric
+            cands = []
+            for cls, ent in entities_by_class.items():
+                flds = [
+                    f for f in (ent.get("fields") or [])
+                    if isinstance(f, dict) and f.get("name") and f["name"] != "id"
+                ]
+                dates = [f["name"] for f in flds
+                         if f.get("type") in ("date", "datetime")]
+                # exclude foreign keys: an FK column is an int but is never
+                # the aggregate target of a total
+                nums = [
+                    f["name"] for f in flds
+                    if f.get("type") in ("int", "float")
+                    and not f["name"].endswith("_id")
+                ]
+                if len(dates) == 1 and len(nums) == 1:
+                    cands.append((cls, ent, dates[0], nums[0]))
+            if len(cands) != 1:
+                continue
+            cls, ent, dcol, ncol = cands[0]
+            declared = {
+                s.get("param")
+                for s in (ent.get("list_filters") or [])
+                if isinstance(s, dict)
+            }
+            nonfilter = [p for p in params if p not in declared]
+            if len(params) == 1 and len(nonfilter) == 1:
+                ptype = next(
+                    (q.get("type", "") for q in m.get("params") or []
+                     if isinstance(q, dict) and q.get("name") == params[0]),
+                    "",
+                )
+                m["impl"] = {
+                    "kind": "total_in_period",
+                    "entity": _snake(cls),
+                    "value_field": ncol,
+                    "date_field": dcol,
+                    "period_param": params[0],
+                    "granularity": "year" if "int" in ptype.lower() else "month",
+                    "result_key": "total",
+                }
+            elif params and len(nonfilter) == 0:
+                m["impl"] = {
+                    "kind": "total_filtered",
+                    "entity": _snake(cls),
+                    "value_field": ncol,
+                    "result_key": "total",
+                }
 
 
 def _service_repo_interface(entities_by_class, designs):
@@ -2577,6 +2939,14 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         designs.append((cp, "cli", data))
         if verbose:
             print("      - %s [cli] %s" % (cp, _describe_design("cli", data)))
+
+    # Deterministic floor for list_filters: cover the parameters the
+    # designed service/repository signatures actually use. Declarations
+    # from the models design always win (see _apply_filter_floors).
+    _apply_filter_floors(entities_by_class, designs)
+    # Deterministic floor for service impls on unambiguous aggregate
+    # shapes (Dict-returning methods over a single date+numeric entity).
+    _apply_impl_floors(entities_by_class, designs)
 
     # ---- Deterministic merges (no LLM) ----
     # Exception floor: designed ∪ spec-named custom exceptions. Entities,

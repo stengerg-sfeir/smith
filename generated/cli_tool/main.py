@@ -1,61 +1,46 @@
+import click
 import csv
 import json
 import sys
-import click
-
-class CSVToJSONError(Exception):
-    """Custom exception for CSV to JSON conversion errors."""
-    pass
+import os
+from typing import Optional, Dict, Any
 
 @click.command()
 @click.argument('input_file', type=click.Path(exists=True, readable=True))
-@click.option('--output', '-o', 'output_file', type=click.Path(), help='Output JSON file path. If not provided, output is printed to stdout.')
-def main(input_file: str, output_file: str) -> None:
+@click.option('--output', '-o', 'output_file', type=click.Path(writable=True), default=None, help='Output JSON file path. If not provided, output goes to stdout.')
+def main(input_file: str, output_file: Optional[str]) -> None:
     """
-    Convert a CSV file to JSON format.
-    
-    Args:
-        input_file: Path to the input CSV file.
-        output_file: Optional path to the output JSON file. If not provided, output is printed to stdout.
-    
-    Example:
-        csv_to_json.py data.csv --output output.json
-        csv_to_json.py data.csv
+    Convert a CSV file to JSON using dynamic column name detection.
     """
     try:
-        # Read the CSV file
-        with open(input_file, 'r', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
+        with open(input_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
             headers = reader.fieldnames
-            if not headers:
-                raise CSVToJSONError("CSV file is empty or has no header row.")
+            if headers is None:
+                raise ValueError("CSV file is empty or malformed - no headers found.")
             
-            # Convert each row to a JSON object
             data = []
             for row in reader:
-                data.append(row)
+                row_obj = {header: row[header] for header in headers}
+                data.append(row_obj)
             
-            # Prepare output
+            # Output JSON
             if output_file:
-                # Write to file
-                with open(output_file, 'w', encoding='utf-8') as jsonfile:
-                    json.dump(data, jsonfile, indent=2, ensure_ascii=False)
-                click.echo(f"Successfully converted {input_file} to {output_file}")
+                os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else '.', exist_ok=True)
+                with open(output_file, 'w', encoding='utf-8') as out_f:
+                    json.dump(data, out_f, indent=2, ensure_ascii=False)
+                click.echo(f"Successfully wrote to {output_file}")
             else:
-                # Print to stdout
                 click.echo(json.dumps(data, indent=2, ensure_ascii=False))
-                
+    
     except FileNotFoundError:
         click.echo(f"Error: Input file '{input_file}' not found.", err=True)
         sys.exit(1)
     except PermissionError:
         click.echo(f"Error: Permission denied when reading '{input_file}'.", err=True)
         sys.exit(1)
-    except csv.Error as e:
-        click.echo(f"Error: Malformed CSV file - {str(e)}", err=True)
-        sys.exit(1)
     except Exception as e:
-        click.echo(f"Error: Unexpected error occurred - {str(e)}", err=True)
+        click.echo(f"Error processing CSV file: {str(e)}", err=True)
         sys.exit(1)
 
 if __name__ == '__main__':

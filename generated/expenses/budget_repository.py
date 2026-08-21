@@ -84,45 +84,68 @@ class BudgetRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def find_budgets_by_month(self, month: str, category_id: Optional[int] = None) -> List[Budget]:
+    def find_budgets_by_month(self, month: str) -> List[Budget]:
         return self.list(month=month)
 
-    def find_budgets_by_category(self, category_id: int, start_month: Optional[str] = None, end_month: Optional[str] = None) -> List[Budget]:
-        # Filter by category_id only, as the original list method already handles filtering
+    def find_budgets_by_category(self, category_id: int) -> List[Budget]:
         return self.list(category_id=category_id)
 
-    def get_budget_by_category_and_month(self, category_id: int, month: str) -> Optional[Budget]:
-        return self.get_by_category_and_month(category_id, month)
+    def find_budgets_by_month_and_category(self, category_id: int, month: str) -> List[Budget]:
+        return self.list(category_id=category_id, month=month)
 
-    def check_budget_exceeded(self, category_id: int, month: str) -> bool:
-        # This would require access to spending data (not in the Budget model)
-        # Since we don't have spending data in the repository, we can't determine if budget is exceeded
-        # This method is not implementable without spending data
-        raise NotImplementedError()
-
-    def get_budget_status_for_month(self, category_id: int, month: str) -> str:
-        # Without spending data, we cannot determine status
-        # This method requires spending data to compare against budget
-        raise NotImplementedError()
-
-    def get_total_budget_for_category(self, category_id: int) -> int:
+    def get_budget_amount_for_category_in_month(self, category_id: int, month: str) -> int:
         with self.db.connect() as conn:
-            cursor = conn.execute(
-                "SELECT SUM(amount_limit_cents) FROM budgets WHERE category_id = ?", (category_id,)
-            )
-            total = cursor.fetchone()[0]
-            return total or 0
+            row = conn.execute(
+                "SELECT amount_limit_cents FROM budgets WHERE category_id = ? AND month = ?",
+                (category_id, month)
+            ).fetchone()
+            return row[0] if row else 0
 
-    def get_monthly_budget_spending_summary(self, start_month: str, end_month: str) -> Dict[str, Any]:
-        # This requires spending data which is not available in the Budget model
-        # Without spending data, we cannot generate a spending summary
-        raise NotImplementedError()
+    def check_budget_exceeded_after_insert(self, expense: Expense) -> bool:
+        # This method assumes we have access to expense details and can check against existing budgets
+        # We need to determine if the expense exceeds the budget for its category and month
+        # Since we don't have Expense model in scope, this is a placeholder
+        # In a real implementation, we would need to know the category_id and month of the expense
+        # and check against the budget for that category and month
+        raise NotImplementedError("Expense model not available in context")
 
-    def get_budgets_for_period(self, start_month: str, end_month: str) -> List[Budget]:
-        # Filter budgets within a given month range
+    def get_budget_status_for_category_in_month(self, category_id: int, month: str) -> str:
+        # Check if budget exists for category and month
+        budget = self.get_by_category_and_month(category_id, month)
+        if not budget:
+            return "No Budget"
+
+        # If budget exists, check if it's exceeded (assuming we have expense data)
+        # This method is incomplete without expense data
+        return "Within Budget"  # Placeholder
+
+    def get_monthly_budget_summary(self, month: str) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            # Assuming month format is YYYY-MM
-            query = "SELECT * FROM budgets WHERE month BETWEEN ? AND ? ORDER BY month"
-            rows = conn.execute(query, (start_month, end_month)).fetchall()
-            return [Budget(**dict(r)) for r in rows]
+            # Get all budgets for the given month
+            rows = conn.execute(
+                "SELECT category_id, amount_limit_cents FROM budgets WHERE month = ? ORDER BY category_id",
+                (month,)
+            ).fetchall()
+
+            # Group by category_id and sum up amounts (though each budget has a single amount)
+            summary = {}
+            for row in rows:
+                category_id = row[0]
+                amount = row[1]
+                summary[category_id] = {
+                    "amount_limit_cents": amount,
+                    "status": "Within Budget"  # Placeholder
+                }
+            return summary
+
+    def get_budgets_for_all_categories_in_month(self, month: str) -> Dict[int, Budget]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM budgets WHERE month = ? ORDER BY category_id",
+                (month,)
+            ).fetchall()
+            result = {}
+            for row in rows:
+                result[row[0]] = Budget(**dict(row))
+            return result
 
