@@ -1736,47 +1736,75 @@ def _entity_design(entities_by_class, name):
     return ent if isinstance(ent, dict) else None
 
 
-def _domain_fields(entities_by_class, entity, fields=None):
+def _domain_fields(entity, ent):
     """Resolve the field names a service recipe should use for `entity`.
 
-    Picks by suffix pattern (_cents, _date, _method, is_*, _id,
-    _limit_cents) so any domain whose fields follow the same conventions
-    can reuse the recipes. When the entity is absent entirely, every slot
-    is "" so callers can detect that the domain is not present.
+    Pure suffix-pattern resolution over the DESIGNED fields (_id, _cents,
+    _date, _method, is_*, _limit_cents) — no fixed domain names. When the
+    design is falsy, every slot is "" so callers can detect absence.
     """
-    ent = _entity_design(entities_by_class, entity)
-    if ent is None:
-        return {
-            "entity": entity,
-            "var": _snake(entity),
-            "repo": _snake(entity) + "_repo",
-            "fk": "", "amount": "", "date": "", "method": "",
-            "recurring": "", "desc": "", "month": "", "limit": "",
-        }
+    d = {
+        "entity": entity,
+        "var": _snake(entity),
+        "repo": _snake(entity) + "_repo",
+        "fk": "", "amount": "", "date": "", "method": "",
+        "recurring": "", "desc": "", "month": "", "limit": "",
+    }
+    if not ent:
+        return d
     have = {f.get("name") for f in (ent.get("fields") or [])}
 
-    def pick(preferred, *patterns):
+    def pick(*patterns, preferred=""):
         for f in sorted(have):
             if preferred and f == preferred:
                 return f
         for f in sorted(have):
             if any(f.endswith(p) for p in patterns):
                 return f
-        return preferred or ""
+        return preferred
 
-    return {
-        "entity": entity,
-        "var": _snake(entity),
-        "repo": _snake(entity) + "_repo",
-        "fk": pick("category_id", "_id"),
-        "amount": pick("amount_cents", "_cents"),
-        "date": pick("expense_date", "_date"),
-        "method": pick("payment_method", "_method"),
-        "recurring": pick("is_recurring", "is_"),
-        "desc": pick("description", "description"),
-        "month": pick("month", "month"),
-        "limit": pick("amount_limit_cents", "_limit_cents"),
-    }
+    d.update({
+        "fk": pick("_id"),
+        "amount": pick("_cents"),
+        "date": pick("_date"),
+        "method": pick("_method"),
+        "recurring": pick("is_"),
+        "desc": pick(preferred="description"),
+        "month": pick(preferred="month"),
+        "limit": pick("_limit_cents"),
+    })
+    return d
+
+
+def _find_primary_entity(entities_by_class):
+    """The transaction-like entity: has BOTH a *_cents amount and a *_date
+    field (design-driven discovery — no hardcoded entity names). Ties break
+    toward the entity with the most fields."""
+    best_cls, best_n = None, -1
+    for cls, ent in entities_by_class.items():
+        fields = {
+            f.get("name") for f in (ent.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        if not any(f.endswith("_cents") for f in fields):
+            continue
+        if not any(f.endswith("_date") for f in fields):
+            continue
+        if len(fields) > best_n:
+            best_cls, best_n = cls, len(fields)
+    return best_cls
+
+
+def _find_limit_entity(entities_by_class):
+    """A budget-like entity: has a *_limit_cents field (design-driven)."""
+    for cls, ent in entities_by_class.items():
+        fields = {
+            f.get("name") for f in (ent.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        if any(f.endswith("_limit_cents") for f in fields):
+            return cls, ent
+    return None, None
 
 
 def _csv_chunk(items, size):
@@ -1795,47 +1823,75 @@ def _service_method_body(m, entities_by_class, exception_names):
     for ANY entity, so plain CRUD never needs the LLM.
     """
     name = m.get("name")
-    expense = _domain_fields(entities_by_class, "Expense")
-    has_expense = expense["amount"] != ""
-    has_category = _entity_design(entities_by_class, "Category") is not None
-    has_budget = _entity_design(entities_by_class, "Budget") is not None
-    if not has_expense:
+    # Design-driven discovery: the transaction entity (has *_cents + *_date),
+    # a budget-like limit entity (*_limit_cents), and the FK reference of
+    # the transaction. No hardcoded domain names anywhere.
+    primary_cls = _find_primary_entity(entities_by_class)
+    if not primary_cls:
         return _generic_service_delegation(m, entities_by_class, exception_names)
+    d = _domain_fields(primary_cls, entities_by_class[primary_cls])
+    has_amount = bool(d["amount"])
+    limit_cls, limit_ent = _find_limit_entity(entities_by_class)
+    has_limit = limit_cls is not None and limit_ent is not None
     # Bind recipes to the method's ACTUAL designed parameter names (the model
     # may choose expense_data/id instead of expense/expense_id). The recipes
     # never reference a name the designed signature does not declare; if the
     # signature does not match the recipe's needs, return None (=> stub/LLM
     # fill) instead of emitting a broken body.
     params = [p.get("name") for p in (m.get("params") or []) if isinstance(p, dict)]
-    d = dict(expense)
 
-    if name == "add_expense" and has_category and has_budget:
+    # Budget-checked create: add_/create_<primary> with one entity-object
+    # param, when a limit entity exists whose FK matches the primary's FK
+    # and a unique_together pair links that FK to a month column.
+    fk_ref = d["fk"][: -len("_id")] if d["fk"].endswith("_id") else ""
+    pair = None
+    if has_limit and d["fk"]:
+        for up in (limit_ent.get("unique_together") or []):
+            if (
+                isinstance(up, list) and len(up) == 2
+                and d["fk"] in up and "month" in up
+            ):
+                pair = list(up)
+                break
+    if (
+        name in ("add_" + d["var"], "create_" + d["var"])
+        and has_limit and pair and d["fk"] and d["date"] and d["amount"]
+    ):
         if len(params) != 1:
             return None
-        # The recipe does attribute access (expense.category_id) and only
-        # makes sense when the designed param is an entity object, not a
-        # Dict. If the model typed it as a dict (e.g. expense_data),
-        # fall through to a stub -> LLM fill.
+        # The recipe does attribute access on the param and only makes
+        # sense when it is an entity object, not a Dict — otherwise fall
+        # through to a stub -> LLM fill.
         ptype = ""
         for p in m.get("params") or []:
             if isinstance(p, dict) and p.get("name") == params[0]:
                 ptype = _bare(p.get("type", ""))
                 break
-        if "expense" not in ptype.lower():
+        if primary_cls.lower() not in ptype.lower():
             return None
-        d["ent"] = params[0]
-        return [
-            "        if %(ent)s.%(fk)s is not None:" % d,
-            "            category = self.category_repo.get_by_id(%(ent)s.%(fk)s)" % d,
-            "            if category is None:",
-            "                raise CategoryNotFoundError(%(ent)s.%(fk)s)" % d,
-            "        expense_id = self.%(repo)s.create(%(ent)s)" % d,
+        ref_var = _snake(fk_ref) if fk_ref else ""
+        not_found = "%sNotFoundError" % (_camel(fk_ref) if fk_ref else "")
+        lines = []
+        if fk_ref and ref_var in entities_by_class and not_found in exception_names:
+            lines += [
+                "        if %(ent)s.%(fk)s is not None:" % d,
+                "            %(ref)s = self.%(ref_repo)s.get_by_id(%(ent)s.%(fk)s)" % dict(d, ref=ref_var, ref_repo=ref_var + "_repo"),
+                "            if %(ref)s is None:" % dict(d, ref=ref_var),
+                "                raise %(nf)s(%(ent)s.%(fk)s)" % dict(d, nf=not_found),
+            ]
+        created = "created_id"
+        lines += [
+            "        %(created)s = self.%(repo)s.create(%(ent)s)" % dict(d, created=created),
             "        month = (%(ent)s.%(date)s or '')[:7]"
             " if isinstance(%(ent)s.%(date)s, str) else None" % d,
             "        if month is not None and %(ent)s.%(fk)s is not None:" % d,
-            "            budget = self.budget_repo.get_by_category_and_month("
-            "%(ent)s.%(fk)s, month)" % d,
-            "            if budget is not None and budget.%(limit)s is not None:" % d,
+            "            limit_row = self.%(limit_repo)s.get_by_%(a_fn)s_and_month("
+            "%(ent)s.%(fk)s, month)" % dict(
+                d,
+                limit_repo=_snake(limit_cls),
+                a_fn=fk_ref,
+            ),
+            "            if limit_row is not None and limit_row.%(limit)s is not None:" % d,
             "                month_starts = month + '-01'",
             "                month_ends = month + '-31'",
             "                total = sum(",
@@ -1845,46 +1901,62 @@ def _service_method_body(m, entities_by_class, exception_names):
             "                                            start_date=month_starts,",
             "                                            end_date=month_ends)",
             "                )",
-            "                if total - %(ent)s.%(amount)s >= budget.%(limit)s:" % d,
-            "                    raise BudgetExceededException("
-            "%(ent)s.%(fk)s, month, total, budget.%(limit)s)" % d,
-            "        return expense_id",
+            "                if total - %(ent)s.%(amount)s >= limit_row.%(limit)s:" % d,
+            "                    raise %(lim_exc)s("
+            "%(ent)s.%(fk)s, month, total, limit_row.%(limit)s)" % dict(
+                d,
+                lim_exc="%sExceededException" % _camel(limit_cls),
+            ),
+            "        return %(created)s" % dict(created=created),
         ]
+        return lines
     # Plain CRUD (list/get_by_id/update/delete) falls through to Tier 2's
     # generic delegation below — no expense-specific duplicates here.
-    if name == "get_monthly_report" and has_expense:
+    # Period-total report: *_report/*_summary whose name names a period.
+    if (
+        name.endswith("_report") or name.endswith("_summary")
+    ) and has_amount and d["date"]:
+        low = name.lower()
+        if "monthly" in low or low.endswith("month"):
+            return [
+                "        rows = self.%(repo)s.list(" % d,
+                "            start_date=month + '-01', end_date=month + '-31',",
+                "        )",
+                "        total = sum(e.%(amount)s for e in rows)" % d,
+                "        return {'month': month, 'total_spent': total}",
+            ]
+        if "yearly" in low or low.endswith("year"):
+            return [
+                "        rows = self.%(repo)s.list(" % d,
+                "            start_date=str(year) + '-01-01',",
+                "            end_date=str(year) + '-12-31',",
+                "        )",
+                "        total = sum(e.%(amount)s for e in rows)" % d,
+                "        return {'year': year, 'total_yearly': total}",
+            ]
+    # Per-group spending aggregate: *_spending with an FK param.
+    if (
+        name.endswith("_spending") and has_amount and d["fk"]
+        and any(p == d["fk"] for p in params)
+    ):
         return [
-            "        expenses = self.%(repo)s.list(" % d,
-            "            start_date=month + '-01', end_date=month + '-31',",
-            "        )",
-            "        total = sum(e.%(amount)s for e in expenses)" % d,
-            "        return {'month': month, 'total_spent': total}",
-        ]
-    if name == "get_yearly_summary" and has_expense:
-        return [
-            "        expenses = self.%(repo)s.list(" % d,
-            "            start_date=str(year) + '-01-01',",
-            "            end_date=str(year) + '-12-31',",
-            "        )",
-            "        total = sum(e.%(amount)s for e in expenses)" % d,
-            "        return {'year': year, 'total_yearly': total}",
-        ]
-    if name == "get_category_spending" and has_expense:
-        return [
-            "        expenses = self.%(repo)s.list(" % d,
+            "        rows = self.%(repo)s.list(" % d,
             "            %(fk)s=%(fk)s," % d,
             "            start_date=start_date,",
             "            end_date=end_date,",
             "        )",
-            "        total = sum(e.%(amount)s for e in expenses)" % d,
+            "        total = sum(e.%(amount)s for e in rows)" % d,
             "        return {'total_spent': total}",
         ]
-    if name == "export_to_csv" and has_expense:
-        ent = _entity_design(entities_by_class, "Expense") or {}
-        csv_headers = [f.get("name") for f in (ent.get("fields") or []) if f.get("name")]
+    if name.endswith("_to_csv") and has_amount:
+        csv_headers = [
+            f.get("name")
+            for f in (entities_by_class[primary_cls].get("fields") or [])
+            if f.get("name")
+        ]
         return (
             [
-                "        expenses = self.%(repo)s.list(" % d,
+                "        rows = self.%(repo)s.list(" % d,
                 "            start_date=start_date, end_date=end_date,",
                 "        )",
                 '        with open(file_path, "w", newline="", encoding="utf-8") as f:',
@@ -1897,24 +1969,24 @@ def _service_method_body(m, entities_by_class, exception_names):
             ]
             + [
                 "            ])",
-                "            for exp in expenses:",
+                "            for row in rows:",
                 "                writer.writerow([",
             ]
             + [
-                "                    " + ", ".join("exp.%s" % h for h in chunk) + ","
+                "                    " + ", ".join("row.%s" % h for h in chunk) + ","
                 for chunk in _csv_chunk(csv_headers, 4)
             ]
             + [
                 "                ])",
             ]
         )
-    if name == "detect_recurring" and has_expense:
+    if name.startswith("detect_") and "recurring" in name and has_amount:
         return [
             "        results = []",
             "        groups = {}",
-            "        for exp in self.%(repo)s.list():" % d,
-            "            key = (exp.%(fk)s, exp.%(desc)s, exp.%(amount)s)" % d,
-            "            groups.setdefault(key, []).append(exp)",
+            "        for row in self.%(repo)s.list():" % d,
+            "            key = (row.%(fk)s, row.%(desc)s, row.%(amount)s)" % d,
+            "            groups.setdefault(key, []).append(row)",
             "        for key, group in groups.items():",
             "            if len(group) >= 2:",
             "                results.append({",
