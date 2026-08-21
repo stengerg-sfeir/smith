@@ -2,7 +2,7 @@ import click
 from database import Database
 from expense_service import ExpenseService
 
-DB_PATH = "finance.db"
+DB_PATH = "app.db"
 
 @click.group()
 def cli():

@@ -86,7 +86,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def init_database(db_path: str = "finance.db") -> sqlite3.Connection:
+def init_database(db_path: str = "app.db") -> sqlite3.Connection:
     """Initialize database with tables and return connection."""
     conn = get_db_connection(db_path)
     create_tables(conn)

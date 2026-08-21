@@ -311,77 +311,49 @@ def _check_syntax_and_imports(files, sibling_exports=None):
     return errors, fixes
 
 
-def _check_structural(files, spec_text):
-    """Check structural completeness using AST (zero LLM cost).
+def _check_structural(files, design_ctx):
+    """Design-driven structural validation (zero LLM cost, zero prompt sniffing).
 
-    Validates:
-    1. Required classes exist (extracted from spec)
-    2. Required methods exist on classes
-    3. Required model fields exist
+    Validates the FINAL file tree against the schema-constrained designs
+    (never against regex-scanned spec vocabulary):
+
+    1. Every designed exception class is defined somewhere.
+    2. Every designed entity model class is defined, with all its fields.
+    3. Every designed service method is defined in the service file.
 
     Returns list of error strings with file hints.
     """
     errors = []
-    lower = spec_text.lower()
-
-    # Build combined code view
     all_code = "\n".join(files.values())
-    all_code_lower = all_code.lower()
 
-    # 1. Required exception classes
-    for exc in ["CategoryNotFoundError", "ExpenseNotFoundError", "BudgetExceededException"]:
-        if exc.lower() in lower and exc not in all_code:
-            # Find best file to suggest
-            best_fp = _find_file_for_type(files, "exception")
-            errors.append("%s: missing required exception '%s'" % (best_fp, exc))
+    # 1. Designed exception classes
+    exc_fps = [fp for fp in files if "exception" in fp.lower()]
+    exc_hint = exc_fps[0] if exc_fps else next(iter(files), "exceptions.py")
+    for exc in design_ctx.get("exceptions") or []:
+        if "class %s" % exc not in all_code:
+            errors.append("%s: missing required exception '%s'" % (exc_hint, exc))
 
-    # 2. Required classes
-    for cls in ["CategoryRepository", "ExpenseRepository", "BudgetRepository", "ExpenseService"]:
-        if cls.lower() in lower and "class %s" % cls not in all_code:
-            best_fp = _find_file_for_type(files, cls.lower().replace("repository", "").replace("service", ""))
-            errors.append("%s: missing required class '%s'" % (best_fp, cls))
+    # 2. Designed entity classes + fields
+    model_fps = [fp for fp in files if "model" in fp.lower()]
+    model_hint = model_fps[0] if model_fps else next(iter(files), "models.py")
+    model_content = "\n".join(files[fp] for fp in model_fps)
+    for cls, fields in (design_ctx.get("entities") or {}).items():
+        if "class %s" % cls not in all_code:
+            errors.append("%s: missing required class '%s'" % (model_hint, cls))
+            continue
+        for field in fields:
+            if field not in model_content:
+                errors.append("%s: missing required field '%s'" % (model_hint, field))
 
-    # 3. Required model fields (check ALL model files)
-    required_fields = _extract_required_fields(spec_text)
-    model_files = [fp for fp in files if "model" in fp.lower()]
-    for fp in model_files:
-        content = files[fp]
-        for field in required_fields:
-            if field not in content:
-                errors.append("%s: missing required field '%s'" % (fp, field))
-
-    # 4. Required database table (lowercase)
-    for table_name in ["categories", "expenses", "budgets"]:
-        if table_name in lower and table_name not in all_code_lower:
-            best_fp = _find_file_for_type(files, "database")
-            if best_fp:
-                errors.append("%s: missing table creation for '%s'" % (best_fp, table_name))
+    # 3. Designed service methods
+    svc_fp = design_ctx.get("service_file")
+    if svc_fp and svc_fp in files:
+        svc_content = files[svc_fp]
+        for m in design_ctx.get("service_methods") or []:
+            if "def %s" % m not in svc_content:
+                errors.append("%s: missing required method '%s'" % (svc_fp, m))
 
     return errors
-
-
-def _extract_required_fields(spec_text):
-    """Extract required field names from spec text using regex (no LLM)."""
-    fields = set()
-    # Look for explicit field mentions in the spec
-    field_patterns = [
-        r"amount_cents", r"payment_method", r"expense_date", r"is_recurring",
-        r"category_id", r"monthly_budget", r"amount_limit_cents",
-        r"description", r"month", r"icon", r"name",
-    ]
-    lower = spec_text.lower()
-    for pattern in field_patterns:
-        if pattern in lower:
-            fields.add(pattern)
-    return fields
-
-
-def _find_file_for_type(files, hint):
-    """Find the most likely file for a given type hint."""
-    for fp in files:
-        if hint.lower() in fp.lower():
-            return fp
-    return list(files.keys())[0] if files else "unknown.py"
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +365,8 @@ def _extract_model_ast(files):
 
     Returns dict of class_name -> list of (field_name, python_type_hint).
     Handles annotation-assignment (`field: type = default`), plain
-    assignment, and __init__-based field definitions.
+    assignment, and __init__-based field definitions. Also captures the
+    UNIQUE_TOGETHER constant into result["__unique_together__"] when present.
     """
     result = {}
     model_files = [fp for fp in files if "model" in fp.lower()]
@@ -405,6 +378,28 @@ def _extract_model_ast(files):
             continue
 
         for node in ast.iter_child_nodes(tree):
+            # UNIQUE_TOGETHER constant emitted by _render_models_file
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "UNIQUE_TOGETHER"
+                and isinstance(node.value, ast.Dict)
+            ):
+                umap = {}
+                try:
+                    for k, v in zip(node.value.keys, node.value.values):
+                        cls = ast.literal_eval(k)
+                        pairs = []
+                        for elt in v.elts:
+                            pairs.append([ast.literal_eval(e) for e in elt.elts])
+                        umap[cls] = pairs
+                except Exception:
+                    umap = {}
+                if umap:
+                    merged = dict(result.get("__unique_together__") or {})
+                    merged.update(umap)
+                    result["__unique_together__"] = merged
+                continue
             if isinstance(node, ast.ClassDef):
                 fields = []  # list of (name, type_hint_str)
                 for child in ast.iter_child_nodes(node):
@@ -466,13 +461,14 @@ def _python_type_to_sql(type_hint):
     return "TEXT"
 
 
-def _generate_ddl_from_models(model_classes, spec_text):
+def _generate_ddl_from_models(model_classes):
     """Generate CREATE TABLE DDL from model class definitions.
 
     Model class names become table names (lowercase pluralized).
     Fields become columns. 'id' fields get PRIMARY KEY AUTOINCREMENT.
+    Table-level UNIQUE pairs come from the models' UNIQUE_TOGETHER constant.
     """
-    lower = spec_text.lower()
+    unique_map = model_classes.pop("__unique_together__", {})
     tables = []
 
     for class_name, fields in model_classes.items():
@@ -482,6 +478,9 @@ def _generate_ddl_from_models(model_classes, spec_text):
         columns = []
         foreign_keys = []
         unique_constraints = []
+        for pair in unique_map.get(class_name) or []:
+            cols_sql = ", ".join(str(c) for c in pair)
+            unique_constraints.append("    UNIQUE(%s)" % cols_sql)
 
         for field_name, type_hint in fields:
             sql_type = _python_type_to_sql(type_hint)
@@ -504,10 +503,6 @@ def _generate_ddl_from_models(model_classes, spec_text):
                     "    FOREIGN KEY (%s) REFERENCES %s (id)" % (field_name, ref_table)
                 )
 
-        # Add UNIQUE constraints from spec (case-insensitive)
-        if "unique(category_id, month)" in lower and table_name == "budgets":
-            unique_constraints.append("    UNIQUE(category_id, month)")
-
         # Build CREATE TABLE (terminate with ';' so executescript
         # splits statements correctly)
         all_parts = columns + foreign_keys + unique_constraints
@@ -520,7 +515,7 @@ def _generate_ddl_from_models(model_classes, spec_text):
     return "\n\n".join(tables)
 
 
-def _generate_database_file(model_classes, spec_text):
+def _generate_database_file(model_classes):
     """Generate a complete database.py from model AST definitions.
 
     Uses a list-based template to guarantee clean line indentation --
@@ -528,7 +523,7 @@ def _generate_database_file(model_classes, spec_text):
     with a triple-quoted string, so column/table lines never become
     bare statements inside the function body.
     """
-    ddl = _generate_ddl_from_models(model_classes, spec_text)
+    ddl = _generate_ddl_from_models(model_classes)
 
     # Indent each DDL line by 8 spaces (continuation of the string arg)
     indented_ddl = "\n".join("        " + line if line.strip() else line
@@ -597,7 +592,7 @@ def _generate_database_file(model_classes, spec_text):
         "    conn.commit()",
         "",
         "",
-        'def init_database(db_path: str = "finance.db") -> sqlite3.Connection:',
+        'def init_database(db_path: str = "app.db") -> sqlite3.Connection:',
         '    """Initialize database with tables and return connection."""',
         "    conn = get_db_connection(db_path)",
         "    create_tables(conn)",
@@ -903,8 +898,8 @@ _DESIGN_SYSTEMS = {
         "You are an expert Python architect. Design the exceptions module of a "
         "Python project from its specification. Output JSON with an "
         '"exceptions" array of custom exception class names (PascalCase) the '
-        "spec requires (e.g. CategoryNotFoundError). Only list exceptions the "
-        "spec explicitly mentions."
+        "spec requires (e.g. NotFoundError, ValidationException). Only list "
+        "exceptions the spec explicitly mentions."
     ),
     "models": (
         "You are an expert Python architect. Design a model (data) module from "
@@ -913,7 +908,9 @@ _DESIGN_SYSTEMS = {
         '"nullable"}]}. Types are primitives: str, int, float, bool, date, '
         'datetime. Set "unique": true for columns the spec says must be unique. '
         'Set "nullable": true for optional columns (default None), including '
-        "the primary key id. Do not invent fields the spec does not imply.\""
+        'the primary key id. When the spec names table-level uniqueness '
+        '(e.g. "UNIQUE(a, b)"), fill the entity\'s "unique_together" pairs. '
+        "Do not invent fields the spec does not imply."
     ),
     "repositories": (
         "You are an expert Python architect. Design the CUSTOM methods of a "
@@ -1025,7 +1022,7 @@ _CLI_SYSTEM = (
     '"field": "exact service method param this option maps to (omit when the '
     'param name matches)"}], "target": "the exact service method name this '
     'command calls"}. Use the exact command surface and option names the spec '
-    "names (e.g. expense category add --name --description). The target must be "
+    "names. The target must be "
     "one of the service methods already designed (never invent method names)."
 )
 
@@ -1157,29 +1154,6 @@ def _fmt_design_context(designs):
     return "\n".join(lines) if lines else "(none)"
 
 
-def _spec_unique_together(prompt_text, entities_by_class):
-    """Derive table-level UNIQUE(...) pairs from the spec (deterministic)."""
-    lower = prompt_text.lower().replace(" ", "")
-    for ent_name, ent in entities_by_class.items():
-        fields = {f.get("name") for f in (ent.get("fields") or [])}
-        for m in re.finditer(r"unique\(([a-z_0-9]+)\s*,\s*([a-z_0-9]+)\)", lower):
-            a, b = m.group(1), m.group(2)
-            if a in fields and b in fields:
-                ent["unique_together"] = [[a, b]]
-    return entities_by_class
-
-
-_SENT_TOKENS_RE = re.compile(r"[^a-z0-9]+", re.I)
-
-
-def _prompt_mentions(prompt_text, *tokens):
-    """Case/format-insensitive spec-marker test (e.g. 'expense')."""
-    def squash(s):
-        return _SENT_TOKENS_RE.sub("", str(s)).lower()
-    lower = squash(prompt_text)
-    return any(squash(t) in lower for t in tokens)
-
-
 _BUILTIN_EXCEPTIONS = {
     "ArithmeticError", "AssertionError", "AttributeError", "EOFError",
     "Exception", "ExceptionGroup", "FloatingPointError", "IOError",
@@ -1248,8 +1222,14 @@ def _render_exceptions_file(design):
 
 
 def _render_models_file(design):
-    """dataclasses from the entities design."""
+    """dataclasses from the entities design.
+
+    Table-level UNIQUE pairs (unique_together) are emitted as a
+    UNIQUE_TOGETHER constant so the deterministic DDL generator can pick
+    them up from the model AST — no spec-text sniffing anywhere.
+    """
     blocks = []
+    unique_map = {}
     for ent in design.get("entities") or []:
         name = ent["name"]
         fields = ent.get("fields") or []
@@ -1264,11 +1244,25 @@ def _render_models_file(design):
                   for fname, ftype in opt]
         body = "\n".join(parts)
         blocks.append("@dataclass\nclass %s:\n%s" % (name, body))
+        pairs = [
+            [str(c) for c in pair]
+            for pair in (ent.get("unique_together") or [])
+            if isinstance(pair, (list, tuple)) and len(pair) == 2
+        ]
+        if pairs:
+            unique_map[name] = pairs
+    if unique_map:
+        const_lines = ["UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {"]
+        for cls, pairs in sorted(unique_map.items()):
+            inner = ", ".join('("%s", "%s")' % tuple(p) for p in pairs)
+            const_lines.append('    "%s": [%s],' % (cls, inner))
+        const_lines.append("}")
+        blocks.append("\n".join(const_lines))
     header = (
         '"""Domain models."""\n'
         "from __future__ import annotations\n\n"
         "from dataclasses import dataclass\n"
-        "from typing import Optional\n"
+        "from typing import Dict, List, Optional\n"
     )
     return header + "\n\n\n".join(blocks) + "\n"
 
@@ -2265,7 +2259,7 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods, verb
         "from database import Database",
         "from %s import %s" % (svc_snake, svc_class),
         "",
-        "DB_PATH = \"finance.db\"",
+        "DB_PATH = \"app.db\"",
         "",
         "@click.group()",
         "def cli():",
@@ -2470,18 +2464,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
 
     # 1. exceptions
     exc_paths = [s["file"] for s in manifest if "exception" in Path(s["file"]).stem]
-    flat_lower = prompt_text.lower().replace("_", "").replace(" ", "")
-    if (not exc_paths and ("notfounderror" in flat_lower
-                           or "exceededexception" in flat_lower)):
-        # Manifest omitted the exceptions module but the spec requires custom
+    if not exc_paths and _spec_exception_names(prompt_text):
+        # Manifest omitted the exceptions module but the spec names custom
         # exceptions. Add the canonical flat file deterministically so repos
-        # can import `exceptions` (the contract guarantees the three classes).
+        # can import `exceptions`.
         exc_paths = ["exceptions.py"]
     for ep in exc_paths:
         data = _design_module(ep, "exceptions", prompt_text, "(none)", verbose)
         if data is None:
             print("    [design] %s: FAILED" % ep, file=sys.stderr)
-            return None
+            return None, None
         designs.append((ep, "exceptions", data))
         if verbose:
             print("      - %s [exceptions] %s" % (ep, _describe_design("exceptions", data)))
@@ -2492,7 +2484,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         data = _design_module(mp, "models", prompt_text, _fmt_design_context(designs), verbose)
         if data is None:
             print("    [design] %s: FAILED" % mp, file=sys.stderr)
-            return None
+            return None, None
         designs.append((mp, "models", data))
         for ent in data.get("entities") or []:
             if isinstance(ent, dict) and ent.get("name"):
@@ -2502,7 +2494,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
 
     if not entities_by_class:
         print("    [design] no entities designed", file=sys.stderr)
-        return None
+        return None, None
 
     # 3. repositories (custom methods only; CRUD is generated)
     repo_paths = [s["file"] for s in manifest if Path(s["file"]).stem.endswith("_repository")]
@@ -2510,7 +2502,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         data = _design_module(rp, "repositories", prompt_text, _fmt_design_context(designs), verbose)
         if data is None:
             print("    [design] %s: FAILED" % rp, file=sys.stderr)
-            return None
+            return None, None
         designs.append((rp, "repositories", data))
         if verbose:
             print("      - %s [repositories] %s" % (rp, _describe_design("repositories", data)))
@@ -2521,7 +2513,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         data = _design_module(sp, "services", prompt_text, _fmt_design_context(designs), verbose)
         if data is None:
             print("    [design] %s: FAILED" % sp, file=sys.stderr)
-            return None
+            return None, None
         designs.append((sp, "services", data))
         if verbose:
             print("      - %s [services] %s" % (sp, _describe_design("services", data)))
@@ -2546,17 +2538,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             print("      - %s [cli] %s" % (cp, _describe_design("cli", data)))
 
     # ---- Deterministic merges (no LLM) ----
-    # Exception floor: designed ∪ spec-named custom exceptions. Entities and
-    # service methods come from the schema-constrained LLM designs only; the
-    # renderers handle CRUD deterministically, and _spec_unique_together adds
-    # any UNIQUE(...) pairs the spec text names.
+    # Exception floor: designed ∪ spec-named custom exceptions. Entities,
+    # service methods, and unique_together pairs all come from the
+    # schema-constrained LLM designs only; the renderers handle CRUD and
+    # UNIQUE-pair mechanics deterministically from those designs.
     exception_names = []
     for path, kind, data in designs:
         if kind == "exceptions":
             for e in data.get("exceptions") or []:
                 if e not in exception_names:
                     exception_names.append(e)
-    _spec_unique_together(prompt_text, entities_by_class)
     for e in _spec_exception_names(prompt_text):
         if e not in exception_names:
             exception_names.append(e)
@@ -2573,6 +2564,24 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # to them, so this is computed once here)
     svc_design = next((d for p, k, d in designs if k == "services"), None)
     service_methods = (svc_design or {}).get("methods") or []
+
+    # Design context for structural validation — replaces every form of
+    # spec-text sniffing: what MUST exist in the final tree is exactly what
+    # the schema-constrained designs declared, nothing else.
+    design_ctx = {
+        "exceptions": list(exception_names),
+        "entities": {
+            cls: [
+                f.get("name") for f in (ent.get("fields") or []) if f.get("name")
+            ]
+            for cls, ent in entities_by_class.items()
+        },
+        "service_file": svc_paths[0] if svc_paths else None,
+        "service_methods": [
+            m.get("name") for m in service_methods
+            if isinstance(m, dict) and m.get("name")
+        ],
+    }
 
     # ---- Render phase (deterministic) ----
     files = {}
@@ -2596,9 +2605,9 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if verbose:
         print("    Fill phase (service + repository custom methods)...")
 
-    # 5.1 repository files: deterministic CRUD + stubs; contract custom
-    # methods (get_by_category_and_month) are rendered deterministically
-    # from unique_together by _render_repository_file.
+    # 5.1 repository files: deterministic CRUD + stubs; UNIQUE-pair custom
+    # methods (get_by_<a>_and_<b>) are rendered deterministically from the
+    # designed unique_together by _render_repository_file.
     for rp in repo_paths:
         stem = Path(rp).stem
         ent_snake = stem[: -len("_repository")] if stem.endswith("_repository") else stem
@@ -2639,7 +2648,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if "database.py" not in files and "models.py" in files:
         model_classes = _extract_model_ast({"models.py": files["models.py"]})
         if model_classes:
-            files["database.py"] = _generate_database_file(model_classes, prompt_text)
+            files["database.py"] = _generate_database_file(model_classes)
 
     # ensure every manifest file exists (e.g. a main.py the LLM invented)
     for spec in manifest:
@@ -2653,13 +2662,13 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     ast_errors, ast_fixes = _check_syntax_and_imports(files, all_exports)
     for fp, fixed in ast_fixes.items():
         files[fp] = fixed
-    struct_errors = _check_structural(files, prompt_text)
+    struct_errors = _check_structural(files, design_ctx)
     if verbose and (ast_errors or struct_errors):
         print("    Validation: %d issue(s)" % (len(ast_errors) + len(struct_errors)))
         for e in (ast_errors + struct_errors)[:5]:
             print("      - %s" % e)
 
-    return files
+    return files, design_ctx
 
 
 # ---------------------------------------------------------------------------
@@ -2681,7 +2690,7 @@ def _multi_pass(prompt_text, verbose=False):
     degrading to the removed legacy multi-pass / single-pass paths (which
     let the 4B model write full file bodies and hallucinate).
     """
-    files = _manifest_first_blocks(prompt_text, verbose=verbose)
+    files, design_ctx = _manifest_first_blocks(prompt_text, verbose=verbose)
     if not files:
         raise RuntimeError(
             "manifest-first pipeline failed for this prompt "
@@ -2695,7 +2704,7 @@ def _multi_pass(prompt_text, verbose=False):
     # files and reintroduce hallucinated code).
     model_classes = _extract_model_ast(files)
     if model_classes:
-        files["database.py"] = _generate_database_file(model_classes, prompt_text)
+        files["database.py"] = _generate_database_file(model_classes)
         if verbose:
             print("    Generated database.py from model AST (%d tables)"
                   % len(model_classes))
@@ -2706,7 +2715,7 @@ def _multi_pass(prompt_text, verbose=False):
     for fp, fixed in ast_fixes.items():
         files[fp] = fixed
 
-    struct_errors = _check_structural(files, prompt_text)
+    struct_errors = _check_structural(files, design_ctx)
     all_errors = ast_errors + struct_errors
     if all_errors and verbose:
         print("    Validation: %d issue(s)" % len(all_errors))
@@ -2762,7 +2771,7 @@ def _multi_pass(prompt_text, verbose=False):
         ast_errors, ast_fixes = _check_syntax_and_imports(files, all_exports)
         for fp, fixed in ast_fixes.items():
             files[fp] = fixed
-        struct_errors = _check_structural(files, prompt_text)
+        struct_errors = _check_structural(files, design_ctx)
         all_errors = ast_errors + struct_errors
         if verbose and all_errors:
             print("    After repair: %d remaining" % len(all_errors))
@@ -2770,7 +2779,7 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files)
     if model_classes:
-        files["database.py"] = _generate_database_file(model_classes, prompt_text)
+        files["database.py"] = _generate_database_file(model_classes)
         if verbose:
             print("    Generated database.py from model AST (%d tables)"
                   % len(model_classes))

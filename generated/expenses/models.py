@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -31,4 +31,9 @@ class Budget:
     month: str
     amount_limit_cents: int
     id: Optional[int] = None
+
+
+UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
+    "Budget": [("category_id", "month")],
+}
 
