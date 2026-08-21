@@ -1834,7 +1834,7 @@ def _service_method_body(m, entities_by_class, exception_names):
     limit_cls, limit_ent = _find_limit_entity(entities_by_class)
     has_limit = limit_cls is not None and limit_ent is not None
     # Bind recipes to the method's ACTUAL designed parameter names (the model
-    # may choose expense_data/id instead of expense/expense_id). The recipes
+    # may choose <entity>_data/<entity>_id instead of entity/ent_id). The recipes
     # never reference a name the designed signature does not declare; if the
     # signature does not match the recipe's needs, return None (=> stub/LLM
     # fill) instead of emitting a broken body.
@@ -1911,7 +1911,7 @@ def _service_method_body(m, entities_by_class, exception_names):
         ]
         return lines
     # Plain CRUD (list/get_by_id/update/delete) falls through to Tier 2's
-    # generic delegation below — no expense-specific duplicates here.
+    # generic delegation below — no per-entity duplicates here.
     # Period-total report: *_report/*_summary whose name names a period.
     if (
         name.endswith("_report") or name.endswith("_summary")
