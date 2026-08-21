@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local model weights (2.4GB — never commit)
+*.gguf
+
+# Generated databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated CSV/JSON outputs
+*.csv
+*.json.tmp
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

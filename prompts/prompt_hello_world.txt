@@ -1,0 +1,2 @@
+Create a simple Python script with a CLI entry point that prints "Hello, World!" with type hints.
+The script should define a `main()` function and include the standard `if __name__ == "__main__": main()` guard.

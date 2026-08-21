@@ -1,0 +1,37 @@
+Create a multi-module Python expense tracking system with the following features:
+
+1. **Category model** — id, name (unique), description, monthly_budget (optional int, stored as cents), icon (optional str)
+2. **Expense model** — id, amount_cents (int), description, expense_date (str, ISO date), category_id (FK), payment_method (cash/card/transfer), is_recurring (bool)
+3. **Budget model** — id, category_id (FK), month (str like "2024-01"), amount_limit_cents (int), UNIQUE(category_id, month)
+   → DDL: use table-level `UNIQUE(category_id, month)`, not inline `month TEXT UNIQUE`
+4. **ExpenseRepository** — SQLite storage with CRUD + filtering by date range, category, payment_method + monthly/yearly aggregation queries
+5. **CategoryRepository** — SQLite storage with CRUD + find expenses for a category
+6. **BudgetRepository** — SQLite storage with CRUD + find budgets by month + check if a category has exceeded its budget
+7. **ExpenseService** — business logic:
+   - list_expenses(category_id (Optional[int]), start_date (Optional[date]), end_date (Optional[date]), payment_method (Optional[str])): lists expenses filtered by optional category, date range, payment method — all params are optional, so passing no filters returns all expenses
+   - get_expense_by_id(id): returns a single expense by its ID
+   - add_expense: validates category exists, adds expense, checks if budget exceeded after insertion
+   - update_expense(id, data): updates an expense's fields
+   - delete_expense(id): deletes an expense by ID
+   - get_monthly_report(month): returns total spent, per-category breakdown, budget status (on_track/warning/exceeded) for a given "YYYY-MM" month
+   - get_yearly_summary(year): returns monthly totals, top spending categories, average monthly spend
+   - get_category_spending(category_id, start_date, end_date): returns aggregated spending for a category over a period
+   - export_to_csv(file_path, start_date, end_date): exports filtered expenses as CSV
+   - detect_recurring(): finds expenses with same amount/category recurring monthly and marks them
+8. **CLI interface using click** with nested command groups:
+   - `expense category add --name --description [--budget] [--icon]`
+   - `expense category list`
+   - `expense category update --id [--name] [--description] [--budget] [--icon]`
+   - `expense category delete --id`
+   - `budget list [--category] [--month]`
+   - `budget add --category-id --month --amount`
+   - `budget update --category-id --month [--amount]`
+   - `budget delete --category-id --month`
+   - `expense add --amount --description --category [--expense-date] [--method] [--recurring]`
+   - `expense list [--category] [--from-date] [--to-date] [--method]`
+   - `expense report monthly --month`
+   - `expense report yearly --year`
+   - `expense export --from-date --to-date --output`
+   - `expense recurring detect`
+
+Use type hints throughout. Use SQLite with foreign keys enabled. All monetary values must be stored as integers (cents) to avoid floating-point precision issues — convert to/from decimal for display. All IDs must be auto-incremented primary keys that are optional (default None) in the domain models. Implement proper error handling with custom exception classes: CategoryNotFoundError, ExpenseNotFoundError, BudgetExceededException.
