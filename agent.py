@@ -437,7 +437,7 @@ def _extract_model_ast(files):
 def _pluralize_table_name(class_name):
     """Singular class name -> plural lowercase table name.
 
-    category -> categories, expense -> expenses, budget -> budgets.
+    box -> boxes, city -> cities, task -> tasks.
     """
     lower = class_name.lower()
     if lower.endswith("y") and len(lower) > 1 and lower[-2] not in "aeiou":
@@ -472,7 +472,6 @@ def _generate_ddl_from_models(model_classes):
     tables = []
 
     for class_name, fields in model_classes.items():
-        # Pluralize: Category -> categories, Expense -> expenses
         table_name = _pluralize_table_name(class_name)
 
         columns = []
@@ -1167,10 +1166,9 @@ _BUILTIN_EXCEPTIONS = {
 def _spec_exception_names(prompt_text):
     """PascalCase custom-exception names explicitly named in the spec.
 
-    Deterministic regex floor (not expense-hardcoded): every name ending in
-    Error/Exception that is not a Python builtin. inventory's
-    `CategoryNotFoundError, ProductNotFoundError` gets its own floor, while a
-    spec that names no custom exceptions gets an empty floor.
+    Domain-generic deterministic floor: every name ending in Error/Exception
+    that is not a Python builtin. A spec naming custom exceptions gets them
+    as a floor; a spec naming none gets an empty floor.
     """
     names = set()
     for m in re.finditer(r"[A-Z][A-Za-z0-9]*(?:Error|Exception)", prompt_text):
@@ -1205,6 +1203,33 @@ def _plural(e):
 
 def _bare(t):
     return (t or "").replace("Optional[", "").replace("]", "").strip()
+
+
+def _entity_filters(fields):
+    """Derived list()-filter API for an entity, from its DESIGNED fields.
+
+    Domain-generic suffix conventions (no prompt text, no fixed names):
+      - every foreign-key column (``*_id``, except ``id``) -> equality filter
+      - the first ``*_date`` column -> ``start_date``/``end_date`` range
+      - otherwise a ``month`` column -> equality filter
+      - every ``*_method`` column -> equality filter
+    Returns [(param_name, column, op)] with op in {"eq", "gte", "lte"},
+    in the stable order the repository renderer emits them.
+    """
+    specs = []
+    for f in sorted(fields):
+        if f.endswith("_id") and f != "id":
+            specs.append((f, f, "eq"))
+    date_col = next((f for f in sorted(fields) if f.endswith("_date")), None)
+    if date_col:
+        specs.append(("start_date", date_col, "gte"))
+        specs.append(("end_date", date_col, "lte"))
+    elif "month" in fields:
+        specs.append(("month", "month", "eq"))
+    for f in sorted(fields):
+        if f.endswith("_method"):
+            specs.append((f, f, "eq"))
+    return specs
 
 
 def _render_exceptions_file(design):
@@ -1311,15 +1336,7 @@ def _repo_method_body(m, ent, ent_snake, model):
         if isinstance(p, dict)
     ]
     # The deterministic list() accepts these keyword filters only.
-    valid = []
-    if "category_id" in fields:
-        valid.append("category_id")
-    if "expense_date" in fields:
-        valid += ["start_date", "end_date"]
-    elif "month" in fields:
-        valid.append("month")
-    if "payment_method" in fields:
-        valid.append("payment_method")
+    valid = [p for p, _, _ in _entity_filters(fields)]
 
     low = name.lower()
     # find_<x>_by_date_range or find_<x>_by_filters -> self.list(**valid params)
@@ -1341,11 +1358,11 @@ def _repo_method_body(m, ent, ent_snake, model):
         if arg is None:
             return None
         return ["        return self.list(%s=%s)" % (col, arg)]
-    # find_<x>_by_month with optional category_id
+    # find_<x>_by_month with optional FK filters
     if low.startswith("find_") and "_by_month" in low:
         if "month" not in valid:
             return None
-        args = [p for p in params if p in ("month", "category_id")]
+        args = [p for p in params if p in valid]
         if not args:
             return None
         lines = ["        return self.list("]
@@ -1380,10 +1397,10 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
 
     - create/get_by_id/get_all/update/delete are rendered with real bodies.
-    - `list(**filters)` is derived from the entity's designed fields:
-      category_id, month, payment_method filters + start_date/end_date range
-      when the entity has an expense_date column (spec-driven, no LLM).
-    - a UNIQUE(category_id, month)-style pair renders
+    - `list(**filters)` is derived from the entity's designed fields via
+      _entity_filters: FK equality, a start/end range over the first *_date
+      column, plus month/*_method equality (design-driven, no LLM).
+    - a designed unique_together pair renders
       get_by_<a>_and_<b> and delete(a, b) replacing the id-based delete.
     - update raises "<Model>NotFoundError" when the row is missing, if that
       exception was designed (contract-style, deterministic).
@@ -1400,27 +1417,11 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     table = _plural(ent_snake)
     model_fields = {f.get("name") for f in (ent.get("fields") or [])}
 
-    # --- derived filter API (matches the expenses contract) ----------------
-    filter_params = []            # (name, default)
-    filter_where = []             # (fragment, expr)
-    if "category_id" in model_fields:
-        filter_params.append(("category_id", None))
-        filter_where.append((" AND category_id = ?", "category_id"))
-    if "expense_date" in model_fields:
-        filter_params.append(("start_date", None))
-        filter_where.append((" AND expense_date >= ?", "start_date"))
-        filter_params.append(("end_date", None))
-        filter_where.append((" AND expense_date <= ?", "end_date"))
-    if "month" in model_fields and "expense_date" not in model_fields:
-        # budget-style: month is a first-class filter column
-        filter_by_month = True
-        filter_params.append(("month", None))
-        filter_where.append((" AND month = ?", "month"))
-    else:
-        filter_by_month = False
-    if "payment_method" in model_fields:
-        filter_params.append(("payment_method", None))
-        filter_where.append((" AND payment_method = ?", "payment_method"))
+    # --- derived filter API (from the designed fields, via _entity_filters) --
+    filter_specs = _entity_filters(model_fields)
+    filter_params = [(p, None) for p, _, _ in filter_specs]
+    _FRAG = {"eq": " AND %s = ?", "gte": " AND %s >= ?", "lte": " AND %s <= ?"}
+    filter_where = [(_FRAG[op] % col, p) for p, col, op in filter_specs]
 
     # --- unique_together pair -> lookup + delete-by-pair --------------------
     unique_pairs = ent.get("unique_together") or []
@@ -1497,9 +1498,8 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     L.append("")
     if pair:
         a, b = pair
-        # Strip the "_id" suffix for the method name (category_id -> category):
-        # the contract/tests call get_by_category_and_month, matching SQLite
-        # column name (category_id) only in the WHERE clause.
+        # Strip the "_id" suffix for the method name (<col>_id -> <col>);
+        # the SQLite WHERE clause keeps the real column name.
         a_fn = a[:-3] if a.endswith("_id") else a
         b_fn = b[:-3] if b.endswith("_id") else b
         L.append("    def get_by_%s_and_%s(self, %s: Any, %s: Any) -> Optional[%s]:"
@@ -1592,9 +1592,9 @@ def _sanitize_type_hint(t):
 
     - `int?` / `datetime.date?` -> `Optional[int]` / `Optional[datetime.date]`
     - `int | None` -> `Optional[int]`
-    - `Budget?` / `Budget | None` -> `Optional[Budget]`
+    - `Task?` / `Task | None` -> `Optional[Task]`
     - `Dict[str, any]` -> `Dict[str, Any]`
-    - `List[Expense]`, `str`, `bool`, `Any` pass through
+    - `List[Item]`, `str`, `bool`, `Any` pass through
     """
     t = (t or "").strip()
     if not t:
@@ -1739,12 +1739,10 @@ def _entity_design(entities_by_class, name):
 def _domain_fields(entities_by_class, entity, fields=None):
     """Resolve the field names a service recipe should use for `entity`.
 
-    Falls back to expense-style names when present (so the expense contract
-    keeps its exact call surface), and otherwise picks by suffix pattern
-    (_cents, _date, _method, is_*, _id, _limit_cents) so a different domain
-    (inventory's price_cents, sku, ...) can reuse the same recipes. When the
-    entity is absent entirely, every slot is "" so callers can detect that
-    the domain is not present.
+    Picks by suffix pattern (_cents, _date, _method, is_*, _id,
+    _limit_cents) so any domain whose fields follow the same conventions
+    can reuse the recipes. When the entity is absent entirely, every slot
+    is "" so callers can detect that the domain is not present.
     """
     ent = _entity_design(entities_by_class, entity)
     if ent is None:
@@ -1788,14 +1786,13 @@ def _csv_chunk(items, size):
 def _service_method_body(m, entities_by_class, exception_names):
     """Deterministic body lines for a service method, or None (=> stub).
 
-    Tier 1: the contract method bodies, parameterized by the expenses-style
-    domain fields (_domain_fields) instead of literal names — the anti-
-    hallucination core of the manifest-first pipeline. For the expense domain
-    the resolution is the identity, so output is unchanged; other domains
-    reuse the recipes when their fields match the same suffixes.
-    Tier 2: generic deterministic CRUD delegation (list_<entity>,
-    get_<entity>_by_id, update_<entity>, delete_<entity>) for non-expense
-    entities, so e.g. inventory's product CRUD never needs the LLM.
+    Tier 1: business-logic recipes (budget-checked create, period reports,
+    CSV export, recurrence detection), parameterized by suffix-derived
+    domain fields (_domain_fields) instead of literal names. They fire only
+    when the DESIGNED entities/methods match the recipe shapes.
+    Tier 2: generic deterministic CRUD delegation (add_/create_<entity>,
+    list_<entity>, get_<entity>_by_id, update_<entity>, delete_<entity>)
+    for ANY entity, so plain CRUD never needs the LLM.
     """
     name = m.get("name")
     expense = _domain_fields(entities_by_class, "Expense")
@@ -1853,37 +1850,8 @@ def _service_method_body(m, entities_by_class, exception_names):
             "%(ent)s.%(fk)s, month, total, budget.%(limit)s)" % d,
             "        return expense_id",
         ]
-    if name == "list_expenses" and has_expense:
-        return [
-            "        return self.%(repo)s.list(" % d,
-            "            %(fk)s=%(fk)s," % d,
-            "            start_date=start_date,",
-            "            end_date=end_date,",
-            "            %(method)s=%(method)s," % d,
-            "        )",
-        ]
-    if name == "get_expense_by_id":
-        if len(params) != 1:
-            return None
-        d["eid"] = params[0]
-        return [
-            "        return self.%(repo)s.get_by_id(%(eid)s)" % d,
-        ]
-    if name == "update_expense":
-        if len(params) != 2:
-            return None
-        d["eid"] = params[0]
-        d["dta"] = params[1]
-        return [
-            "        self.%(repo)s.update(%(eid)s, %(dta)s)" % d,
-        ]
-    if name == "delete_expense":
-        if len(params) != 1:
-            return None
-        d["eid"] = params[0]
-        return [
-            "        self.%(repo)s.delete(%(eid)s)" % d,
-        ]
+    # Plain CRUD (list/get_by_id/update/delete) falls through to Tier 2's
+    # generic delegation below — no expense-specific duplicates here.
     if name == "get_monthly_report" and has_expense:
         return [
             "        expenses = self.%(repo)s.list(" % d,
@@ -1969,8 +1937,7 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
     everything else stays a stub for the LLM fill phase. add_<entity> builds
     the entity from the method params and inserts through the repository's
     deterministic `create` (never `.add`/`.insert` — the 4B model has been
-    caught hallucinating those). The expense entity is handled by Tier 1 and
-    skipped here.
+    caught hallucinating those). Entities handled by Tier 1 are skipped here.
     """
     exception_names = exception_names or []
     name = m.get("name") or ""
@@ -1980,16 +1947,8 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
     for ent_name, ent in entities_by_class.items():
         var = _snake(ent_name)
         fields = {f.get("name") for f in (ent.get("fields") or [])}
-        # Mirror the deterministic repo list() filters (_render_repository_file).
-        filters = []
-        if "category_id" in fields:
-            filters.append("category_id")
-        if "expense_date" in fields:
-            filters += ["start_date", "end_date"]
-        if "month" in fields and "expense_date" not in fields:
-            filters.append("month")
-        if "payment_method" in fields:
-            filters.append("payment_method")
+        # Mirror the deterministic repo list() filters (_entity_filters).
+        filters = [p for p, _, _ in _entity_filters(fields)]
 
         if name in ("add_" + var, "create_" + var):
             kwargs = ["%s=%s" % (p, p) for p in param_names if p in fields]
@@ -2009,15 +1968,28 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
             if "created_at" in fields and "created_at" not in covered:
                 kwargs.append("created_at=datetime.datetime.now().isoformat()")
             lines = []
-            if (
-                "category_id" in param_names
-                and "category_id" in fields
-                and "Category" in entities_by_class
-                and "CategoryNotFoundError" in exception_names
-            ):
-                lines.append("        if category_id is not None:")
-                lines.append("            if self.category_repo.get_by_id(category_id) is None:")
-                lines.append("                raise CategoryNotFoundError(category_id)")
+            # Generic FK validation: for any designed param that is a
+            # foreign-key column of this entity (<x>_id), when the referenced
+            # entity <X> exists AND a <X>NotFoundError was designed, emit a
+            # deterministic existence check. Fully design-driven.
+            fk_params = [
+                p for p in param_names
+                if p.endswith("_id") and p != "id" and p in fields
+            ]
+            for fk in fk_params:
+                ref_cls = _camel(fk[: -len("_id")])
+                not_found = "%sNotFoundError" % ref_cls
+                if (
+                    ref_cls in entities_by_class
+                    and not_found in exception_names
+                    and "%s_repo" % _snake(ref_cls) != "%s_repo" % var
+                ):
+                    lines.append("        if %s is not None:" % fk)
+                    lines.append(
+                        "            if self.%s_repo.get_by_id(%s) is None:"
+                        % (_snake(ref_cls), fk)
+                    )
+                    lines.append("                raise %s(%s)" % (not_found, fk))
             lines.append("        %s = %s(%s)" % (var, ent_name, ", ".join(kwargs)))
             lines.append("        return self.%s_repo.create(%s)" % (var, var))
             return lines
@@ -2244,9 +2216,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
 def _render_cli_file(design, svc_class, entities_by_class, service_methods, verbose=False):
     """Deterministic click CLI: one flat top-level command per command.
 
-    The test suite invokes `python3 cli.py category-add --help`,
-    `python3 cli.py expense-add --help`, `python3 cli.py expense-list --help`
-    and `python3 cli.py budget-add --help`. So every designed command becomes
+    A designed command `group=["item"], name="add"` becomes
     a flat `@click.command()` named `<group>_<name>` registered on the root
     `cli` group, wired to the designed service method with option->param
     mapping. No LLM involvement.
@@ -2274,8 +2244,7 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods, verb
         name = c.get("name")
         if not name:
             continue
-        # click registers commands under their function-name; the test suite
-        # invokes `python3 cli.py category-add --help`, so hyphenate and give
+        # click registers commands under their function-name; hyphenate and give
         # the function an identifier-safe name (underscores) while click
         # exposes the hyphenated alias via the explicit @cli.command(name=...).
         leaf = group[-1] if group else ""
