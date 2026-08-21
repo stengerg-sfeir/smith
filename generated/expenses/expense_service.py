@@ -18,12 +18,7 @@ class ExpenseService:
         self.expense_repo = ExpenseRepository(db)
 
     def list_expenses(self, category_id: Optional[int] = None, start_date: Optional[datetime.date] = None, end_date: Optional[datetime.date] = None, payment_method: Optional[str] = None) -> List[Dict[str, Any]]:
-        return self.expense_repo.list(
-            category_id=category_id,
-            start_date=start_date,
-            end_date=end_date,
-            payment_method=payment_method,
-        )
+        return self.expense_repo.list(category_id=category_id, start_date=start_date, end_date=end_date, payment_method=payment_method)
 
     def get_expense_by_id(self, id: int) -> Optional[Dict[str, Any]]:
         return self.expense_repo.get_by_id(id)
@@ -35,7 +30,7 @@ class ExpenseService:
         self.expense_repo.update(id, data)
 
     def delete_expense(self, id: int) -> None:
-        self.expense_repo.delete(id)
+        return self.expense_repo.delete(id)
 
     def get_monthly_report(self, month: str) -> Dict[str, Any]:
         expenses = self.expense_repo.list(
