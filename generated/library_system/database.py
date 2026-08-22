@@ -55,18 +55,45 @@ def create_tables(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON")
     cursor.executescript(
-        """        CREATE TABLE IF NOT EXISTS tasks (
+        """        CREATE TABLE IF NOT EXISTS books (
             title TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL,
+            isbn TEXT NOT NULL,
+            published_year INTEGER NOT NULL,
+            available_copies INTEGER NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT
+        );
+
+        CREATE TABLE IF NOT EXISTS authors (
+            name TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            description TEXT
+            birth_year INTEGER,
+            biography TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS members (
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            is_active BOOLEAN NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            membership_date TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS loans (
+            book_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            loan_date TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            return_date TEXT,
+            FOREIGN KEY (book_id) REFERENCES books (id),
+            FOREIGN KEY (member_id) REFERENCES members (id)
         );"""
     )
     conn.commit()
 
 
-def init_database(db_path: str = "app.db") -> sqlite3.Connection:
+def init_database(db_path: str = "library.db") -> sqlite3.Connection:
     """Initialize database with tables and return connection."""
     conn = get_db_connection(db_path)
     create_tables(conn)

@@ -85,195 +85,156 @@ class ExpenseRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def find_expenses_by_date_range(self, start_date: date, end_date: date) -> List[Expense]:
+    def list_expenses_filtered(self, category_id: Optional[int] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, payment_method: Optional[str] = None) -> List[Expense]:
         return self.list(
+            category_id=category_id,
             start_date=start_date,
             end_date=end_date,
+            payment_method=payment_method,
         )
 
-    def find_expenses_by_category(self, category_id: int) -> List[Expense]:
+    def get_expenses_by_category(self, category_id: int) -> List[Expense]:
         return self.list(category_id=category_id)
 
-    def find_expenses_by_payment_method(self, payment_method: str) -> List[Expense]:
-        return self.list(payment_method=payment_method)
+    def get_monthly_spending_summary(self, month: str) -> Dict[str, Any]:
+        # Format: "YYYY-MM"
+        year, month_num = month.split('-')
+        month_num = int(month_num)
 
-    def find_expenses_by_date_and_category(self, start_date: date, end_date: date, category_id: int) -> List[Expense]:
-        return self.list(
-            category_id=category_id,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-    def find_expenses_by_date_and_payment_method(self, start_date: date, end_date: date, payment_method: str) -> List[Expense]:
-        return self.list(
-            payment_method=payment_method,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-    def find_expenses_by_all_filters(self, start_date: date, end_date: date, category_id: int, payment_method: str) -> List[Expense]:
-        return self.list(
-            category_id=category_id,
-            payment_method=payment_method,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-    def get_total_expense_amount_by_month(self, month: str) -> int:
         with self.db.connect() as conn:
-            # Assuming month format is 'YYYY-MM'
-            query = "SELECT SUM(amount_cents) FROM expenses WHERE strftime('%Y-%m', expense_date) = ?"
-            result = conn.execute(query, (month,)).fetchone()
-            return result[0] if result[0] is not None else 0
-
-    def get_category_spending_breakdown_by_month(self, month: str) -> Dict[str, int]:
-        with self.db.connect() as conn:
-            query = """
+            cursor = conn.execute(
+                """
                 SELECT 
-                    category_id,
-                    SUM(amount_cents) AS total_amount
+                    strftime('%Y-%m', expense_date) as month,
+                    SUM(amount_cents) as total_spent
                 FROM expenses 
                 WHERE strftime('%Y-%m', expense_date) = ?
-                GROUP BY category_id
-            """
-            rows = conn.execute(query, (month,)).fetchall()
-            return {row[0]: row[1] for row in rows}
-
-    def get_budget_status_for_category_in_month(self, category_id: int, month: str) -> str:
-        with self.db.connect() as conn:
-            # Get total spending for category in month
-            query = """
-                SELECT SUM(amount_cents) AS total_spent
-                FROM expenses 
-                WHERE category_id = ? 
-                  AND strftime('%Y-%m', expense_date) = ?
-            """
-            result = conn.execute(query, (category_id, month)).fetchone()
-            total_spent = result[0] if result[0] is not None else 0
-
-            # Assuming we have a budget value stored in a separate table or config
-            # For now, we'll simulate with a placeholder - in real app, this would come from budget table
-            # Example: if budget is 1000, and spent is 800, return "Under Budget"
-            # This is a placeholder - actual implementation would require budget data
-            budget_amount = 1000  # Placeholder - should come from budget table
-            if total_spent > budget_amount:
-                return "Over Budget"
-            elif total_spent == budget_amount:
-                return "At Budget"
-            else:
-                return "Under Budget"
-
-    def get_monthly_budget_summary(self, month: str) -> Dict[str, Any]:
-        with self.db.connect() as conn:
-            query = """
-                SELECT 
-                    category_id,
-                    SUM(amount_cents) AS total_spent,
-                    MAX(expense_date) AS latest_expense_date
-                FROM expenses 
-                WHERE strftime('%Y-%m', expense_date) = ?
-                GROUP BY category_id
-            """
-            rows = conn.execute(query, (month,)).fetchall()
-            return {
-                'month': month,
-                'category_spending': {row[0]: row[1] for row in rows},
-                'total_spent': sum(row[1] for row in rows),
-                'total_categories': len(rows)
-            }
-
-    def get_expenses_for_category_with_aggregates(self, category_id: int, start_date: date, end_date: date) -> Dict[str, Any]:
-        with self.db.connect() as conn:
-            query = """
-                SELECT 
-                    category_id,
-                    SUM(amount_cents) AS total_amount,
-                    COUNT(*) AS expense_count,
-                    MIN(expense_date) AS first_expense_date,
-                    MAX(expense_date) AS last_expense_date,
-                    AVG(amount_cents) AS average_amount
-                FROM expenses 
-                WHERE category_id = ? 
-                  AND expense_date >= ? 
-                  AND expense_date <= ?
-                GROUP BY category_id
-            """
-            row = conn.execute(query, (category_id, start_date, end_date)).fetchone()
-            return {
-                'category_id': category_id,
-                'total_amount': row[1] if row[1] is not None else 0,
-                'expense_count': row[2] if row[2] is not None else 0,
-                'first_expense_date': row[3] if row[3] is not None else None,
-                'last_expense_date': row[4] if row[4] is not None else None,
-                'average_amount': row[5] if row[5] is not None else 0
-            }
+                GROUP BY strftime('%Y-%m', expense_date)
+                """,
+                (month,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return {"month": month, "total_spent": 0}
+            return {"month": month, "total_spent": row[1]}
 
     def get_yearly_summary(self, year: int) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            query = """
+            cursor = conn.execute(
+                """
                 SELECT 
-                    strftime('%Y', expense_date) AS year,
-                    strftime('%m', expense_date) AS month,
-                    SUM(amount_cents) AS monthly_total
+                    strftime('%Y', expense_date) as year,
+                    strftime('%m', expense_date) as month,
+                    SUM(amount_cents) as total_spent
                 FROM expenses 
                 WHERE strftime('%Y', expense_date) = ?
-                GROUP BY month
+                GROUP BY strftime('%Y', expense_date), strftime('%m', expense_date)
                 ORDER BY month
-            """
-            rows = conn.execute(query, (str(year),)).fetchall()
-            monthly_totals = {}
-            for row in rows:
-                month = row[1]
-                total = row[2]
-                monthly_totals[month] = total
+                """,
+                (str(year),)
+            )
+            result = {}
+            for row in cursor.fetchall():
+                month = f"{year}-{str(row[1]).zfill(2)}"
+                result[month] = row[2]
+            return {"year": str(year), "monthly_spending": result}
 
-            return {
-                'year': str(year),
-                'monthly_totals': monthly_totals,
-                'total_yearly_spending': sum(monthly_totals.values()) if monthly_totals else 0
-            }
-
-    def check_budget_exceeded_after_insert(self, expense: Expense) -> bool:
-        # This would require knowledge of the budget system
-        # For now, we'll simulate a simple check based on category and month
+    def get_category_spending_range(self, category_id: int, start_date: date, end_date: date) -> int:
         with self.db.connect() as conn:
-            # Get current total spending for the category in the same month
-            month = expense.expense_date.strftime('%Y-%m')
-            query = """
-                SELECT SUM(amount_cents) AS total_spent
+            cursor = conn.execute(
+                """
+                SELECT SUM(amount_cents) as total_spent
                 FROM expenses 
                 WHERE category_id = ? 
-                  AND strftime('%Y-%m', expense_date) = ?
-            """
-            result = conn.execute(query, (expense.category_id, month)).fetchone()
-            total_spent = result[0] if result[0] is not None else 0
+                AND expense_date >= ? 
+                AND expense_date <= ?
+                """,
+                (category_id, start_date, end_date)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
 
-            # Assume budget is 1000 cents (10 dollars) - this should come from a budget table
-            budget_amount = 1000
-            return total_spent + expense.amount_cents > budget_amount
+    def check_budget_exceeded(self, category_id: int, month: str) -> bool:
+        # Format: "YYYY-MM"
+        year, month_num = month.split('-')
+        month_num = int(month_num)
 
-    def find_recurring_expenses(self, start_date: date, end_date: date) -> List[Expense]:
         with self.db.connect() as conn:
-            query = """
-                SELECT * FROM expenses 
-                WHERE is_recurring = 1 
-                  AND expense_date >= ? 
-                  AND expense_date <= ?
-            """
-            rows = conn.execute(query, (start_date, end_date)).fetchall()
-            return [Expense(**dict(r)) for r in rows]
+            cursor = conn.execute(
+                """
+                SELECT SUM(amount_cents) as total_spent
+                FROM expenses 
+                WHERE category_id = ? 
+                AND strftime('%Y-%m', expense_date) = ?
+                """,
+                (category_id, month)
+            )
+            row = cursor.fetchone()
+            total_spent = row[0] if row else 0
+            # Assuming budget is stored in a separate table or config
+            # For now, we'll simulate a budget check with a hardcoded value
+            # In a real app, this would query a budget table
+            budget = 1000  # Example budget value
+            return total_spent > budget
 
-    def get_expense_count_by_category(self, start_date: date, end_date: date) -> Dict[int, int]:
+    def get_budget_status_for_month(self, category_id: int, month: str) -> Dict[str, Any]:
+        # Format: "YYYY-MM"
+        year, month_num = month.split('-')
+        month_num = int(month_num)
+
         with self.db.connect() as conn:
-            query = """
+            cursor = conn.execute(
+                """
+                SELECT 
+                    strftime('%Y-%m', expense_date) as month,
+                    SUM(amount_cents) as total_spent
+                FROM expenses 
+                WHERE category_id = ? 
+                AND strftime('%Y-%m', expense_date) = ?
+                GROUP BY strftime('%Y-%m', expense_date)
+                """,
+                (category_id, month)
+            )
+            row = cursor.fetchone()
+            total_spent = row[1] if row else 0
+            # Assuming budget is stored in a separate table or config
+            budget = 1000  # Example budget value
+
+            return {
+                "category_id": category_id,
+                "month": month,
+                "total_spent": total_spent,
+                "budget": budget,
+                "is_over_budget": total_spent > budget
+            }
+
+    def get_recurring_expense_patterns(self) -> List[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
                 SELECT 
                     category_id,
-                    COUNT(*) AS count
+                    payment_method,
+                    COUNT(*) as recurrence_count,
+                    AVG(amount_cents) as avg_amount,
+                    MIN(expense_date) as first_occurrence,
+                    MAX(expense_date) as last_occurrence
                 FROM expenses 
-                WHERE expense_date >= ? 
-                  AND expense_date <= ?
-                GROUP BY category_id
-            """
-            rows = conn.execute(query, (start_date, end_date)).fetchall()
-            return {row[0]: row[1] for row in rows}
+                WHERE is_recurring = 1
+                GROUP BY category_id, payment_method
+                ORDER BY recurrence_count DESC
+                """
+            )
+            rows = cursor.fetchall()
+            return [
+                {
+                    "category_id": row[0],
+                    "payment_method": row[1],
+                    "recurrence_count": row[2],
+                    "avg_amount": row[3],
+                    "first_occurrence": row[4],
+                    "last_occurrence": row[5]
+                }
+                for row in rows
+            ]
 

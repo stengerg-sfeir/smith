@@ -1,6 +1,7 @@
 """BudgetRepository data access."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from database import Database
@@ -37,16 +38,19 @@ class BudgetRepository:
             ).fetchall()
             return [Budget(**dict(r)) for r in rows]
 
-    def list(self, category_id: Optional[Any] = None, month: Optional[Any] = None) -> List[Budget]:
+    def list(self, category: Optional[Any] = None, month: Optional[Any] = None, category_id: Optional[Any] = None) -> List[Budget]:
         with self.db.connect() as conn:
             query = "SELECT * FROM budgets WHERE 1=1"
             params: List[Any] = []
-            if category_id is not None:
+            if category is not None:
                 query += ' AND category_id = ?'
-                params.append(category_id)
+                params.append(category)
             if month is not None:
                 query += ' AND month = ?'
                 params.append(month)
+            if category_id is not None:
+                query += ' AND category_id = ?'
+                params.append(category_id)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Budget(**dict(r)) for r in rows]
 
@@ -84,68 +88,96 @@ class BudgetRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def find_budgets_by_month(self, month: str) -> List[Budget]:
-        return self.list(month=month)
+    def get_budgets_by_month(self, month: str, category_id: Optional[int] = None) -> List[Budget]:
+        return self.list(
+            month=month,
+            category_id=category_id,
+        )
 
-    def find_budgets_by_category(self, category_id: int) -> List[Budget]:
-        return self.list(category_id=category_id)
+    def get_budget_status_for_category_month(self, category_id: int, month: str) -> Dict[str, Any]:
+        budgets = self.list(category_id=category_id, month=month)
+        if not budgets:
+            return {
+                "category_id": category_id,
+                "month": month,
+                "total_budget": 0,
+                "total_spent": 0,
+                "status": "no_budget"
+            }
 
-    def find_budgets_by_month_and_category(self, category_id: int, month: str) -> List[Budget]:
-        return self.list(category_id=category_id, month=month)
+        # Assuming we have a way to calculate spent amount (this would require additional data)
+        # Since we don't have transaction data in the models, we'll return just the budget info
+        # This is a placeholder - in a real implementation, you'd need to join with transactions
+        budget = budgets[0]
+        return {
+            "category_id": category_id,
+            "month": month,
+            "total_budget": budget.amount_limit_cents,
+            "total_spent": 0,
+            "status": "within_budget" if budget.amount_limit_cents > 0 else "no_budget"
+        }
 
-    def get_budget_amount_for_category_in_month(self, category_id: int, month: str) -> int:
+    def check_budget_exceeded(self, category_id: int, month: str) -> bool:
+        budgets = self.list(category_id=category_id, month=month)
+        if not budgets:
+            return False
+
+        # This is a placeholder - without transaction data, we can't determine if budget is exceeded
+        # In a real implementation, you'd need to join with transaction data to calculate spent
+        budget = budgets[0]
+        return False  # Placeholder - budget is not exceeded without transaction data
+
+    def get_budget_by_category_and_month(self, category_id: int, month: str) -> Optional[Budget]:
+        return self.get_by_category_and_month(category_id, month)
+
+    def list_budgets_with_category_summary(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict[str, Any]]:
+        # This method would require joining budgets with category data and potentially transaction data
+        # Since we don't have category or transaction models in this scope, we'll return a basic structure
         with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT amount_limit_cents FROM budgets WHERE category_id = ? AND month = ?",
-                (category_id, month)
-            ).fetchone()
-            return row[0] if row else 0
+            query = "SELECT * FROM budgets"
+            params = []
 
-    def check_budget_exceeded_after_insert(self, expense: Expense) -> bool:
-        # This method assumes we have access to expense details and can check against existing budgets
-        # We need to determine if the expense exceeds the budget for its category and month
-        # Since we don't have Expense model in scope, this is a placeholder
-        # In a real implementation, we would need to know the category_id and month of the expense
-        # and check against the budget for that category and month
-        raise NotImplementedError("Expense model not available in context")
+            if start_date:
+                query += " WHERE month >= ?"
+                params.append(start_date.strftime('%Y-%m'))
+            if end_date:
+                query += " AND month <= ?"
+                params.append(end_date.strftime('%Y-%m'))
 
-    def get_budget_status_for_category_in_month(self, category_id: int, month: str) -> str:
-        # Check if budget exists for category and month
-        budget = self.get_by_category_and_month(category_id, month)
-        if not budget:
-            return "No Budget"
+            query += " ORDER BY month, category_id"
 
-        # If budget exists, check if it's exceeded (assuming we have expense data)
-        # This method is incomplete without expense data
-        return "Within Budget"  # Placeholder
+            rows = conn.execute(query, params).fetchall()
 
-    def get_monthly_budget_summary(self, month: str) -> Dict[str, Any]:
-        with self.db.connect() as conn:
-            # Get all budgets for the given month
-            rows = conn.execute(
-                "SELECT category_id, amount_limit_cents FROM budgets WHERE month = ? ORDER BY category_id",
-                (month,)
-            ).fetchall()
+            result = []
+            category_budgets = {}
 
-            # Group by category_id and sum up amounts (though each budget has a single amount)
-            summary = {}
             for row in rows:
-                category_id = row[0]
-                amount = row[1]
-                summary[category_id] = {
-                    "amount_limit_cents": amount,
-                    "status": "Within Budget"  # Placeholder
-                }
-            return summary
+                budget = Budget(**dict(row))
+                category_id = budget.category_id
+                month = budget.month
 
-    def get_budgets_for_all_categories_in_month(self, month: str) -> Dict[int, Budget]:
-        with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM budgets WHERE month = ? ORDER BY category_id",
-                (month,)
-            ).fetchall()
-            result = {}
-            for row in rows:
-                result[row[0]] = Budget(**dict(row))
+                if category_id not in category_budgets:
+                    category_budgets[category_id] = {
+                        "category_id": category_id,
+                        "budgets": [],
+                        "total_budget": 0,
+                        "total_spent": 0
+                    }
+
+                category_budgets[category_id]["budgets"].append({
+                    "month": month,
+                    "amount_limit_cents": budget.amount_limit_cents
+                })
+
+                category_budgets[category_id]["total_budget"] += budget.amount_limit_cents
+
+            # Convert to list of dictionaries
+            for category_id, data in category_budgets.items():
+                result.append({
+                    "category_id": category_id,
+                    "total_budget": data["total_budget"],
+                    "budgets": data["budgets"]
+                })
+
             return result
 

@@ -69,74 +69,65 @@ class CategoryRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def find_expenses_for_category(self, category_id: int) -> List[Expense]:
+    def get_expenses_by_category(self, category_id: int) -> List[Expense]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM expenses WHERE category_id = ?", (category_id,)
             ).fetchall()
             return [Expense(**dict(row)) for row in rows]
 
-    def get_category_total_spending(self, category_id: int, start_date: date, end_date: date) -> int:
+    def get_category_summary(self, category_id: int, start_date: Optional[date] = None, end_date: Optional[date] = None) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                """
-                SELECT SUM(amount) 
-                FROM expenses 
-                WHERE category_id = ? 
-                  AND date >= ? 
-                  AND date <= ?
-                """,
-                (category_id, start_date, end_date),
-            )
-            total = cur.fetchone()[0]
-            return total or 0
-
-    def get_category_spending_breakdown_by_month(self, category_id: int, start_date: date, end_date: date) -> Dict[str, int]:
-        with self.db.connect() as conn:
-            # Extract month-year from date and group by month
-            rows = conn.execute(
-                """
-                SELECT 
-                    strftime('%Y-%m', date) AS month,
-                    SUM(amount) AS total_spent
-                FROM expenses 
-                WHERE category_id = ? 
-                  AND date >= ? 
-                  AND date <= ?
-                GROUP BY strftime('%Y-%m', date)
-                ORDER BY month
-                """,
-                (category_id, start_date, end_date),
-            ).fetchall()
+            query = "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category_id = ?"
+            params = [category_id]
+            if start_date:
+                query += " AND date >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND date <= ?"
+                params.append(end_date)
+            rows = conn.execute(query, params).fetchone()
             return {
-                row[0]: row[1] for row in rows
+                "total_amount": rows[0] if rows[0] is not None else 0,
+                "expense_count": rows[1] if rows[1] is not None else 0,
             }
 
-    def get_category_budget_status(self, category_id: int, month: str) -> str:
-        # Example: "Under Budget", "On Budget", "Over Budget"
+    def get_category_budget_status(self, category_id: int, month: str) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            # Get total spending for the given month
-            cur = conn.execute(
-                """
-                SELECT SUM(amount) AS total_spent
-                FROM expenses 
-                WHERE category_id = ? 
-                  AND strftime('%Y-%m', date) = ?
-                """,
-                (category_id, month),
-            )
-            total_spent = cur.fetchone()[0] or 0
+            # Example: "2024-03" format
+            month_year = month.strip()
+            if not month_year:
+                raise ValueError("Month must be provided in format 'YYYY-MM'")
 
-            # Get monthly budget from category
-            category_row = conn.execute(
-                "SELECT monthly_budget FROM categories WHERE id = ?", (category_id,)
-            ).fetchone()
-            monthly_budget = category_row[0] if category_row else 0
+            # Parse month and year
+            try:
+                year, month_part = month_year.split('-')
+                year = int(year)
+                month_num = int(month_part)
+                if month_num < 1 or month_num > 12:
+                    raise ValueError("Invalid month")
+            except ValueError as e:
+                raise ValueError(f"Invalid month format: {month_year}") from e
 
-            if total_spent < monthly_budget:
-                return "Under Budget"
-            elif total_spent == monthly_budget:
-                return "On Budget"
-            else:
-                return "Over Budget"
+            # Query for expenses in that month
+            query = """
+                SELECT 
+                    SUM(e.amount) as total_spent,
+                    c.monthly_budget as budget
+                FROM expenses e
+                JOIN categories c ON e.category_id = c.id
+                WHERE c.id = ? 
+                  AND strftime('%Y-%m', e.date) = ?
+            """
+            params = [category_id, month_year]
+            row = conn.execute(query, params).fetchone()
+            total_spent = row[0] if row[0] is not None else 0
+            budget = row[1] if row[1] is not None else 0
+
+            return {
+                "total_spent": total_spent,
+                "budget": budget,
+                "percentage_used": round((total_spent / budget) * 100 if budget > 0 else 0, 2),
+                "is_over_budget": total_spent > budget
+            }
 

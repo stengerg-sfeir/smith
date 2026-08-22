@@ -16,7 +16,7 @@ def cli():
 def category_add(name, description, budget, icon):
     """expense/category/add"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.add_expense(name=name, description=description, monthly_budget=budget, icon=icon)
+    result = svc.add_expense(data={'name': name, 'description': description, 'monthly_budget': budget, 'icon': icon})
 
 @cli.command('category-list')
 def category_list():
@@ -33,7 +33,7 @@ def category_list():
 def category_update(id, name, description, budget, icon):
     """expense/category/update"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.update_expense(id=id, name=name, description=description, monthly_budget=budget, icon=icon)
+    result = svc.update_expense(id=id, data={'name': name, 'description': description, 'monthly_budget': budget, 'icon': icon})
 
 @cli.command('category-delete')
 @click.option('--id', type=int, required=True)
@@ -48,7 +48,7 @@ def category_delete(id):
 def budget_list(category, month):
     """budget/list"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.list_expenses(category_id=category, month=month)
+    result = svc.list_expenses(category_id=category)
 
 @cli.command('budget-add')
 @click.option('--category-id', type=int, required=True)
@@ -57,7 +57,7 @@ def budget_list(category, month):
 def budget_add(category_id, month, amount):
     """budget/add"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.add_expense(category_id=category_id, month=month, amount_limit_cents=amount)
+    result = svc.add_expense(data={'category_id': category_id, 'month': month, 'amount_limit_cents': amount})
 
 @cli.command('budget-update')
 @click.option('--category-id', type=int, required=True)
@@ -66,7 +66,7 @@ def budget_add(category_id, month, amount):
 def budget_update(category_id, month, amount):
     """budget/update"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.update_expense(category_id=category_id, month=month, amount_limit_cents=amount)
+    result = svc.update_expense(data={'category_id': category_id, 'month': month, 'amount_limit_cents': amount})
 
 @cli.command('budget-delete')
 @click.option('--category-id', type=int, required=True)
@@ -74,7 +74,7 @@ def budget_update(category_id, month, amount):
 def budget_delete(category_id, month):
     """budget/delete"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.delete_expense(category_id=category_id, month=month)
+    result = svc.delete_expense()
 
 @cli.command('expense-add')
 @click.option('--amount', type=int, required=True)
@@ -86,7 +86,7 @@ def budget_delete(category_id, month):
 def expense_add(amount, description, category, expense_date, method, recurring):
     """expense/add"""
     svc = ExpenseService(Database(DB_PATH))
-    result = svc.add_expense(amount_cents=amount, description=description, category_id=category, expense_date=expense_date, payment_method=method, is_recurring=recurring)
+    result = svc.add_expense(data={'amount_cents': amount, 'description': description, 'category_id': category, 'expense_date': expense_date, 'payment_method': method, 'is_recurring': recurring})
 
 @cli.command('expense-list')
 @click.option('--category', type=int)
@@ -112,12 +112,12 @@ def report_yearly(year):
     svc = ExpenseService(Database(DB_PATH))
     result = svc.get_yearly_summary(year=year)
 
-@cli.command('export-export')
+@cli.command('expense-export')
 @click.option('--from-date', required=True)
 @click.option('--to-date', required=True)
 @click.option('--output', required=True)
-def export_export(from_date, to_date, output):
-    """expense/export/export"""
+def expense_export(from_date, to_date, output):
+    """expense/export"""
     svc = ExpenseService(Database(DB_PATH))
     result = svc.export_to_csv(start_date=from_date, end_date=to_date, file_path=output)
 

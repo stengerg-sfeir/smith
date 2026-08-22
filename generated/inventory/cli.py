@@ -1,72 +1,104 @@
-import sqlite3
-
 import click
+from database import Database
+from inventory_service import InventoryService
 
+DB_PATH = "inventory.db"
 
 @click.group()
 def cli():
-    """CLI for managing inventory operations."""
-    pass
+    """Application root."""
 
-@cli.command()
-@click.argument('item_id', type=click.INT, required=False)
-@click.option('--name', prompt=True, help='Name of the item')
-@click.option('--price', type=click.INT, help='Price in cents')
-def add(item_id: Optional[int], name: str, price: Optional[int]):
-    """Add a new item to inventory."""
-    conn = sqlite3.connect('inventory.db')
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO items (id, name, price) VALUES (?, ?, ?)', (item_id, name, price))
-    conn.commit()
-    conn.close()
-    click.echo(f"Item '{name}' added successfully.")
+@cli.command('product-add')
+@click.option('--sku', required=True)
+@click.option('--name', required=True)
+@click.option('--category', type=int, required=True)
+@click.option('--price', type=int, required=True)
+@click.option('--stock', type=int)
+def product_add(sku, name, category, price, stock):
+    """product/add"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.add_product(sku=sku, name=name, category_id=category, price_cents=price, stock_qty=stock)
 
-@cli.command()
-@click.argument('item_id', type=click.INT, required=False)
-@click.option('--name', help='Name of the item')
-@click.option('--price', type=click.INT, help='Price in cents')
-def update(item_id: Optional[int], name: Optional[str], price: Optional[int]):
-    """Update an existing item in inventory."""
-    conn = sqlite3.connect('inventory.db')
-    cursor = conn.cursor()
-    if name is not None:
-        cursor.execute('UPDATE items SET name = ? WHERE id = ?', (name, item_id))
-    if price is not None:
-        cursor.execute('UPDATE items SET price = ? WHERE id = ?', (price, item_id))
-    conn.commit()
-    conn.close()
-    click.echo(f"Item {item_id} updated successfully.")
+@cli.command('product-list')
+@click.option('--category', type=int)
+@click.option('--low-only', is_flag=True, default=False)
+def product_list(category, low_only):
+    """product/list"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.list_products(category_id=category, low_only=low_only)
 
-@cli.command()
-@click.argument('item_id', type=click.INT, required=False)
-@click.option('--name', help='Name of the item')
-@click.option('--price', type=click.INT, help='Price in cents')
-def delete(item_id: Optional[int], name: Optional[str], price: Optional[int]):
-    """Delete an item from inventory."""
-    conn = sqlite3.connect('inventory.db')
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM items WHERE id = ?', (item_id,))
-    conn.commit()
-    conn.close()
-    click.echo(f"Item {item_id} deleted successfully.")
+@cli.command('product-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+@click.option('--price', type=int)
+@click.option('--category', type=int)
+def product_update(id, name, price, category):
+    """product/update"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.update_product(id=id, name=name, price_cents=price, category_id=category)
 
-@cli.command()
-@click.argument('item_id', type=click.INT, required=False)
-def view(item_id: Optional[int]):
-    """View item details or all items."""
-    conn = sqlite3.connect('inventory.db')
-    cursor = conn.cursor()
-    if item_id is not None:
-        cursor.execute('SELECT * FROM items WHERE id = ?', (item_id,))
-    else:
-        cursor.execute('SELECT * FROM items')
-    rows = cursor.fetchall()
-    conn.close()
-    if rows:
-        for row in rows:
-            click.echo(f"ID: {row[0]}, Name: {row[1]}, Price: {row[2]} cents")
-    else:
-        click.echo("No items found.")
+@cli.command('product-delete')
+@click.option('--id', type=int, required=True)
+def product_delete(id):
+    """product/delete"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.delete_product(id=id)
 
-if __name__ == '__main__':
+@cli.command('product-restock')
+@click.option('--id', type=int, required=True)
+@click.option('--qty', type=int, required=True)
+def product_restock(id, qty):
+    """product/restock"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.restock(id=id, qty=qty)
+
+@cli.command('product-report')
+@click.option('--low-stock', is_flag=True, default=False)
+def product_report(low_stock):
+    """product/report"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.low_stock_report(none=low_stock)
+
+@cli.command('product-report-2')
+@click.option('--value', is_flag=True, default=False)
+def product_report_2(value):
+    """product/report"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.stock_value_by_category(none=value)
+
+@cli.command('category-add')
+@click.option('--name', required=True)
+@click.option('--description')
+@click.option('--threshold', type=int)
+def category_add(name, description, threshold):
+    """category/add"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.add_product(name=name, description=description, reorder_threshold=threshold)
+
+@cli.command('category-list')
+def category_list():
+    """category/list"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.list_products()
+
+@cli.command('category-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+@click.option('--description')
+@click.option('--threshold', type=int)
+def category_update(id, name, description, threshold):
+    """category/update"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.update_product(id=id, name=name, description=description, reorder_threshold=threshold)
+
+@cli.command('category-delete')
+@click.option('--id', type=int, required=True)
+def category_delete(id):
+    """category/delete"""
+    svc = InventoryService(Database(DB_PATH))
+    result = svc.delete_product(id=id)
+
+
+if __name__ == "__main__":
     cli()
+

@@ -1,7 +1,7 @@
 """Service layer."""
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from category_repository import CategoryRepository
 from database import Database
@@ -23,50 +23,26 @@ class InventoryService:
         product = Product(sku=sku, name=name, category_id=category_id, price_cents=price_cents, stock_qty=stock_qty)
         return self.product_repo.create(product)
 
-    def update_product(self, id: int, data: Dict[str, Optional[Union[str, int, bool]]]) -> None:
+    def update_product(self, id: int, data: Dict[str, Any]) -> None:
         self.product_repo.update(id, data)
 
     def delete_product(self, id: int) -> None:
-        self.product_repo.delete(id)
+        return self.product_repo.delete(id)
 
     def get_product_by_id(self, id: int) -> Optional[Product]:
         return self.product_repo.get_by_id(id)
 
     def list_products(self, category_id: Optional[int] = None, low_only: Optional[bool] = None) -> List[Product]:
-        return self.product_repo.list(category_id=category_id)
+        return self.product_repo.list(category_id=category_id, low_only=low_only)
 
     def restock(self, id: int, qty: int) -> None:
-        if qty <= 0:
-            raise ValueError("Restock quantity must be positive")
-
         product = self.product_repo.get_by_id(id)
-        if product is None:
-            raise ProductNotFoundError(id)
-
-        new_stock = product.stock_qty + qty
-        product.stock_qty = new_stock
-        self.product_repo.update(id, {"stock_qty": new_stock})
+        if not product:
+            raise ProductNotFoundError(f'Product with id {id} not found')
+        self.product_repo.update(id, {'stock_qty': product.stock_qty + qty})
 
     def low_stock_report(self) -> List[Product]:
-        threshold = 10  # Define low stock threshold
-        low_stock_products = []
-
-        for product in self.product_repo.list():
-            if product.stock_qty <= threshold:
-                low_stock_products.append(product)
-
-        return low_stock_products
+        return self.product_repo.find_low_stock_products(category_id=None)
 
     def stock_value_by_category(self) -> Dict[str, int]:
-        category_value = {}
-
-        for product in self.product_repo.list():
-            category_name = self.category_repo.get_by_id(product.category_id).name if product.category_id else "Unknown"
-
-            if category_name not in category_value:
-                category_value[category_name] = 0
-
-            category_value[category_name] += product.price_cents * product.stock_qty
-
-        return category_value
-
+        return self.product_repo.aggregate_stock_value_by_category()

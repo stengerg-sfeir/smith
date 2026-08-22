@@ -2,7 +2,9 @@
 """
 Neurosymbolic Python Coding Agent
 
-Uses SymbolicAI (symai) to read prompts and generate Python code.
+Generates Python code from natural-language prompts via a local
+OpenAI-compatible LLM server. Structured design decisions are extracted as
+schema-constrained JSON; mechanical files are rendered deterministically.
 
 Validation pipeline (zero LLM cost):
   1. Syntax check (AST)
@@ -30,8 +32,6 @@ from textwrap import dedent
 import urllib.request
 import urllib.error
 
-from symai import Symbol
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -48,6 +48,11 @@ SYSTEM_CONTEXT = dedent("""\
 # Local llama-server (symserver) OpenAI-compatible endpoint.
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8000/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
+# Cap for LONG free-text decodes (whole-file generation / skeleton fills).
+# A fill that hits the cap is truncated -> fails validation -> burns a
+# retry with a different context: a major hidden run-to-run variance
+# source. Keep it well above the largest expected file.
+LLM_MAX_TOKENS_LONG = int(os.environ.get("LLM_MAX_TOKENS_LONG", "8192"))
 
 
 def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
@@ -73,7 +78,16 @@ def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    return data["choices"][0]["message"]["content"]
+    choice = data["choices"][0]
+    if choice.get("finish_reason") == "length":
+        # Truncated output: make it VISIBLE instead of letting it surface
+        # later as a mysterious validation failure.
+        print(
+            "    [warn] completion hit max_tokens=%d — output truncated"
+            % max_tokens,
+            file=sys.stderr,
+        )
+    return choice["message"]["content"]
 
 
 def _json_block(text):
@@ -366,7 +380,8 @@ def _extract_model_ast(files):
     Returns dict of class_name -> list of (field_name, python_type_hint).
     Handles annotation-assignment (`field: type = default`), plain
     assignment, and __init__-based field definitions. Also captures the
-    UNIQUE_TOGETHER constant into result["__unique_together__"] when present.
+    UNIQUE_TOGETHER constant into result["__unique_together__"] and the
+    TABLE_NAMES constant into result["__table_names__"] when present.
     """
     result = {}
     model_files = [fp for fp in files if "model" in fp.lower()]
@@ -399,6 +414,31 @@ def _extract_model_ast(files):
                     merged = dict(result.get("__unique_together__") or {})
                     merged.update(umap)
                     result["__unique_together__"] = merged
+                continue
+            # TABLE_NAMES constant emitted by _render_models_file
+            # (declared table names for entities with irregular plurals)
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "TABLE_NAMES"
+                and isinstance(node.value, ast.Dict)
+            ):
+                tmap = {}
+                try:
+                    for k, v in zip(node.value.keys, node.value.values):
+                        cls = ast.literal_eval(k)
+                        tbl = ast.literal_eval(v)
+                        if (
+                            isinstance(cls, str) and cls
+                            and isinstance(tbl, str) and tbl
+                        ):
+                            tmap[cls] = tbl
+                except Exception:
+                    tmap = {}
+                if tmap:
+                    merged = dict(result.get("__table_names__") or {})
+                    merged.update(tmap)
+                    result["__table_names__"] = merged
                 continue
             if isinstance(node, ast.ClassDef):
                 fields = []  # list of (name, type_hint_str)
@@ -447,6 +487,14 @@ def _pluralize_table_name(class_name):
     return lower + "s"
 
 
+def _entity_table_name(ent):
+    """Declared table name when the design declares one (irregular plural),
+    else the deterministic rule over the class name."""
+    ent = ent or {}
+    tn = (ent.get("table_name") or "").strip()
+    return tn or _pluralize_table_name(ent.get("name") or "")
+
+
 def _python_type_to_sql(type_hint):
     """Map Python type hints to SQLite column types."""
     t = type_hint.lower()
@@ -469,10 +517,11 @@ def _generate_ddl_from_models(model_classes):
     Table-level UNIQUE pairs come from the models' UNIQUE_TOGETHER constant.
     """
     unique_map = model_classes.pop("__unique_together__", {})
+    table_map = model_classes.pop("__table_names__", {})
     tables = []
 
     for class_name, fields in model_classes.items():
-        table_name = _pluralize_table_name(class_name)
+        table_name = table_map.get(class_name) or _pluralize_table_name(class_name)
 
         columns = []
         foreign_keys = []
@@ -497,7 +546,8 @@ def _generate_ddl_from_models(model_classes):
 
             # Detect foreign key patterns
             if field_name.endswith("_id") and field_name != "id":
-                ref_table = _pluralize_table_name(field_name.replace("_id", ""))
+                base = field_name[: -len("_id")]
+                ref_table = table_map.get(_camel(base)) or _pluralize_table_name(base)
                 foreign_keys.append(
                     "    FOREIGN KEY (%s) REFERENCES %s (id)" % (field_name, ref_table)
                 )
@@ -514,13 +564,15 @@ def _generate_ddl_from_models(model_classes):
     return "\n\n".join(tables)
 
 
-def _generate_database_file(model_classes):
+def _generate_database_file(model_classes, db_filename="app.db"):
     """Generate a complete database.py from model AST definitions.
 
     Uses a list-based template to guarantee clean line indentation --
     no dedent/tab pitfalls. DDL is emitted via cursor.executescript()
     with a triple-quoted string, so column/table lines never become
-    bare statements inside the function body.
+    bare statements inside the function body. `db_filename` is the spec's
+    own SQLite filename (declared in the layout design) used as the
+    init_database() default — nothing is hardcoded here.
     """
     ddl = _generate_ddl_from_models(model_classes)
 
@@ -591,7 +643,7 @@ def _generate_database_file(model_classes):
         "    conn.commit()",
         "",
         "",
-        'def init_database(db_path: str = "app.db") -> sqlite3.Connection:',
+        'def init_database(db_path: str = "%s") -> sqlite3.Connection:' % db_filename,
         '    """Initialize database with tables and return connection."""',
         "    conn = get_db_connection(db_path)",
         "    create_tables(conn)",
@@ -616,10 +668,12 @@ def _run_ruff_fix(project_dir):
 # ---------------------------------------------------------------------------
 
 def generate_code(prompt_text):
-    """Send prompt to SymbolicAI via Symbol.compose()."""
-    sym = Symbol(prompt_text, static_context=SYSTEM_CONTEXT)
-    result = sym.compose()
-    return str(result).strip()
+    """Free-text generation against the local OpenAI-compatible server."""
+    messages = [
+        {"role": "system", "content": SYSTEM_CONTEXT},
+        {"role": "user", "content": prompt_text},
+    ]
+    return _chat_completion(messages, max_tokens=LLM_MAX_TOKENS_LONG).strip()
 
 
 def generate_with_validation(prompt_text, spec_text="", sibling_exports=None,
@@ -663,61 +717,162 @@ def generate_with_validation(prompt_text, spec_text="", sibling_exports=None,
 # Manifest
 # ---------------------------------------------------------------------------
 
-_JSON_FENCE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+_MANIFEST_KINDS = (
+    "exceptions", "models", "repository", "service", "cli", "main", "other",
+)
 
-_MULTI_FILE_HINTS = [
-    "multi-module", "multi-file", "multiple files", "package",
-    "repositories", "services", "cli interface", "clean architecture",
-    "separation of concerns", "repository pattern",
-]
 
-def _needs_multifile(prompt_text):
-    lower = prompt_text.lower()
-    return any(hint in lower for hint in _MULTI_FILE_HINTS)
+def _manifest_schema():
+    """Layout design schema. Files carry DECLARED metadata (kind, entity) so
+    downstream phases never sniff the prompt text; `database_file` carries
+    the spec's own SQLite filename so no component hardcodes one."""
+    return {
+        "type": "object",
+        "properties": {
+            "database_file": {"type": "string"},
+            "files": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "role": {"type": "string"},
+                        "kind": {
+                            "type": "string",
+                            "enum": list(_MANIFEST_KINDS),
+                        },
+                        "entity": {"type": "string"},
+                        "imports_from": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["file", "role", "kind"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["files"],
+        "additionalProperties": False,
+    }
 
-def _generate_manifest(prompt_text):
-    manifest_prompt = dedent("""\
-        Given this project specification, produce a JSON file manifest.
-        SPEC: %s
-        Return ONLY a JSON array where each element has:
-        - "file": filename only, flat (e.g. "models.py")
-        - "role": one-sentence description
-        - "imports_from": list of other file stems this file imports from
-        RULES: flat filenames, no __init__.py, max 6-8 files.
-    """) % prompt_text
-    raw = generate_code(manifest_prompt)
-    raw = _extract_code_block(raw)
-    m = _JSON_FENCE.search(raw)
-    if m:
-        raw = m.group(1)
-    try:
-        manifest = json.loads(raw)
-        if isinstance(manifest, list) and len(manifest) > 0:
-            return manifest
-    except (json.JSONDecodeError, TypeError):
-        pass
+
+_MANIFEST_SYSTEM = (
+    "You are an expert Python architect. Plan the FILE LAYOUT of a Python "
+    "project from its specification. Output JSON with a \"files\" array "
+    "(flat filenames like \"models.py\", no __init__.py, max 6-8 files) and "
+    "a \"database_file\" string: the SQLite database filename the spec "
+    "names (e.g. \"finance.db\"), or \"app.db\" when it names none. Each "
+    "file entry: {\"file\", \"role\", \"kind\", \"entity\", "
+    "\"imports_from\"} where kind is one of %s. \"entity\" is the "
+    "snake_case domain entity the module owns — REQUIRED for repository and "
+    "service kinds, omit it otherwise. \"imports_from\" lists sibling file "
+    "stems this file imports from."
+) % ", ".join(_MANIFEST_KINDS)
+
+
+def _infer_manifest_kind(stem):
+    """Deterministic fallback when the layout design omits `kind`."""
+    if "exception" in stem:
+        return "exceptions"
+    if "model" in stem:
+        return "models"
+    if stem.endswith("_repository") or stem in ("repository", "repositories"):
+        return "repository"
+    if stem.endswith("_service") or stem in ("service", "services"):
+        return "service"
+    if stem == "cli":
+        return "cli"
+    if stem in ("main", "app"):
+        return "main"
+    return "other"
+
+
+def _generate_manifest(prompt_text, verbose=False):
+    """Schema-constrained layout design (grammar-enforced JSON, no fences)."""
+    user = "SPECIFICATION:\n%s\n\nEmit the file-layout JSON now." % prompt_text
+    messages = [
+        {"role": "system", "content": _MANIFEST_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    for attempt in (0, 1):
+        data = _json_complete(messages, schema=_manifest_schema(), verbose=verbose)
+        if isinstance(data, dict) and data.get("files"):
+            return data
     return None
 
-def _validate_manifest(manifest):
+
+def _validate_manifest(data):
+    """Normalize the layout design: flat filenames, declared kinds/entities,
+    resolvable imports. Returns (files, db_file)."""
+    db_file = str(data.get("database_file") or "").strip()
+    if not re.match(r"^[\w.-]+\.db$", db_file):
+        db_file = "app.db"
     cleaned = []
-    for spec in manifest:
-        original = spec["file"]
+    for spec in data["files"]:
+        original = spec.get("file") or ""
         flat = Path(original).name
-        if flat == "__init__.py":
+        if flat == "__init__.py" or not flat.endswith(".py"):
             continue
-        if flat != original:
-            spec["file"] = flat
-            spec["imports_from"] = [
-                Path(d).name if "/" in d else d
-                for d in spec.get("imports_from", [])
-            ]
+        spec["file"] = flat
+        # Declared kind wins, but an absent/"other"/invalid declaration falls
+        # back to the deterministic filename inference so a mislabeled
+        # models.py can never silently drop out of the design phase.
+        if spec.get("kind") not in _MANIFEST_KINDS or spec["kind"] == "other":
+            spec["kind"] = _infer_manifest_kind(Path(flat).stem)
+        ent = spec.get("entity")
+        spec["entity"] = ent.strip() if isinstance(ent, str) else ""
+        spec["imports_from"] = [
+            Path(d).name if "/" in d else d
+            for d in spec.get("imports_from", [])
+        ]
         cleaned.append(spec)
     file_stems = {Path(s["file"]).stem for s in cleaned}
     for spec in cleaned:
         spec["imports_from"] = [
             i for i in spec.get("imports_from", []) if i in file_stems
         ]
-    return cleaned
+    # database.py is always generated deterministically from the model AST
+    cleaned = [s for s in cleaned if Path(s["file"]).stem != "database"]
+    return cleaned, db_file
+
+
+# ---------------------------------------------------------------------------
+# Semantic routing (schema-constrained) — replaces the fixed keyword list
+# that decided multi- vs single-pass generation.
+# ---------------------------------------------------------------------------
+
+def _route_schema():
+    return {
+        "type": "object",
+        "properties": {"mode": {"type": "string", "enum": ["single", "multi"]}},
+        "required": ["mode"],
+        "additionalProperties": False,
+    }
+
+
+_ROUTE_SYSTEM = (
+    "You classify software specifications. Decide whether the specification "
+    "describes a MULTI-MODULE project (several cooperating modules such as "
+    "models, repositories, services, a CLI — a structured application) or a "
+    "SINGLE-file script/tool. Output {\"mode\": \"multi\"} or "
+    "{\"mode\": \"single\"}."
+)
+
+
+def _route_mode(prompt_text, verbose=False):
+    messages = [
+        {"role": "system", "content": _ROUTE_SYSTEM},
+        {
+            "role": "user",
+            "content": "SPECIFICATION:\n%s\n\nClassify now." % prompt_text,
+        },
+    ]
+    for attempt in (0, 1):
+        data = _json_complete(messages, schema=_route_schema(), verbose=verbose)
+        if isinstance(data, dict) and data.get("mode") in ("single", "multi"):
+            return data["mode"]
+    return "single"
 
 
 # ---------------------------------------------------------------------------
@@ -743,6 +898,7 @@ def _entities_schema():
                     "type": "object",
                     "properties": {
                         "name": {"type": "string"},
+                        "table_name": {"type": "string"},
                         "fields": {
                             "type": "array",
                             "items": {
@@ -758,6 +914,7 @@ def _entities_schema():
                                     },
                                     "unique": {"type": "boolean"},
                                     "nullable": {"type": "boolean"},
+                                    "auto": {"type": "string", "enum": ["now"]},
                                 },
                                 "required": ["name", "type"],
                                 "additionalProperties": False,
@@ -799,6 +956,7 @@ def _entities_schema():
 
 _IMPL_KINDS = (
     "total_in_period", "total_filtered", "export_csv", "duplicate_groups",
+    "list_filtered", "sum_by_group", "below_foreign_threshold",
 )
 
 
@@ -814,6 +972,8 @@ def _methods_schema():
         own params that match the entity's declared list_filters.
       - export_csv:      write filtered rows to file_param as CSV.
       - duplicate_groups: group rows by group_by fields, keep count >= min_count.
+      - list_filtered:   repository listing delegating to self.list(**params)
+        restricted to the entity's declared list_filters (no name sniffing).
     """
     return {
         "type": "object",
@@ -907,6 +1067,10 @@ def _v_entities(d):
         name = ent.get("name")
         if not isinstance(name, str) or not _NAME_CLASS.match(name):
             errs.append("bad entity name %r" % (name,))
+        # Declared table name for irregular plurals (Person -> people);
+        # empty/invalid declarations fall back to the deterministic rule.
+        tn = ent.get("table_name")
+        ent["table_name"] = tn.strip() if isinstance(tn, str) else ""
         fields = ent.get("fields")
         if not isinstance(fields, list) or not fields:
             errs.append("%s: no fields" % (name,))
@@ -920,6 +1084,10 @@ def _v_entities(d):
                 errs.append("%s: bad field name %r" % (name, fname))
             if ftype not in ("str", "int", "float", "bool", "date", "datetime"):
                 errs.append("%s: bad type %r for field %r" % (name, ftype, fname))
+            # Declared insert-time auto-fill ("now" = creation timestamp);
+            # anything else normalizes to no auto-fill.
+            if f.get("auto") != "now":
+                f.pop("auto", None)
         # Declared list() filters: param/column snake_case, column must be a
         # real field of THIS entity, params unique. This declaration replaces
         # every suffix-based filter heuristic in the renderers.
@@ -962,6 +1130,11 @@ _IMPL_REQUIRED = {
     "total_filtered": ("entity", "value_field", "result_key"),
     "export_csv": ("entity", "file_param"),
     "duplicate_groups": ("entity", "group_by"),
+    "list_filtered": (),
+    "sum_by_group": ("entity", "value_field", "group_by"),
+    "below_foreign_threshold": (
+        "entity", "value_field", "ref_entity", "ref_field", "fk_field",
+    ),
 }
 
 
@@ -988,7 +1161,15 @@ def _v_impl(m, label):
     ):
         errs.append("%s.%s: impl.entity must be an identifier"
                     % (label, m.get("name")))
-    for key in ("value_field", "date_field", "period_param", "file_param"):
+    ref = impl.get("ref_entity")
+    if (
+        isinstance(ref, str) and ref
+        and not (_NAME_SNAKE.match(ref) or _NAME_CLASS.match(ref))
+    ):
+        errs.append("%s.%s: impl.ref_entity must be an identifier"
+                    % (label, m.get("name")))
+    for key in ("value_field", "date_field", "period_param", "file_param",
+                "ref_field", "fk_field"):
         v = impl.get(key)
         if isinstance(v, str) and v and not _NAME_SNAKE.match(v):
             errs.append("%s.%s: impl.%s must be snake_case"
@@ -1034,9 +1215,12 @@ def _normalize_impl(m):
         impl["granularity"] = "year"
 
     for key in ("entity", "value_field", "date_field", "period_param",
-                "result_key", "file_param"):
+                "result_key", "file_param", "ref_entity", "ref_field",
+                "fk_field"):
         if isinstance(impl.get(key), str) and impl[key]:
-            impl[key] = clean_ident(impl[key], lower=(key == "entity"))
+            impl[key] = clean_ident(
+                impl[key], lower=key in ("entity", "ref_entity")
+            )
 
     gb = impl.get("group_by")
     if isinstance(gb, list):
@@ -1052,7 +1236,7 @@ def _normalize_impl(m):
 
 def _strip_invalid_impls(d):
     """Remove impl objects that still fail shape validation after
-    normalization (services design).
+    normalization (services/repositories designs).
 
     An invalid impl is a malformed optimization hint, not a structural
     error: the affected method simply degrades to CRUD delegation or a
@@ -1068,6 +1252,57 @@ def _strip_invalid_impls(d):
             del m["impl"]
             removed += 1
     return removed
+
+
+def _strip_invalid_list_filters(d):
+    """Drop invalid list_filter declarations in-place (models design).
+
+    A list_filter that references a column the entity does not have, uses
+    a malformed param/op, or duplicates another param is an optimization
+    hint, not a structural error: list() simply renders fewer filters.
+    Stripping keeps a bad hint from burning design retries or failing the
+    whole pipeline (mirrors _strip_invalid_impls). Returns the number of
+    filter entries removed.
+    """
+    dropped = 0
+    ents = d.get("entities") if isinstance(d, dict) else None
+    if not isinstance(ents, list):
+        return 0
+    for ent in ents:
+        if not isinstance(ent, dict):
+            continue
+        lf = ent.get("list_filters")
+        if lf is None:
+            continue
+        if not isinstance(lf, list):
+            ent["list_filters"] = []
+            dropped += 1
+            continue
+        fields = {
+            f.get("name")
+            for f in ent.get("fields") or []
+            if isinstance(f, dict)
+        }
+        kept, seen = [], set()
+        for spec in lf:
+            ok = False
+            if isinstance(spec, dict):
+                p, c, op = spec.get("param"), spec.get("column"), spec.get("op")
+                ok = (
+                    isinstance(p, str) and bool(_NAME_SNAKE.match(p))
+                    and isinstance(c, str) and bool(_NAME_SNAKE.match(c))
+                    and c in fields
+                    and op in ("eq", "gte", "lte")
+                    and p not in seen
+                )
+                if ok:
+                    seen.add(p)
+            if ok:
+                kept.append(spec)
+            else:
+                dropped += 1
+        ent["list_filters"] = kept
+    return dropped
 
 
 def _v_methods(d, label):
@@ -1118,8 +1353,12 @@ _DESIGN_SYSTEMS = {
         '"column", "op"} entries where op is "eq" (equality) or "gte"/"lte" '
         '(lower/upper bound of a range over a date-like column). Declare only '
         'filters the listing/filtering features in the spec imply; omit '
-        '"list_filters" when none apply. Do not invent fields the spec does '
-        "not imply."
+        '"list_filters" when none apply. Per field, set "auto": "now" when '
+        'the spec implies the system stamps that field at creation time '
+        '(e.g. a created_at timestamp); omit "auto" otherwise. Set '
+        '"table_name" on an entity ONLY when its natural plural is '
+        'irregular (e.g. Person -> people, Child -> children); omit it for '
+        'regular plurals. Do not invent fields the spec does not imply.'
     ),
     "repositories": (
         "You are an expert Python architect. Design the CUSTOM methods of a "
@@ -1128,7 +1367,10 @@ _DESIGN_SYSTEMS = {
         'Output JSON with a "methods" array of the project-specific methods '
         "the spec needs (filters, totals, reports). Each method: "
         '{"name", "params": [{"name", "type"}], "returns"}. Use "" for no '
-        "params or returns."
+        "params or returns. When a method is a pure filtered listing whose "
+        "params all map to this entity's declared list_filters, add "
+        '{"impl": {"kind": "list_filtered"}} so its body is generated '
+        "deterministically."
     ),
     "services": (
         "You are an expert Python architect. Design a service module that "
@@ -1154,7 +1396,16 @@ _DESIGN_SYSTEMS = {
         'the output file path>"} (write filtered rows as CSV); '
         '{"kind": "duplicate_groups", "entity": ..., "group_by": ["<field>", '
         '...], "min_count": 2} (rows sharing the same group_by values, '
-        "repeated occurrences). "
+        "repeated occurrences); "
+        '{"kind": "sum_by_group", "entity": ..., "value_field": ..., '
+        '"group_by": ["<field>", ...]} (sum of value_field grouped by the '
+        "group_by fields, one dict entry per group); "
+        '{"kind": "below_foreign_threshold", "entity": ..., '
+        '"value_field": "<numeric field of entity>", "ref_entity": '
+        '"<related entity snake_case>", "ref_field": "<threshold field on '
+        'the related entity>", "fk_field": "<foreign-key column on entity '
+        'pointing at ref_entity>"} (rows whose value_field is strictly '
+        "below the related row's ref_field, joined through fk_field). "
         "impl bindings must reference EXACTLY the entity/field/param names "
         "already designed; entity is the snake_case name of a designed "
         "entity. Methods that match none of these shapes get no impl."
@@ -1207,7 +1458,6 @@ def _v_cli(d):
     if not isinstance(cmds, list) or not cmds:
         return ["commands must be a non-empty array"]
     errs = []
-    seen = set()
     for c in cmds:
         if not isinstance(c, dict):
             errs.append("command not an object")
@@ -1221,10 +1471,11 @@ def _v_cli(d):
         if not isinstance(name, str) or not _NAME_SNAKE.fullmatch(name):
             errs.append("bad command name %r" % (name,))
             continue
-        full = "/".join((group if isinstance(group, list) else []) + [name])
-        if full in seen:
-            errs.append("duplicate command %s" % full)
-        seen.add(full)
+        # NOTE: duplicate paths are NOT rejected here — the model often
+        # expresses a nested group ("product report") both as parent intent
+        # and as leaf, and the deterministic renderer already resolves flat
+        # collisions with numeric suffixes. Rejecting duplicates here burned
+        # the whole CLI design for nothing.
         opts = c.get("options")
         if not isinstance(opts, list):
             errs.append("%s: options must be an array" % full)
@@ -1277,16 +1528,56 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
         {"role": "user", "content": user},
     ]
     for attempt in (0, 1):
-        data = _json_complete(messages, schema=schema, verbose=verbose)
+        # 4096-token budget: an 11-command CLI design with option arrays
+        # overflows the 2048 default mid-JSON -> truncated -> parse failure.
+        data = _json_complete(
+            messages, schema=schema, max_tokens=4096, verbose=verbose
+        )
         if data is None:
             continue
-        errs = _v_cli(data)
-        # constrain targets to existing service methods
+        # Normalize near-miss command tokens before validation: specs write
+        # hyphenated commands ("low-stock") while the schema demands
+        # snake_case identifiers — normalize instead of rejecting.
         for c in data.get("commands") or []:
-            if isinstance(c, dict) and c.get("target") not in allowed:
-                errs.append("target %r is not a designed service method" % c.get("target"))
+            if not isinstance(c, dict):
+                continue
+            if isinstance(c.get("name"), str):
+                c["name"] = re.sub(r"[\s-]+", "_", c["name"].strip())
+            grp = c.get("group")
+            if isinstance(grp, list):
+                c["group"] = [
+                    re.sub(r"[\s-]+", "_", g.strip())
+                    for g in grp if isinstance(g, str)
+                ]
+            # Options: specs/model emit bare names ("category") where click
+            # needs "--category"; normalize instead of rejecting.
+            opts = c.get("options")
+            if isinstance(opts, list):
+                for o in opts:
+                    if isinstance(o, dict) and isinstance(o.get("name"), str):
+                        n = re.sub(r"[\s_]+", "-", o["name"].strip().lstrip("-"))
+                        if n:
+                            o["name"] = "--" + n
+            # Targets: tolerate "Service.method" / "module.Service.method"
+            # spellings — the trailing identifier is the method name.
+            tgt = c.get("target")
+            if isinstance(tgt, str) and "." in tgt:
+                c["target"] = tgt.split(".")[-1].strip()
+        errs = _v_cli(data)
+        # constrain targets to existing service methods (the renderer
+        # collapses group[-1]==name and suffixes flat collisions on its own,
+        # so no shape-level rejection is needed here)
+        for c in data.get("commands") or []:
+            if not isinstance(c, dict):
+                continue
+            if c.get("target") not in allowed:
+                errs.append(
+                    "target %r is not a designed service method" % c.get("target")
+                )
         if not errs:
             return data
+        if verbose:
+            print("    [design] cli invalid: %s" % "; ".join(errs[:3]))
         retry_user = (
             user
             + "\n\nThe previous CLI design was rejected with these errors. Fix ONLY "
@@ -1294,6 +1585,11 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
             + "\n".join("  - " + e for e in errs)
         )
         messages = [messages[0], {"role": "user", "content": retry_user}]
+    print(
+        "    [design] cli.py: FAILED (%s)"
+        % ("; ".join(errs[:3]) if errs else "no valid JSON"),
+        file=sys.stderr,
+    )
     return None
 
 
@@ -1325,20 +1621,30 @@ def _design_module(path, kind, prompt_text, context, verbose=False):
     }[kind]
 
     for attempt in (0, 1):
-        data = _json_complete(messages, schema=schema, verbose=verbose)
+        # 4096-token budget: method designs with many entries (11-command
+        # CLIs, 8-method services) overflow the 2048 default mid-JSON ->
+        # truncated output -> guaranteed design failure.
+        data = _json_complete(
+            messages, schema=schema, max_tokens=4096, verbose=verbose
+        )
         if data is None:
             print("    [design] %s: no JSON (attempt %d)" % (path, attempt + 1))
             continue
         errs = validator(data)
-        if errs and kind == "services":
-            # Malformed impl hints degrade gracefully instead of failing
-            # the design: strip them and re-validate what remains.
-            stripped = _strip_invalid_impls(data)
+        if errs and kind in ("services", "repositories", "models"):
+            # Malformed optimization hints degrade gracefully instead of
+            # failing the design: strip them and re-validate what remains.
+            if kind == "models":
+                stripped = _strip_invalid_list_filters(data)
+                label = "invalid list_filter(s)"
+            else:
+                stripped = _strip_invalid_impls(data)
+                label = "invalid impl(s)"
             if stripped:
                 errs = validator(data)
                 if not errs:
-                    print("    [design] %s: dropped %d invalid impl(s), accepted"
-                          % (path, stripped))
+                    print("    [design] %s: dropped %d %s, accepted"
+                          % (path, stripped, label))
                     return data
         if not errs:
             return data
@@ -1394,31 +1700,6 @@ def _fmt_design_context(designs):
     return "\n".join(lines) if lines else "(none)"
 
 
-_BUILTIN_EXCEPTIONS = {
-    "ArithmeticError", "AssertionError", "AttributeError", "EOFError",
-    "Exception", "ExceptionGroup", "FloatingPointError", "IOError",
-    "ImportError", "IndexError", "KeyError", "LookupError", "MemoryError",
-    "NameError", "NotImplementedError", "OSError", "OverflowError",
-    "RuntimeError", "StopIteration", "SyntaxError", "SystemError",
-    "TypeError", "UnboundLocalError", "ValueError", "ZeroDivisionError",
-}
-
-
-def _spec_exception_names(prompt_text):
-    """PascalCase custom-exception names explicitly named in the spec.
-
-    Domain-generic deterministic floor: every name ending in Error/Exception
-    that is not a Python builtin. A spec naming custom exceptions gets them
-    as a floor; a spec naming none gets an empty floor.
-    """
-    names = set()
-    for m in re.finditer(r"[A-Z][A-Za-z0-9]*(?:Error|Exception)", prompt_text):
-        name = m.group(0)
-        if name not in _BUILTIN_EXCEPTIONS:
-            names.add(name)
-    return sorted(names)
-
-
 # ---------------------------------------------------------------------------
 # Deterministic renderers (smith phase2 pattern)
 #
@@ -1469,8 +1750,14 @@ def _render_models_file(design):
     """
     blocks = []
     unique_map = {}
+    table_map = {}
     for ent in design.get("entities") or []:
         name = ent["name"]
+        # Declared table name kept ONLY when it differs from the
+        # deterministic rule (irregular plurals like Person -> people).
+        tn = (ent.get("table_name") or "").strip()
+        if tn and tn != _pluralize_table_name(name):
+            table_map[name] = tn
         fields = ent.get("fields") or []
         req, opt = [], []
         for f in fields:
@@ -1497,6 +1784,12 @@ def _render_models_file(design):
             const_lines.append('    "%s": [%s],' % (cls, inner))
         const_lines.append("}")
         blocks.append("\n".join(const_lines))
+    if table_map:
+        const_lines = ["TABLE_NAMES: Dict[str, str] = {"]
+        for cls, tbl in sorted(table_map.items()):
+            const_lines.append('    "%s": "%s",' % (cls, tbl))
+        const_lines.append("}")
+        blocks.append("\n".join(const_lines))
     header = (
         '"""Domain models."""\n'
         "from __future__ import annotations\n\n"
@@ -1506,8 +1799,11 @@ def _render_models_file(design):
     return header + "\n\n\n".join(blocks) + "\n"
 
 
-def _repo_columns(ent_design):
-    """[(name, sql, is_id, fk_ref_snake)] for a repo entity."""
+def _repo_columns(ent_design, table_names=None):
+    """[(name, sql, is_id, fk_ref_snake)] for a repo entity.
+
+    `table_names` maps designed class name -> declared table name so FK
+    references resolve to declared (possibly irregular) table names."""
     fields = ent_design.get("fields") or []
     cols = []
     for f in fields:
@@ -1526,64 +1822,39 @@ def _repo_columns(ent_design):
             sql += " UNIQUE"
         ref = None
         if fname.endswith("_id") and fname != "id":
-            ref = _plural(fname[: -len("_id")])
+            base = fname[: -len("_id")]
+            ref = (table_names or {}).get(_camel(base)) or _plural(base)
         cols.append((fname, sql, False, ref))
     return cols
 
 
 def _repo_method_body(m, ent, ent_snake, model):
     """Deterministic body lines for a designed custom repository method, or
-    None (=> stub, then LLM fill). Mirrors the service Tier-1/Tier-2 split:
-    mechanical query shapes (find_*_by_*, date ranges, filters) delegate to
-    the deterministic self.list(...); analytical methods stay locked stubs
-    for _llm_fill.
+    None (=> stub, then LLM fill).
+
+    Fully declarative: a method carrying impl {"kind": "list_filtered"}
+    delegates to the deterministic self.list(...) restricted to the
+    entity's DECLARED list_filters. Methods without a resolvable impl stay
+    locked stubs for _llm_fill. There are NO method-name patterns here —
+    filter_by_date(), search_period(), find_X_by_Y all resolve through the
+    same declaration.
     """
-    name = m.get("name")
-    if not name or not ent:
+    impl = m.get("impl")
+    if not isinstance(impl, dict) or impl.get("kind") != "list_filtered" or not ent:
         return None
-    fields = {
-        f.get("name") for f in (ent.get("fields") or [])
-        if isinstance(f, dict)
-    }
     params = [
         p.get("name") for p in (m.get("params") or [])
         if isinstance(p, dict)
     ]
     # The deterministic list() accepts these DECLARED keyword filters only.
     valid = _filter_params(ent)
-
-    low = name.lower()
-    # find_<x>_by_date_range or find_<x>_by_filters -> self.list(**valid params)
-    if "by_date_range" in low or "by_filters" in low:
-        args = [p for p in params if p in valid]
-        if not args:
-            return None
-        lines = ["        return self.list("]
-        lines += ["            %s=%s," % (p, p) for p in args]
-        lines += ["        )"]
-        return lines
-    # find_<x>_by_<attr> / get_<x>_by_<attr> -> self.list(<attr>=param)
-    if re.match(r"^(find|get)_", low) and "_by_" in low:
-        attr = low.split("_by_", 1)[1]
-        col = attr if attr in fields else (attr + "_id" if attr + "_id" in fields else None)
-        if col is None or col not in valid:
-            return None
-        arg = col if col in params else None
-        if arg is None:
-            return None
-        return ["        return self.list(%s=%s)" % (col, arg)]
-    # find_<x>_by_month with optional FK filters
-    if low.startswith("find_") and "_by_month" in low:
-        if "month" not in valid:
-            return None
-        args = [p for p in params if p in valid]
-        if not args:
-            return None
-        lines = ["        return self.list("]
-        lines += ["            %s=%s," % (p, p) for p in args]
-        lines += ["        )"]
-        return lines
-    return None
+    args = [p for p in params if p in valid]
+    if not args:
+        return None
+    lines = ["        return self.list("]
+    lines += ["            %s=%s," % (p, p) for p in args]
+    lines += ["        )"]
+    return lines
 
 
 def _repo_fill_ok(filled, design):
@@ -1624,10 +1895,11 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     if not ent:
         return ""
     exception_names = exception_names or []
-    cols = _repo_columns(ent)
+    table_names = {cls: _entity_table_name(e) for cls, e in entities_by_class.items()}
+    cols = _repo_columns(ent, table_names)
     nonid = [c for c in cols if not c[2]]
     col_names = [c[0] for c in nonid]
-    table = _plural(ent_snake)
+    table = table_names.get(model) or _plural(ent_snake)
 
     # --- declared filter API (from the entity design's list_filters) --------
     filter_specs = _declared_filters(ent)
@@ -1903,7 +2175,7 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False):
         {"role": "user", "content": user},
     ]
     for attempt in range(2):
-        raw = _chat_completion(messages, max_tokens=4096)
+        raw = _chat_completion(messages, max_tokens=LLM_MAX_TOKENS_LONG)
         body = _extract_code_block(raw)
         if body and _compiles(body):
             return body + "\n"
@@ -1994,6 +2266,10 @@ def _impl_bindings_ok(impl, m, entities_by_class):
             and "str" not in returns and "Path" not in returns
         ):
             return None, None
+    elif kind == "below_foreign_threshold":
+        # row listing below a related-entity threshold: must return a List
+        if returns and "List" not in returns and "list" not in returns:
+            return None, None
     else:
         # totals/groups may return an aggregate Dict OR a bare numeric
         # scalar (the handler adapts its output shape to the designed
@@ -2023,6 +2299,8 @@ def _impl_bindings_ok(impl, m, entities_by_class):
         "total_filtered": ("value_field",),
         "export_csv": (),
         "duplicate_groups": (),
+        "sum_by_group": ("value_field",),
+        "below_foreign_threshold": ("value_field", "fk_field"),
     }.get(kind)
     if field_keys is None:
         return None, None
@@ -2037,8 +2315,20 @@ def _impl_bindings_ok(impl, m, entities_by_class):
         if impl.get(key) not in params:
             return None, None
     gb = impl.get("group_by")
-    if kind == "duplicate_groups":
+    if kind in ("duplicate_groups", "sum_by_group"):
         if not isinstance(gb, list) or not gb or any(g not in fields for g in gb):
+            return None, None
+    if kind == "below_foreign_threshold":
+        # Cross-entity bindings must resolve against DESIGNED entities too:
+        # the referenced entity must exist and own the threshold field.
+        ref_ent = entities_by_class.get(_camel(impl["ref_entity"]))
+        if not isinstance(ref_ent, dict):
+            return None, None
+        ref_fields = {
+            f.get("name") for f in (ref_ent.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        if impl["ref_field"] not in ref_fields:
             return None, None
     return _camel(impl["entity"]), ent
 
@@ -2180,24 +2470,108 @@ def _h_duplicate_groups(m, impl, ent, entities_by_class):
     ]
 
 
+def _h_sum_by_group(m, impl, ent, entities_by_class):
+    """Sum value_field grouped by the declared fields -> {group: total}."""
+    var = _snake(impl["entity"])
+    vf = impl["value_field"]
+    gb = list(impl["group_by"])
+    declared = set(_filter_params(ent))
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict)
+    ]
+    kwargs = [p for p in params if p in declared]
+    args = ", ".join("%s=%s" % (p, p) for p in kwargs)
+    call = "self.%s_repo.list(%s)" % (var, args)
+    lines = ["        results = {}"]
+    if len(gb) == 1:
+        lines += [
+            "        for row in %s:" % call,
+            "            key = row.%s" % gb[0],
+        ]
+    else:
+        key_tuple = ", ".join("row.%s" % g for g in gb)
+        lines += [
+            "        for row in %s:" % call,
+            "            key = (%s)" % key_tuple,
+        ]
+    lines += [
+        "            results[key] = results.get(key, 0) + row.%s" % vf,
+        "        return results",
+    ]
+    return lines
+
+
+def _h_below_foreign_threshold(m, impl, ent, entities_by_class):
+    """Rows whose value_field is strictly below the related entity's
+    threshold field (joined through the FK), e.g.
+    product.stock_qty < product.category.reorder_threshold."""
+    var = _snake(impl["entity"])
+    ref_var = _snake(_camel(impl["ref_entity"]))
+    vf, ff, fk = impl["value_field"], impl["ref_field"], impl["fk_field"]
+    return [
+        "        results = []",
+        "        thresholds = {}",
+        "        for ref_row in self.%s_repo.get_all():" % ref_var,
+        "            if ref_row.%s is not None:" % ff,
+        "                thresholds[ref_row.id] = ref_row.%s" % ff,
+        "        for row in self.%s_repo.list():" % var,
+        "            threshold = thresholds.get(row.%s)" % fk,
+        "            if threshold is not None and row.%s < threshold:" % vf,
+        "                results.append(row)",
+        "        return results",
+    ]
+
+
 _IMPL_HANDLERS = {
     "total_in_period": _h_total_in_period,
     "total_filtered": _h_total_filtered,
     "export_csv": _h_export_csv,
     "duplicate_groups": _h_duplicate_groups,
+    "sum_by_group": _h_sum_by_group,
+    "below_foreign_threshold": _h_below_foreign_threshold,
 }
 
 
-def _service_method_body(m, entities_by_class, exception_names):
+def _zero_param_dict_repo_customs(designs, entities_by_class):
+    """[(entity_snake, method_name)] of DESIGNED repository custom methods
+    that take no params and return a Dict — aggregate-shaped. Feeds the
+    unique-shape service delegation (never name-based)."""
+    known = {_snake(c) for c in entities_by_class}
+    out = []
+    for path, kind, data in designs or []:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        if ent_snake not in known:
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            params = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict)
+            ]
+            ret = m.get("returns") or ""
+            if not params and "dict" in ret.lower():
+                out.append((ent_snake, m["name"]))
+    return out
+
+
+def _service_method_body(m, entities_by_class, exception_names, repo_customs=None):
     """Deterministic body lines for a service method, or None (=> stub).
 
     Fully declarative: a designed method may carry an `impl` object naming
     the entity/fields/params its body operates on; generic handlers render
     the body from those declarations alone. There are NO method-name
     patterns, NO field-suffix heuristics, and NO domain vocabulary here.
-    Methods without a resolvable impl fall through to generic CRUD
-    delegation (add_/list_/get_/update_/delete_<entity> convention), then
-    to a locked stub for the LLM fill phase.
+    Methods without a resolvable impl fall through to unique-shape
+    aggregate delegation, then generic CRUD delegation
+    (add_/list_/get_/update_/delete_<entity> convention), then to a locked
+    stub for the LLM fill phase.
     """
     impl = m.get("impl")
     if isinstance(impl, dict):
@@ -2208,6 +2582,19 @@ def _service_method_body(m, entities_by_class, exception_names):
                 lines = handler(m, impl, ent, entities_by_class)
                 if lines is not None:
                     return lines
+    # Unique-shape aggregate delegation: a zero-param Dict-returning service
+    # method with no impl delegates to THE unique zero-param Dict-returning
+    # repository custom across the whole design (shape-matched, never by
+    # name). More than one candidate => ambiguous => degrade to the generic
+    # tiers instead of guessing.
+    if (
+        repo_customs
+        and len(repo_customs) == 1
+        and not (m.get("params") or [])
+        and "dict" in (m.get("returns") or "").lower()
+    ):
+        ent_snake, meth = repo_customs[0]
+        return ["        return self.%s_repo.%s()" % (ent_snake, meth)]
     return _generic_service_delegation(m, entities_by_class, exception_names)
 
 
@@ -2238,18 +2625,29 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
             if not kwargs:
                 return None
             # Required (non-nullable, non-id) fields not covered by params:
-            # only `created_at` may be auto-filled deterministically; anything
-            # else means this is real business logic -> leave a stub.
+            # only fields DECLARED auto:"now" are stamped deterministically;
+            # anything else means real business logic -> leave a stub.
             covered = {p for p in param_names if p in fields}
+            # Only date/datetime-typed non-id fields may be stamped at
+            # creation: stamping an id or a bool/str field with a timestamp
+            # corrupts the row (the 4B model declares auto:"now" on random
+            # fields).
+            auto_now = {
+                f.get("name")
+                for f in (ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("auto") == "now"
+                and f.get("name") != "id"
+                and f.get("type") in ("date", "datetime")
+            }
             required = {
                 f.get("name") for f in (ent.get("fields") or [])
                 if not f.get("nullable") and f.get("name") != "id"
             }
             missing = required - covered
-            if missing and not (missing == {"created_at"} and "created_at" in fields):
+            if missing - auto_now:
                 return None
-            if "created_at" in fields and "created_at" not in covered:
-                kwargs.append("created_at=datetime.datetime.now().isoformat()")
+            for af in sorted(auto_now - covered):
+                kwargs.append("%s=datetime.datetime.now().isoformat()" % af)
             lines = []
             # Generic FK validation: for any designed param that is a
             # foreign-key column of this entity (<x>_id), when the referenced
@@ -2453,6 +2851,38 @@ def _apply_impl_floors(entities_by_class, designs):
                     "result_key": "total",
                 }
 
+    # Repository floor: a custom repo method whose params ALL map to the
+    # entity's DECLARED list_filters is a pure filtered listing — attach
+    # impl {"kind": "list_filtered"} so its body renders deterministically.
+    # This replaces every find_*_by_* / by_date_range name heuristic.
+    for path, kind, data in designs:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        ent = entities_by_class.get(_camel(ent_snake))
+        if not isinstance(ent, dict):
+            continue
+        valid = set(_filter_params(ent))
+        if not valid:
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or m.get("impl") is not None:
+                continue
+            # Only LISTING-shaped methods (List[...] / unspecified return):
+            # a count/scalar custom query must stay a stub for the LLM fill.
+            returns = m.get("returns") or ""
+            if returns and "list" not in returns.lower():
+                continue
+            params = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            if params and all(p in valid for p in params):
+                m["impl"] = {"kind": "list_filtered"}
+
 
 def _service_repo_interface(entities_by_class, designs):
     """{repo_attr: {method: [param names]}} exactly as _render_repository_file
@@ -2470,45 +2900,53 @@ def _service_repo_interface(entities_by_class, designs):
     for ent in entities_by_class.values():
         ent_snake = _snake(ent["name"])
         attr = ent_snake + "_repo"
+        # Entries are (param name, required) so the fill validator can
+        # enforce that every REQUIRED param is covered by a call.
         methods = {
-            "create": ["_obj"],
-            "get_by_id": ["id"],
+            "create": [("_obj", True)],
+            "get_by_id": [("id", True)],
             "get_all": [],
             "list": ["_filters"],
-            "update": ["id", "data"],
-            "delete": ["id"],
+            "update": [("id", True), ("data", True)],
+            "delete": [("id", True)],
         }
         for up in ent.get("unique_together") or []:
             if isinstance(up, list) and len(up) == 2:
                 a, b = [str(u) for u in up]
                 a_fn = a[:-3] if a.endswith("_id") else a
                 b_fn = b[:-3] if b.endswith("_id") else b
-                methods["get_by_%s_and_%s" % (a_fn, b_fn)] = [a, b]
+                methods["get_by_%s_and_%s" % (a_fn, b_fn)] = [(a, True), (b, True)]
         rdes = repo_designs.get(ent_snake + "_repository")
         if rdes:
             for m in rdes.get("methods") or []:
                 if isinstance(m, dict) and m.get("name"):
-                    params = [
-                        p.get("name") for p in (m.get("params") or [])
-                        if isinstance(p, dict)
-                    ]
+                    params = []
+                    for p in m.get("params") or []:
+                        if isinstance(p, dict) and p.get("name"):
+                            ptype = p.get("type") or ""
+                            params.append(
+                                (p["name"], not ptype.startswith("Optional"))
+                            )
                     methods[m["name"]] = params
         interface[attr] = methods
     return interface
 
 
-def _service_fill_ok(filled, repo_interface, svc_design):
-    """Mechanical acceptance of an LLM service fill.
+def _service_fill_violations(filled, repo_interface, svc_design):
+    """Mechanical contract check of an LLM service fill.
 
-    Rejects fills that (1) drop a designed method, or (2) call a repo method
-    that is not part of the deterministic repo interface (self.<repo>.<m>).
+    Returns a list of human-readable violations (empty list = accept):
+    (1) dropped designed methods, (2) calls to repo attributes/methods that
+    are not part of the deterministic repo interface, (3) arity mismatches
+    against the declared repo signatures.
     """
     if not filled:
-        return False
+        return ["empty output"]
     try:
         tree = ast.parse(filled)
     except SyntaxError:
-        return False
+        return ["output does not compile"]
+    violations = []
     defined = {
         n.name for n in ast.walk(tree)
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -2517,8 +2955,11 @@ def _service_fill_ok(filled, repo_interface, svc_design):
         m.get("name") for m in svc_design.get("methods") or []
         if isinstance(m, dict) and m.get("name")
     }
-    if required and not required.issubset(defined):
-        return False
+    missing = required - defined
+    if missing:
+        violations.append(
+            "dropped designed method(s): %s" % ", ".join(sorted(missing))
+        )
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -2533,36 +2974,63 @@ def _service_fill_ok(filled, repo_interface, svc_design):
         ):
             continue
         sig = repo_interface.get(value.attr)
-        if sig is None or func.attr not in sig:
-            # unknown repo attr or unknown method on it
-            return False
-        params = sig[func.attr]
-        if params == ["_filters"]:
+        if sig is None:
+            violations.append(
+                "calls unknown repository attribute self.%s" % value.attr
+            )
+            continue
+        if func.attr not in sig:
+            violations.append(
+                "self.%s has no method %s" % (value.attr, func.attr)
+            )
+            continue
+        entries = sig[func.attr]
+        if entries == ["_filters"]:
             # list(**filters): any filter kwargs are fine
             continue
+        names = [p[0] if isinstance(p, tuple) else p for p in entries]
+        req_names = [
+            p[0] if isinstance(p, tuple) else p
+            for p in entries
+            if not (isinstance(p, tuple) and not p[1])
+        ]
         n_pos = len(node.args)
         kw_names = {kw.arg for kw in node.keywords if kw.arg}
         if any(kw.arg is None for kw in node.keywords):
-            return False  # **kwargs spread — cannot verify
-        if n_pos > len(params) or not kw_names.issubset(set(params)):
-            return False
-    return True
+            violations.append(
+                "self.%s.%s called with **spread — cannot verify arity"
+                % (value.attr, func.attr)
+            )
+            continue
+        # Exact-arity contract: every required param must be covered and the
+        # call may not pass more args than the method accepts. A call with
+        # FEWER args than required params is a guaranteed TypeError at
+        # runtime (the 4B model has been caught emitting those).
+        provided = n_pos + len(kw_names)
+        if provided < len(req_names) or provided > len(names):
+            violations.append(
+                "self.%s.%s expects params (%s); call provides %d argument(s)"
+                % (value.attr, func.attr, ", ".join(names), provided)
+            )
+        elif not kw_names.issubset(set(names[n_pos:])):
+            violations.append(
+                "self.%s.%s: keyword(s) %s do not match the trailing params"
+                % (
+                    value.attr,
+                    func.attr,
+                    sorted(kw_names - set(names[n_pos:])),
+                )
+            )
+    return violations
 
 
-def _render_service_file(svc_design, svc_class, designs, entities_by_class,
-                         prompt_text, exception_names=None, verbose=False):
-    """Deterministic service: real contract bodies + stubs for extras.
-
-    Contract methods (the tested surface) get real bodies rendered here with
-    zero LLM involvement. Extras the LLM designed are rendered as
-    NotImplementedError stubs; when `prompt_text` is given, _llm_fill attempts
-    to complete them, guarded by a compile check.
-    """
+def _service_header_lines(svc_class, entities, entities_by_class,
+                          exception_names):
+    """Imports + class shell + repo wiring shared by the deterministic
+    service and the stub-only mini-skeleton sent to the LLM fill."""
     exception_names = exception_names or []
-    entities = sorted(entities_by_class)
     repo_attrs = [(_snake(ent) + "_repo", _camel(ent) + "Repository") for ent in entities]
     repo_class_names = sorted({cls for _, cls in repo_attrs})
-
     lines = [
         '"""Service layer."""',
         "from __future__ import annotations",
@@ -2570,10 +3038,13 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         "import csv",
         "from typing import Any, Dict, List, Optional",
     ]
-    # The deterministic create_<entity> recipe auto-fills a `created_at`
-    # field with datetime.datetime.now(); import datetime when needed.
+    # The deterministic create_<entity> recipe stamps date/datetime fields
+    # DECLARED auto:"now" with datetime.datetime.now(); import datetime when
+    # needed (same predicate as the recipe — never an unused import).
     if any(
-        f.get("name") == "created_at"
+        f.get("auto") == "now"
+        and f.get("name") != "id"
+        and f.get("type") in ("date", "datetime")
         for ent in entities_by_class.values()
         for f in (ent.get("fields") or [])
         if isinstance(f, dict)
@@ -2588,19 +3059,97 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         lines.append("from %s import %s" % (_snake(rcls), rcls))
     if exception_names:
         lines.append("from exceptions import %s" % ", ".join(sorted(exception_names)))
-    lines.append("")
-    lines.append("")
-    lines.append("class %s:" % svc_class)
-    lines.append("    def __init__(self, db: Database) -> None:")
-    lines.append("        self.db = db")
+    lines += [
+        "",
+        "",
+        "class %s:" % svc_class,
+        "    def __init__(self, db: Database) -> None:",
+        "        self.db = db",
+    ]
     for attr, cls in repo_attrs:
         lines.append("        self.%s = %s(db)" % (attr, cls))
     lines.append("")
+    return lines
 
+
+def _indent_block(src, spaces):
+    pad = " " * spaces
+    return "\n".join(pad + ln if ln.strip() else ln for ln in src.split("\n"))
+
+
+def _splice_functions(text, replacements):
+    """Apply (start_line, end_line, new_src) replacements (1-based, inclusive)
+    bottom-up so earlier offsets stay valid."""
+    lines = text.split("\n")
+    for start, end, new_src in sorted(replacements, reverse=True):
+        lines[start - 1 : end] = new_src.split("\n")
+    return "\n".join(lines)
+
+
+def _merge_stub_bodies(deterministic, filled, stub_names):
+    """Splice the implementations of `stub_names` from `filled` into
+    `deterministic`, leaving every other byte of the deterministic file
+    untouched. Returns the merged text, or None when the fill does not
+    provide exactly the expected methods."""
+    try:
+        ftree = ast.parse(filled)
+        dtree = ast.parse(deterministic)
+    except SyntaxError:
+        return None
+    needed = set(stub_names)
+    found = {}
+    for node in ast.walk(ftree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in needed
+        ):
+            found[node.name] = node
+    if set(found) != needed:
+        return None
+    repls = []
+    for node in ast.walk(dtree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in needed
+        ):
+            new_src = ast.unparse(found[node.name])
+            repls.append(
+                (
+                    node.lineno,
+                    node.end_lineno,
+                    _indent_block(new_src, node.col_offset),
+                )
+            )
+    if len(repls) != len(needed):
+        return None
+    return _splice_functions(deterministic, repls)
+
+
+def _render_service_file(svc_design, svc_class, designs, entities_by_class,
+                         prompt_text, exception_names=None, verbose=False):
+    """Deterministic service: real contract bodies + stubs for extras.
+
+    Contract methods (the tested surface) get real bodies rendered here with
+    zero LLM involvement. Extras the LLM designed are rendered as
+    NotImplementedError stubs; when `prompt_text` is given, ONLY the stub
+    methods travel to the LLM inside a mini-skeleton, and an accepted fill is
+    spliced back per-method — deterministic bodies can never be degraded by
+    the fill.
+    """
+    exception_names = exception_names or []
+    entities = sorted(entities_by_class)
+
+    lines = _service_header_lines(
+        svc_class, entities, entities_by_class, exception_names
+    )
+
+    repo_customs = _zero_param_dict_repo_customs(designs, entities_by_class)
     for m in svc_design.get("methods") or []:
         if not isinstance(m, dict) or not m.get("name"):
             continue
-        body = _service_method_body(m, entities_by_class, exception_names)
+        body = _service_method_body(
+            m, entities_by_class, exception_names, repo_customs
+        )
         if body is not None:
             def_line = _method_stub_code(m, 1).split("\n")[0]
             lines.append(def_line)
@@ -2617,13 +3166,15 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     stubs = [
         m for m in svc_design.get("methods") or []
         if isinstance(m, dict) and m.get("name")
-        and _service_method_body(m, entities_by_class, exception_names) is None
+        and _service_method_body(
+            m, entities_by_class, exception_names, repo_customs
+        ) is None
     ]
     if not prompt_text or not stubs:
         return deterministic
     # Tell the fill which repo methods exist (it may only call these on
-    # self.*_repo), then accept the fill only if it keeps every designed
-    # method AND never calls an unknown repo method.
+    # self.*_repo). Validation is scoped to the STUB methods only: the
+    # deterministic contract bodies are not part of the fill context.
     repo_interface = _service_repo_interface(entities_by_class, designs)
     hint_parts = [
         "AVAILABLE REPOSITORY METHODS — you may call ONLY these on self.*_repo "
@@ -2631,23 +3182,72 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     ]
     if repo_interface:
         for attr in sorted(repo_interface):
+            names = [
+                p[0] if isinstance(p, tuple) else p
+                for p in repo_interface[attr]
+            ]
             hint_parts.append(
-                "  self.%s: %s" % (attr, ", ".join(sorted(repo_interface[attr])))
+                "  self.%s: %s" % (attr, ", ".join(sorted(names)))
             )
     else:
         hint_parts.append("  (none)")
     fill_hint = "\n".join(hint_parts)
-    filled = _llm_fill("service", fill_hint, deterministic, prompt_text, verbose=verbose)
-    if not filled:
-        return deterministic
-    if not _service_fill_ok(filled, repo_interface, svc_design):
-        if verbose:
-            print("    [fill] service: rejected (signature or repo-method mismatch)")
-        return deterministic
-    return filled
+
+    # Mini-skeleton: header + ONLY the stub methods. The model never sees the
+    # deterministic bodies, so it cannot rewrite/degrade them; its output is
+    # spliced back into the deterministic file per-method.
+    stub_design = {"methods": stubs}
+    stub_names = [m["name"] for m in stubs]
+    mini = "\n".join(
+        _service_header_lines(
+            svc_class, entities, entities_by_class, exception_names
+        )
+        + [_method_stub_code(m, 1) for m in stubs]
+    ).rstrip() + "\n"
+
+    def _accept(candidate):
+        """Validate a mini-skeleton fill and splice it into the deterministic
+        service. Returns the merged text or None."""
+        if not candidate:
+            return None
+        if _service_fill_violations(candidate, repo_interface, stub_design):
+            return None
+        return _merge_stub_bodies(deterministic, candidate, stub_names)
+
+    filled = _llm_fill("service", fill_hint, mini, prompt_text, verbose=verbose)
+    merged = _accept(filled)
+    if merged is not None:
+        return merged
+    if filled and verbose:
+        print(
+            "    [fill] service: rejected (%s)"
+            % "; ".join(
+                _service_fill_violations(filled, repo_interface, stub_design)[:3]
+            )
+        )
+    # One corrective retry: show the model EXACTLY which calls violated
+    # the repository contract so it fixes those without touching anything.
+    violations = (
+        _service_fill_violations(filled, repo_interface, stub_design)
+        if filled else ["empty output"]
+    )
+    corrective = (
+        fill_hint
+        + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
+        + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
+        + "\n".join("  - " + v for v in violations[:8])
+    )
+    refilled = _llm_fill(
+        "service", corrective, mini, prompt_text, verbose=verbose
+    )
+    merged = _accept(refilled)
+    if merged is not None:
+        return merged
+    return deterministic
 
 
-def _render_cli_file(design, svc_class, entities_by_class, service_methods, verbose=False):
+def _render_cli_file(design, svc_class, entities_by_class, service_methods,
+                     verbose=False, db_path="app.db"):
     """Deterministic click CLI: one flat top-level command per command.
 
     A designed command `group=["item"], name="add"` becomes
@@ -2657,13 +3257,14 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods, verb
     """
     commands = design.get("commands") or []
     svc_snake = _snake(svc_class)
+    seen_flat = set()
 
     lines = [
         "import click",
         "from database import Database",
         "from %s import %s" % (svc_snake, svc_class),
         "",
-        "DB_PATH = \"app.db\"",
+        'DB_PATH = "%s"' % db_path,
         "",
         "@click.group()",
         "def cli():",
@@ -2681,9 +3282,23 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods, verb
         # click registers commands under their function-name; hyphenate and give
         # the function an identifier-safe name (underscores) while click
         # exposes the hyphenated alias via the explicit @cli.command(name=...).
+        # A doubled verb (["expense", "add"] + "add") collapses to the parent
+        # path so the flat command is "expense-add", never "add-add"; any
+        # residual collision gets a numeric suffix instead of being silently
+        # overwritten by a later @cli.command registration.
+        while group and group[-1] == name:
+            group = group[:-1]
         leaf = group[-1] if group else ""
         flat_hyphen = "-".join([leaf, name]) if leaf else name
-        flat_ident = "_".join([leaf, name]) if leaf else name
+        if flat_hyphen in seen_flat and len(group) >= 2:
+            flat_hyphen = "-".join(group + [name])
+        base = flat_hyphen
+        k = 2
+        while flat_hyphen in seen_flat:
+            flat_hyphen = "%s-%d" % (base, k)
+            k += 1
+        seen_flat.add(flat_hyphen)
+        flat_ident = flat_hyphen.replace("-", "_")
         opts = c.get("options") or []
         target = c.get("target") or name or ""
 
@@ -2721,21 +3336,77 @@ def _optvar(o):
     return re.sub(r"[- ]", "_", (o.get("name") or "").lstrip("-"))
 
 
+def _match_param(key, params):
+    """Exact match first, then bounded suffix matching (--category ->
+    category_id, --price -> price_cents)."""
+    if key in params:
+        return key
+    return next(
+        (
+            p
+            for p in params
+            if p.startswith(key + "_") or p.endswith("_" + key)
+        ),
+        None,
+    )
+
+
 def _build_service_call(target, opts, service_methods):
-    """Wire click options to a service method call by matching param names."""
-    kwargs = []
-    used = set()
+    """Wire click options to a service method call, passing ONLY options
+    that map to real parameters of the target's designed signature."""
+    sig = {}
+    for m in service_methods or []:
+        if isinstance(m, dict) and m.get("name"):
+            sig[m["name"]] = [
+                p.get("name")
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+    params = sig.get(target)
+
+    def key_of(o):
+        return o.get("field") or _optvar(o)
+
+    if params and "data" in params:
+        # update-style (id, data) target: map direct params, pack every
+        # other option into the data dict instead of dropping them
+        parts, packed, used = [], [], set()
+        for p in params:
+            if p == "data":
+                continue
+            for o in opts:
+                if o.get("name") and key_of(o) == p:
+                    parts.append("%s=%s" % (p, _optvar(o)))
+                    used.add(key_of(o))
+                    break
+        for o in opts:
+            if not o.get("name"):
+                continue
+            k = key_of(o)
+            if k in used or k in params:
+                continue
+            used.add(k)
+            packed.append("'%s': %s" % (k, _optvar(o)))
+        if packed:
+            parts.append("data={%s}" % ", ".join(packed))
+        return "result = svc.%s(%s)" % (target, ", ".join(parts))
+
+    kwargs, used = [], set()
     for o in opts:
         if not o.get("name"):
             continue
-        key = o.get("field") or _optvar(o)
+        key = key_of(o)
         if key in used:
             continue
+        match = _match_param(key, params) if params is not None else key
+        if match is None:
+            continue  # option does not map to the target signature
         used.add(key)
-        kwargs.append("%s=%s" % (key, _optvar(o)))
+        kwargs.append("%s=%s" % (match, _optvar(o)))
     return "result = svc.%s(%s)" % (target, ", ".join(kwargs))
 
-def _generate_file(file_spec, manifest, prompt_text, prior_files, verbose=False):
+def _generate_file(file_spec, manifest, prompt_text, prior_files,
+                   verbose=False, db_file="app.db"):
     file_name = file_spec["file"]
     file_role = file_spec.get("role", "")
     imports_from = file_spec.get("imports_from", [])
@@ -2770,9 +3441,11 @@ def _generate_file(file_spec, manifest, prompt_text, prior_files, verbose=False)
         - Import ONLY the names listed above.
         - Do NOT invent module or function names.
         - Use stdlib sqlite3. No sqlalchemy.
+        - The SQLite database filename is "%s" — use exactly this
+          name wherever the project opens its database.
         - IDs are Optional[int] (default None).
         - Return ONLY raw Python source code.
-    """) % (file_name, file_role, dep_context, import_map)
+    """) % (file_name, file_role, dep_context, import_map, db_file)
 
     sibling_exports = {}
     for name, content in prior_files.items():
@@ -2795,138 +3468,101 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     """
     if verbose:
         print("    Generating architecture manifest...")
-    manifest = _generate_manifest(prompt_text)
-    if not manifest:
+    layout = _generate_manifest(prompt_text, verbose=verbose)
+    if not layout:
         if verbose:
             print("    Manifest failed; generation aborted (no fallback)")
-        return None
-    manifest = _validate_manifest(manifest)
+        return None, None
+    manifest, db_file = _validate_manifest(layout)
 
-    # Normalize generic repository/service stems: the deterministic renderers
-    # key off `<entity>_repository.py` / `<entity>_service.py`. When the LLM
-    # emits a generic `repository.py` / `service.py` (seen with the task
-    # prompt), alias it to a per-entity name and fix cross-references in
-    # `imports_from` so the mechanical renderers fire instead of leaving an
-    # empty file.
-    def _rename_manifest_file(spec, old, new):
-        if Path(spec["file"]).stem == old:
-            spec["file"] = new
-
-    renames = []
-    for spec in manifest:
-        stem = Path(spec["file"]).stem
-        if stem in ("repository", "repositories"):
-            renames.append((spec, stem, "entity_repository.py"))
-        elif stem in ("service", "services"):
-            renames.append((spec, stem, "entity_service.py"))
-    # Derive domain hints from the spec itself — the prompt almost always
-    # names the classes explicitly (TaskRepository, BookRepository, ...),
-    # which is far more accurate than guessing from sibling file stems.
-    repo_hint = None
-    m = re.search(r"([A-Za-z][A-Za-z0-9]*)Repository\b", prompt_text)
-    if m:
-        repo_hint = _snake(m.group(1))
-    svc_hint = None
-    m = re.search(r"([A-Za-z][A-Za-z0-9]*)Service\b", prompt_text)
-    if m:
-        svc_hint = _snake(m.group(1))
-    for spec, stem, default in renames:
-        target = default
-        if stem in ("repository", "repositories"):
-            hint = repo_hint
-        else:
-            hint = svc_hint
-        if hint:
-            target = "%s_%s.py" % (hint, "repository" if stem in ("repository", "repositories") else "service")
-        else:
-            # No class-level hint in the spec: prefer a domain already
-            # present in the manifest (models or CLI) to avoid placeholders.
-            known = [s for s in manifest if s is not spec and Path(s["file"]).stem not in (
-                "repository", "repositories", "service", "services")]
-            entity_hint = next((Path(s["file"]).stem for s in known if "test" not in s["file"].lower()), None)
-            if entity_hint:
-                target = "%s_repository.py" % entity_hint if stem in ("repository", "repositories") else "%s_service.py" % entity_hint
-        old = spec["file"]
-        spec["file"] = target
-        # fix imports_from references to the old generic stem
-        for s in manifest:
-            s["imports_from"] = [
-                (target[:-3] if Path(f).stem == old[:-3] else f)
-                for f in s.get("imports_from", [])
-            ]
-
-    # Drop database.py from the LLM file list — it is generated from models.
-    manifest = [s for s in manifest if Path(s["file"]).stem != "database"]
-
-    # Identify modules by stem for design purposes.
     designs = []  # (path, kind, data)
     entities_by_class = {}
 
     if verbose:
         print("    Design phase (schema-constrained JSON)...")
 
-    # 1. exceptions
-    exc_paths = [s["file"] for s in manifest if "exception" in Path(s["file"]).stem]
-    if not exc_paths and _spec_exception_names(prompt_text):
-        # Manifest omitted the exceptions module but the spec names custom
-        # exceptions. Add the canonical flat file deterministically so repos
-        # can import `exceptions`.
-        exc_paths = ["exceptions.py"]
-    for ep in exc_paths:
-        data = _design_module(ep, "exceptions", prompt_text, "(none)", verbose)
+    def _design_into(path, kind, context):
+        """One schema-constrained design call, appended to `designs`."""
+        data = _design_module(path, kind, prompt_text, context, verbose)
         if data is None:
-            print("    [design] %s: FAILED" % ep, file=sys.stderr)
-            return None, None
-        designs.append((ep, "exceptions", data))
+            print("    [design] %s: FAILED" % path, file=sys.stderr)
+            return None
+        designs.append((path, kind, data))
         if verbose:
-            print("      - %s [exceptions] %s" % (ep, _describe_design("exceptions", data)))
+            print("      - %s [%s] %s" % (path, kind, _describe_design(kind, data)))
+        return data
+
+    # 1. exceptions — ALWAYS designed from the spec under the schema; the
+    # prompt text is never regex-scanned. The canonical module survives only
+    # when the design names exceptions or the layout declared the file.
+    declared_exc = [
+        s["file"] for s in manifest
+        if s["kind"] == "exceptions" or "exception" in Path(s["file"]).stem
+    ]
+    exception_names = []
+    for ep in (declared_exc or ["exceptions.py"]):
+        data = _design_into(ep, "exceptions", "(none)")
+        if data is None:
+            return None, None
+        for e in data.get("exceptions") or []:
+            if e not in exception_names:
+                exception_names.append(e)
+    if not declared_exc and not exception_names:
+        # Nothing declared and nothing designed: no exceptions module at all.
+        designs[:] = [(p, k, d) for p, k, d in designs if k != "exceptions"]
 
     # 2. models
-    model_paths = [s["file"] for s in manifest if "model" in Path(s["file"]).stem]
+    model_paths = [s["file"] for s in manifest if s["kind"] == "models"]
     for mp in model_paths:
-        data = _design_module(mp, "models", prompt_text, _fmt_design_context(designs), verbose)
+        data = _design_into(mp, "models", _fmt_design_context(designs))
         if data is None:
-            print("    [design] %s: FAILED" % mp, file=sys.stderr)
             return None, None
-        designs.append((mp, "models", data))
         for ent in data.get("entities") or []:
             if isinstance(ent, dict) and ent.get("name"):
                 entities_by_class[ent["name"]] = ent
-        if verbose:
-            print("      - %s [models] %s" % (mp, _describe_design("models", data)))
 
     if not entities_by_class:
         print("    [design] no entities designed", file=sys.stderr)
         return None, None
 
+    # 2.5 Generic repository/service stems are renamed to per-entity files
+    # using the DECLARED entity metadata of the layout design (falling back
+    # to the first designed entity) — no regex sniffing of the spec text.
+    first_entity = _snake(sorted(entities_by_class)[0])
+    for spec in manifest:
+        stem = Path(spec["file"]).stem
+        if stem not in ("repository", "repositories", "service", "services"):
+            continue
+        kind_word = "repository" if "repositor" in stem else "service"
+        target = "%s_%s.py" % (spec.get("entity") or first_entity, kind_word)
+        if spec["file"] == target:
+            continue
+        old_stem = stem
+        spec["file"] = target
+        for s in manifest:
+            s["imports_from"] = [
+                (target[:-3] if Path(f).stem == old_stem else f)
+                for f in s.get("imports_from", [])
+            ]
+
     # 3. repositories (custom methods only; CRUD is generated)
-    repo_paths = [s["file"] for s in manifest if Path(s["file"]).stem.endswith("_repository")]
+    repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
     for rp in repo_paths:
-        data = _design_module(rp, "repositories", prompt_text, _fmt_design_context(designs), verbose)
-        if data is None:
-            print("    [design] %s: FAILED" % rp, file=sys.stderr)
+        if _design_into(rp, "repositories", _fmt_design_context(designs)) is None:
             return None, None
-        designs.append((rp, "repositories", data))
-        if verbose:
-            print("      - %s [repositories] %s" % (rp, _describe_design("repositories", data)))
 
     # 4. services
-    svc_paths = [s["file"] for s in manifest if Path(s["file"]).stem.endswith("_service")]
+    svc_paths = [s["file"] for s in manifest if s["kind"] == "service"]
     for sp in svc_paths:
-        data = _design_module(sp, "services", prompt_text, _fmt_design_context(designs), verbose)
-        if data is None:
-            print("    [design] %s: FAILED" % sp, file=sys.stderr)
+        if _design_into(sp, "services", _fmt_design_context(designs)) is None:
             return None, None
-        designs.append((sp, "services", data))
-        if verbose:
-            print("      - %s [services] %s" % (sp, _describe_design("services", data)))
 
     # 5. CLI (targets constrained to designed service methods).
     # A CLI design failure is NOT fatal: the deterministic repos/service are
     # still valid, so keep them and generate cli.py via the per-file path
     # later (legacy _generate_file) rather than abandoning the whole
     # manifest-first pipeline to the volatile legacy multi-pass.
-    cli_paths = [s["file"] for s in manifest if Path(s["file"]).stem == "cli"]
+    cli_paths = [s["file"] for s in manifest if s["kind"] == "cli"]
     svc_design = next((d for p, k, d in designs if k == "services"), None)
     service_methods = (svc_design or {}).get("methods") or []
     cli_failed = False
@@ -2938,7 +3574,8 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             continue
         designs.append((cp, "cli", data))
         if verbose:
-            print("      - %s [cli] %s" % (cp, _describe_design("cli", data)))
+            print("      - %s [cli] commands=%d"
+                  % (cp, len(data.get("commands") or [])))
 
     # Deterministic floor for list_filters: cover the parameters the
     # designed service/repository signatures actually use. Declarations
@@ -2948,28 +3585,8 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # shapes (Dict-returning methods over a single date+numeric entity).
     _apply_impl_floors(entities_by_class, designs)
 
-    # ---- Deterministic merges (no LLM) ----
-    # Exception floor: designed ∪ spec-named custom exceptions. Entities,
-    # service methods, and unique_together pairs all come from the
-    # schema-constrained LLM designs only; the renderers handle CRUD and
-    # UNIQUE-pair mechanics deterministically from those designs.
-    exception_names = []
-    for path, kind, data in designs:
-        if kind == "exceptions":
-            for e in data.get("exceptions") or []:
-                if e not in exception_names:
-                    exception_names.append(e)
-    for e in _spec_exception_names(prompt_text):
-        if e not in exception_names:
-            exception_names.append(e)
-    # sync the exceptions design dict (may have been appended to) into designs
-    for i, (path, kind, data) in enumerate(designs):
-        if kind == "exceptions":
-            exc = data.get("exceptions") or []
-            for e in exception_names:
-                if e not in exc:
-                    exc.append(e)
-            data["exceptions"] = exc
+    # Exception names come ONLY from the schema-constrained exceptions
+    # design (collected in step 1) — there is no spec-text floor anymore.
 
     # service_methods = the designed service methods (CLI targets must map
     # to them, so this is computed once here)
@@ -2992,6 +3609,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             m.get("name") for m in service_methods
             if isinstance(m, dict) and m.get("name")
         ],
+        "db_file": db_file,
     }
 
     # ---- Render phase (deterministic) ----
@@ -3009,7 +3627,8 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             files[path] = _render_models_file(data)
         elif kind == "cli":
             files[path] = _render_cli_file(
-                data, svc_class, entities_by_class, service_methods, verbose
+                data, svc_class, entities_by_class, service_methods,
+                verbose, db_path=db_file,
             )
 
     # ---- Fill phase (LLM, locked skeletons; deterministic contract bodies) ----
@@ -3045,7 +3664,10 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             if Path(spec["file"]).stem == "cli" and spec["file"] not in files:
                 if verbose:
                     print("    Generating %s via per-file path (CLI design failed)..." % spec["file"])
-                content, status = _generate_file(spec, manifest, prompt_text, files, verbose=verbose)
+                content, status = _generate_file(
+                    spec, manifest, prompt_text, files,
+                    verbose=verbose, db_file=db_file,
+                )
                 if content:
                     files[spec["file"]] = content
                 else:
@@ -3059,7 +3681,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if "database.py" not in files and "models.py" in files:
         model_classes = _extract_model_ast({"models.py": files["models.py"]})
         if model_classes:
-            files["database.py"] = _generate_database_file(model_classes)
+            files["database.py"] = _generate_database_file(model_classes, db_file)
 
     # ensure every manifest file exists (e.g. a main.py the LLM invented)
     for spec in manifest:
@@ -3115,7 +3737,9 @@ def _multi_pass(prompt_text, verbose=False):
     # files and reintroduce hallucinated code).
     model_classes = _extract_model_ast(files)
     if model_classes:
-        files["database.py"] = _generate_database_file(model_classes)
+        files["database.py"] = _generate_database_file(
+            model_classes, design_ctx.get("db_file", "app.db")
+        )
         if verbose:
             print("    Generated database.py from model AST (%d tables)"
                   % len(model_classes))
@@ -3190,7 +3814,9 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files)
     if model_classes:
-        files["database.py"] = _generate_database_file(model_classes)
+        files["database.py"] = _generate_database_file(
+            model_classes, design_ctx.get("db_file", "app.db")
+        )
         if verbose:
             print("    Generated database.py from model AST (%d tables)"
                   % len(model_classes))
@@ -3246,13 +3872,12 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
         print("\n--- Prompt ---\n%s\n--------------\n" % prompt_text)
         print("Generating code ...")
 
-    if _needs_multifile(prompt_text):
-        if verbose:
-            print("  Multi-pass mode")
+    mode = _route_mode(prompt_text, verbose=verbose)
+    if verbose:
+        print("  Mode: %s-pass" % mode)
+    if mode == "multi":
         files = _multi_pass(prompt_text, verbose=verbose)
     else:
-        if verbose:
-            print("  Single-pass mode")
         files = _single_pass(prompt_text, verbose=verbose)
 
     if len(files) > 1:
