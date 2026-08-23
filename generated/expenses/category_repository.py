@@ -99,36 +99,35 @@ class CategoryRepository:
             if not month_year:
                 raise ValueError("Month must be provided in format 'YYYY-MM'")
 
-            # Parse month into YYYY-MM
+            # Parse month and year
             try:
-                year_month = month_year.split('-')
-                if len(year_month) != 2:
-                    raise ValueError("Invalid month format. Use 'YYYY-MM'")
-                year, month_part = year_month
-                if not year or not month_part:
-                    raise ValueError("Invalid month format. Use 'YYYY-MM'")
-            except Exception as e:
-                raise ValueError(f"Invalid month format: {month}. Use 'YYYY-MM' format.") from e
+                year, month_part = month_year.split('-')
+                year = int(year)
+                month_num = int(month_part)
+                if month_num < 1 or month_num > 12:
+                    raise ValueError("Invalid month")
+            except ValueError as e:
+                raise ValueError(f"Invalid month format: {month_year}") from e
 
             # Query for expenses in that month
             query = """
                 SELECT 
-                    SUM(amount) as total_spent,
-                    monthly_budget 
+                    SUM(e.amount) as total_spent,
+                    c.monthly_budget as budget
                 FROM expenses e
                 JOIN categories c ON e.category_id = c.id
                 WHERE c.id = ? 
-                  AND strftime('%Y-%m', date) = ?
+                  AND strftime('%Y-%m', e.date) = ?
             """
             params = [category_id, month_year]
             row = conn.execute(query, params).fetchone()
             total_spent = row[0] if row[0] is not None else 0
-            monthly_budget = row[1] if row[1] is not None else 0
+            budget = row[1] if row[1] is not None else 0
 
             return {
                 "total_spent": total_spent,
-                "monthly_budget": monthly_budget,
-                "is_over_budget": total_spent > monthly_budget,
-                "remaining_budget": monthly_budget - total_spent,
+                "budget": budget,
+                "percentage_used": round((total_spent / budget) * 100 if budget > 0 else 0, 2),
+                "is_over_budget": total_spent > budget
             }
 

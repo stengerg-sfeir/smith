@@ -50,6 +50,17 @@ section "2. cli_tool"
 # =============================================================================
 cd "$ROOT/generated/cli_tool"
 
+# Entry file varies by run (main.py, csv_to_json.py, ...): prefer main.py,
+# else the single .py file in the project.
+ENTRY="main.py"
+if [ ! -f "$ENTRY" ]; then
+    ENTRY=$(ls *.py 2>/dev/null | head -n 1)
+fi
+if [ -z "${ENTRY:-}" ] || [ ! -f "$ENTRY" ]; then
+    echo "no entry .py file found in generated/cli_tool" >&2
+    exit 1
+fi
+
 CSV="$TMPDIR/test.csv"
 cat > "$CSV" <<'CSVEOF'
 name,age,city
@@ -57,7 +68,7 @@ Alice,30,Paris
 Bob,25,London
 CSVEOF
 
-STDOUT_JSON=$(python3 main.py "$CSV" 2>&1) || true
+STDOUT_JSON=$(python3 "$ENTRY" "$CSV" 2>&1) || true
 if echo "$STDOUT_JSON" | python3 -m json.tool > /dev/null 2>&1; then
     pass "produces valid JSON"
 else
@@ -79,15 +90,15 @@ fi
 
 OUT_JSON="$TMPDIR/output.json"
 # Try --output first, then --output-file (generated CLIs may use either)
-python3 main.py "$CSV" --output "$OUT_JSON" 2>&1 >/dev/null || \
-python3 main.py "$CSV" --output-file "$OUT_JSON" 2>&1 >/dev/null || true
+python3 "$ENTRY" "$CSV" --output "$OUT_JSON" 2>&1 >/dev/null || \
+python3 "$ENTRY" "$CSV" --output-file "$OUT_JSON" 2>&1 >/dev/null || true
 if [ -f "$OUT_JSON" ] && python3 -m json.tool "$OUT_JSON" > /dev/null 2>&1; then
     pass "writes valid JSON to file"
 else
     fail "writes valid JSON to file" "file missing or invalid"
 fi
 
-python3 main.py "$TMPDIR/nonexistent.csv" 2>/dev/null && {
+python3 "$ENTRY" "$TMPDIR/nonexistent.csv" 2>/dev/null && {
     fail "missing file returns error" "command succeeded"
 } || {
     pass "missing file returns error"
@@ -304,7 +315,7 @@ exp_repo = ExpenseRepository(db)
 try:
     # The designed contract may or may not return the new id; persistence
     # is what matters — verified through the repository, not the return.
-    svc.add_expense({'amount_cents': 100, 'description': 'x', 'expense_date': '2024-01-10', 'category_id': cid, 'payment_method': 'card'})
+    svc.add_expense({'amount_cents': 100, 'description': 'x', 'expense_date': '2024-01-10', 'category_id': cid, 'payment_method': 'card', 'is_recurring': False})
     rows = exp_repo.list()
     assert any(r.amount_cents == 100 for r in rows), 'expense not persisted'
     print('ADD_EXPENSE_WORKS')
@@ -1078,7 +1089,9 @@ repo = MemberRepository(db)
 
 mid = repo.create(Member(name='Alice', email='alice@example.com', is_active=True))
 found = repo.find_by_email('alice@example.com')
-assert isinstance(found, list) and found[0].name == 'Alice'
+# Designed return type varies by run: List[Member] or Optional[Member]
+members = found if isinstance(found, list) else ([found] if found is not None else [])
+assert members and members[0].name == 'Alice', found
 
 assert [m.name for m in repo.find_active_members()] == ['Alice']
 assert repo.find_inactive_members() == []
@@ -1178,7 +1191,10 @@ import sys, tempfile
 sys.path.insert(0, '.')
 from database import Database
 from models import Book, Member, Loan
-from exceptions import NotFoundError, ValidationError, BookNotAvailableError, MemberNotActiveError
+from exceptions import (
+    NotFoundError, ValidationError, BookNotAvailableError,
+    MemberNotActiveError, InvalidLoanStatusError,
+)
 from book_repository import BookRepository
 from member_repository import MemberRepository
 from loan_repository import LoanRepository
@@ -1208,7 +1224,8 @@ try:
     svc.return_book(loan2.id)
     svc.return_book(loan2.id)
     assert False, 'double return should raise'
-except ValidationError:
+except (ValidationError, InvalidLoanStatusError):
+    # Designed exception name varies by run; both are honest designed flows.
     pass
 
 member_repo.update(m, {'is_active': False})

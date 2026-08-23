@@ -1188,6 +1188,29 @@ def _v_impl(m, label):
     if mc is not None and (not isinstance(mc, int) or isinstance(mc, bool) or mc < 2):
         errs.append("%s.%s: impl.min_count must be an integer >= 2"
                     % (label, m.get("name")))
+    # A period bucket key must be a month string ("YYYY-MM") or a year
+    # integer — never a full date/datetime parameter. A date-typed
+    # period_param deterministically renders 'start_date + "-01"'
+    # concatenations that filter nothing at runtime (observed twice on
+    # get_category_spending(category_id, start_date, end_date)). Such an
+    # impl is a malformed optimization hint: strip it and let the
+    # declarative floors attach a total_filtered instead.
+    if kind == "total_in_period":
+        pp = impl.get("period_param")
+        ptype = next(
+            (
+                (p.get("type") or "")
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name") == pp
+            ),
+            "",
+        )
+        if "date" in ptype.lower():
+            errs.append(
+                "%s.%s: impl.period_param %r is date-typed; a period bucket "
+                "must be a YYYY-MM str or a year int"
+                % (label, m.get("name"), pp)
+            )
     return errs
 
 
@@ -3190,6 +3213,23 @@ def _semantic_fill_violations(tree, type_ctx):
     return violations
 
 
+def _dict_shaped_expr(node):
+    """True when an AST expression is observably a plain dict: a Dict
+    literal, a `<expr>.__dict__` attribute, or a dict(...) call. Used to
+    reject repo.create(<dict>) fills — create takes the ENTITY OBJECT and
+    reads its attributes, so a dict argument is a guaranteed AttributeError
+    at runtime."""
+    return (
+        isinstance(node, ast.Dict)
+        or (isinstance(node, ast.Attribute) and node.attr == "__dict__")
+        or (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "dict"
+        )
+    )
+
+
 def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
     """Mechanical contract check of an LLM service fill.
 
@@ -3279,6 +3319,19 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
                     sorted(kw_names - set(names[n_pos:])),
                 )
             )
+        if func.attr == "create":
+            bad = [a for a in node.args if _dict_shaped_expr(a)]
+            bad += [
+                kw.value for kw in node.keywords
+                if kw.arg is not None and _dict_shaped_expr(kw.value)
+            ]
+            if bad:
+                violations.append(
+                    "self.%s.create expects the entity OBJECT; passing a "
+                    "plain dict (%s) crashes on attribute access — build "
+                    "the entity instance first"
+                    % (value.attr, ast.unparse(bad[0])[:60])
+                )
     if type_ctx:
         violations.extend(_semantic_fill_violations(tree, type_ctx))
     return violations
@@ -3493,17 +3546,28 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         )
     hint_parts = [
         "AVAILABLE REPOSITORY METHODS — you may call ONLY these on self.*_repo "
-        "(never invent repository methods):"
+        "(never invent repository methods). Signatures are EXACT:"
     ]
     if repo_interface:
         for attr in sorted(repo_interface):
-            names = [
-                p[0] if isinstance(p, tuple) else p
-                for p in repo_interface[attr]
-            ]
+            sigs = []
+            for meth, entries in repo_interface[attr].items():
+                if entries == ["_filters"]:
+                    sigs.append("%s(**filters)" % meth)
+                    continue
+                parts = []
+                for e in entries:
+                    pname = e[0] if isinstance(e, tuple) else e
+                    req = e[1] if isinstance(e, tuple) else True
+                    parts.append(pname if req else "%s=None" % pname)
+                sigs.append("%s(%s)" % (meth, ", ".join(parts)))
             hint_parts.append(
-                "  self.%s: %s" % (attr, ", ".join(sorted(names)))
+                "  self.%s: %s" % (attr, "; ".join(sorted(sigs)))
             )
+        hint_parts.append(
+            "  NOTE: update(id, data) takes the changed fields as a single "
+            "dict argument — NEVER as keyword arguments."
+        )
     else:
         hint_parts.append("  (none)")
     fill_hint = "\n".join(hint_parts)

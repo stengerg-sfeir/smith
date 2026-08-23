@@ -2,16 +2,11 @@
 from __future__ import annotations
 
 import csv
-from datetime import date
 from typing import Any, Dict, List, Optional
 
 from budget_repository import BudgetRepository
 from category_repository import CategoryRepository
 from database import Database
-from exceptions import (
-    BudgetExceededException,
-    CategoryNotFoundError,
-)
 from expense_repository import ExpenseRepository
 from models import Expense
 
@@ -30,34 +25,7 @@ class ExpenseService:
         return self.expense_repo.get_by_id(id)
 
     def add_expense(self, data: Dict[str, Any]) -> None:
-        """
-            Adds a new expense to the system.
-        
-            Args:
-                data: Dictionary containing expense details with keys:
-                      - amount_cents: int, the amount of the expense in cents
-                      - category_id: int, the ID of the category
-                      - description: str, a description of the expense
-                      - expense_date: str, date in 'YYYY-MM' format
-                      - is_recurring: bool, whether the expense is recurring
-                      - payment_method: str, payment method (e.g., 'credit', 'cash')
-            """
-        amount_cents = data.get('amount_cents')
-        category_id = data.get('category_id')
-        description = data.get('description')
-        expense_date = data.get('expense_date')
-        is_recurring = data.get('is_recurring', False)
-        payment_method = data.get('payment_method')
-        if not amount_cents or not category_id or (not description) or (not expense_date):
-            raise ValueError('Missing required expense fields')
-        try:
-            self.category_repo.get_by_id(category_id)
-        except CategoryNotFoundError:
-            raise CategoryNotFoundError(f'Category with id {category_id} not found')
-        month = expense_date.split('-')[1]
-        if self.check_budget_exceeded(category_id, month):
-            raise BudgetExceededException(f'Expense would exceed budget for category {category_id} in month {month}')
-        expense = Expense(amount_cents=amount_cents, category_id=category_id, description=description, expense_date=expense_date, is_recurring=is_recurring, payment_method=payment_method)
+        expense = Expense(amount_cents=data.get('amount_cents'), category_id=data.get('category_id'), description=data.get('description'), expense_date=data.get('expense_date'), id=data.get('id'), is_recurring=data.get('is_recurring', False), payment_method=data.get('payment_method'))
         self.expense_repo.create(expense)
 
     def update_expense(self, id: int, data: Dict[str, Any]) -> None:
@@ -82,11 +50,7 @@ class ExpenseService:
         return {'year': year, 'total_yearly_spent': total}
 
     def get_category_spending(self, category_id: int, start_date: date, end_date: date) -> int:
-        rows = self.expense_repo.list(
-            category_id=category_id,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        rows = self.expense_repo.list(category_id=category_id, start_date=start_date, end_date=end_date)
         return sum(e.amount_cents for e in rows)
 
     def export_to_csv(self, file_path: str, start_date: date, end_date: date) -> None:
@@ -119,19 +83,5 @@ class ExpenseService:
         return results
 
     def check_budget_exceeded(self, category_id: int, month: str) -> bool:
-        """
-            Checks if the expense for a given category and month exceeds the budget.
-        
-            Args:
-                category_id: int, the ID of the category
-                month: str, month in 'YYYY-MM' format
-            
-            Returns:
-                bool: True if the budget is exceeded, False otherwise
-            """
-        status = self.budget_repo.get_budget_status_for_category_month(category_id, month)
-        if not status:
-            return False
-        total_spent = status.get('total_spent', 0)
-        total_budget = status.get('total_budget', 0)
-        return total_spent > total_budget
+        return self.expense_repo.check_budget_exceeded(category_id, month)
+

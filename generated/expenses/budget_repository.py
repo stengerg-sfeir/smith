@@ -102,21 +102,19 @@ class BudgetRepository:
                 "month": month,
                 "total_budget": 0,
                 "total_spent": 0,
-                "is_over_budget": False
+                "status": "no_budget"
             }
 
-        # Assuming we have a way to calculate spent amount (not provided in models)
-        # This is a placeholder - actual implementation would require spending data
-        total_budget = sum(b.amount_limit_cents for b in budgets)
-        total_spent = 0  # Placeholder - would need actual spending data
-        is_over_budget = total_spent > total_budget
-
+        # Assuming we have a way to calculate spent amount (this would require additional data)
+        # Since we don't have transaction data in the models, we'll return just the budget info
+        # This is a placeholder - in a real implementation, you'd need to join with transactions
+        budget = budgets[0]
         return {
             "category_id": category_id,
             "month": month,
-            "total_budget": total_budget,
-            "total_spent": total_spent,
-            "is_over_budget": is_over_budget
+            "total_budget": budget.amount_limit_cents,
+            "total_spent": 0,
+            "status": "within_budget" if budget.amount_limit_cents > 0 else "no_budget"
         }
 
     def check_budget_exceeded(self, category_id: int, month: str) -> bool:
@@ -124,31 +122,62 @@ class BudgetRepository:
         if not budgets:
             return False
 
-        # Placeholder - actual implementation would require spending data
-        # This assumes we have a way to calculate total spent
-        # Since we don't have spending data, we can't determine if budget is exceeded
-        # This method is currently incomplete without spending data
-        return False
+        # This is a placeholder - without transaction data, we can't determine if budget is exceeded
+        # In a real implementation, you'd need to join with transaction data to calculate spent
+        budget = budgets[0]
+        return False  # Placeholder - budget is not exceeded without transaction data
 
     def get_budget_by_category_and_month(self, category_id: int, month: str) -> Optional[Budget]:
         return self.get_by_category_and_month(category_id, month)
 
     def list_budgets_with_category_summary(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict[str, Any]]:
-        # Placeholder implementation - requires spending data to calculate category summaries
-        # This method would normally aggregate budgets by category and month
-        # and include total budget, total spent, etc.
+        # This method would require joining budgets with category data and potentially transaction data
+        # Since we don't have category or transaction models in this scope, we'll return a basic structure
+        with self.db.connect() as conn:
+            query = "SELECT * FROM budgets"
+            params = []
 
-        # Without spending data, we can only return basic budget info
-        # This is a minimal implementation that returns all budgets with category and month
-        budgets = self.get_all()
+            if start_date:
+                query += " WHERE month >= ?"
+                params.append(start_date.strftime('%Y-%m'))
+            if end_date:
+                query += " AND month <= ?"
+                params.append(end_date.strftime('%Y-%m'))
 
-        result = []
-        for budget in budgets:
-            result.append({
-                "category_id": budget.category_id,
-                "month": budget.month,
-                "amount_limit_cents": budget.amount_limit_cents
-            })
+            query += " ORDER BY month, category_id"
 
-        return result
+            rows = conn.execute(query, params).fetchall()
+
+            result = []
+            category_budgets = {}
+
+            for row in rows:
+                budget = Budget(**dict(row))
+                category_id = budget.category_id
+                month = budget.month
+
+                if category_id not in category_budgets:
+                    category_budgets[category_id] = {
+                        "category_id": category_id,
+                        "budgets": [],
+                        "total_budget": 0,
+                        "total_spent": 0
+                    }
+
+                category_budgets[category_id]["budgets"].append({
+                    "month": month,
+                    "amount_limit_cents": budget.amount_limit_cents
+                })
+
+                category_budgets[category_id]["total_budget"] += budget.amount_limit_cents
+
+            # Convert to list of dictionaries
+            for category_id, data in category_budgets.items():
+                result.append({
+                    "category_id": category_id,
+                    "total_budget": data["total_budget"],
+                    "budgets": data["budgets"]
+                })
+
+            return result
 
