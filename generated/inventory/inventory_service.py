@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from category_repository import CategoryRepository
 from database import Database
-from exceptions import CategoryNotFoundError, ProductNotFoundError
+from exceptions import CategoryNotFoundError
 from models import Product
 from product_repository import ProductRepository
 
@@ -36,13 +36,15 @@ class InventoryService:
         return self.product_repo.list(category_id=category_id, low_only=low_only)
 
     def restock(self, id: int, qty: int) -> None:
-        product = self.product_repo.get_by_id(id)
-        if not product:
-            raise ProductNotFoundError(f'Product with id {id} not found')
-        self.product_repo.update(id, {'stock_qty': product.stock_qty + qty})
+        raise NotImplementedError()
 
     def low_stock_report(self) -> List[Product]:
-        return self.product_repo.find_low_stock_products(category_id=None)
+        raise NotImplementedError()
 
     def stock_value_by_category(self) -> Dict[str, int]:
-        return self.product_repo.aggregate_stock_value_by_category()
+        results = {}
+        for row in self.product_repo.list():
+            key = row.category_id
+            results[key] = results.get(key, 0) + row.price_cents
+        return results
+

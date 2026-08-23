@@ -2755,17 +2755,34 @@ def _apply_filter_floors(entities_by_class, designs):
             n for n in sorted(fields)
             if fields[n].get("type") in ("date", "datetime")
         ]
-        if len(date_cols) == 1:
-            col = date_cols[0]
-            if (col, "gte") not in covered_ops and (col, "lte") not in covered_ops:
-                for suf in range_sufs:
-                    pa, pb = "start_" + suf, "end_" + suf
-                    if pa in declared or pb in declared:
-                        continue
-                    lf.append({"param": pa, "column": col, "op": "gte"})
-                    lf.append({"param": pb, "column": col, "op": "lte"})
-                    declared.update((pa, pb))
-                    break
+
+        def _resolve_range_col(suf):
+            """Date column for a start_<x>/end_<x> suffix: exact field-name
+            match first, then unique '<col>_<suffix>' match, else the unique
+            date column. Works for multi-date entities where the suffix
+            disambiguates (start_date/end_date -> expense_date)."""
+            exact = [c for c in date_cols if c == suf]
+            if len(exact) == 1:
+                return exact[0]
+            suffixed = [c for c in date_cols if c.endswith("_" + suf)]
+            if len(suffixed) == 1:
+                return suffixed[0]
+            if len(date_cols) == 1:
+                return date_cols[0]
+            return None
+
+        for suf in range_sufs:
+            pa, pb = "start_" + suf, "end_" + suf
+            if pa in declared or pb in declared:
+                continue
+            col = _resolve_range_col(suf)
+            if col is None:
+                continue
+            if (col, "gte") in covered_ops or (col, "lte") in covered_ops:
+                continue
+            lf.append({"param": pa, "column": col, "op": "gte"})
+            lf.append({"param": pb, "column": col, "op": "lte"})
+            declared.update((pa, pb))
         ent["list_filters"] = lf
 
 
@@ -2803,9 +2820,9 @@ def _apply_impl_floors(entities_by_class, designs):
             ]
             # unique aggregate-capable entity: exactly one date + one numeric
             cands = []
-            for cls, ent in entities_by_class.items():
+            for cls_, ent_ in entities_by_class.items():
                 flds = [
-                    f for f in (ent.get("fields") or [])
+                    f for f in (ent_.get("fields") or [])
                     if isinstance(f, dict) and f.get("name") and f["name"] != "id"
                 ]
                 dates = [f["name"] for f in flds
@@ -2818,10 +2835,39 @@ def _apply_impl_floors(entities_by_class, designs):
                     and not f["name"].endswith("_id")
                 ]
                 if len(dates) == 1 and len(nums) == 1:
-                    cands.append((cls, ent, dates[0], nums[0]))
-            if len(cands) != 1:
-                continue
-            cls, ent, dcol, ncol = cands[0]
+                    cands.append((cls_, ent_, dates[0], nums[0]))
+            dcol = None
+            if len(cands) == 1:
+                cls, ent, dcol, ncol = cands[0]
+            else:
+                # Relaxed fallback: exactly ONE numeric-non-FK entity whose
+                # DECLARED filter set covers every method param -> a pure
+                # filtered total (no period bucketing). Handles entities
+                # with several date fields where the strict shape test
+                # finds no unique candidate.
+                hits = []
+                for cls_, ent_ in entities_by_class.items():
+                    flds = [
+                        f for f in (ent_.get("fields") or [])
+                        if isinstance(f, dict) and f.get("name") and f["name"] != "id"
+                    ]
+                    nums = [
+                        f["name"] for f in flds
+                        if f.get("type") in ("int", "float")
+                        and not f["name"].endswith("_id")
+                    ]
+                    if len(nums) != 1:
+                        continue
+                    fparams = {
+                        s.get("param")
+                        for s in (ent_.get("list_filters") or [])
+                        if isinstance(s, dict) and s.get("param")
+                    }
+                    if params and set(params) <= fparams:
+                        hits.append((cls_, ent_, nums[0]))
+                if len(hits) != 1:
+                    continue
+                cls, ent, ncol = hits[0]
             declared = {
                 s.get("param")
                 for s in (ent.get("list_filters") or [])
@@ -2932,7 +2978,219 @@ def _service_repo_interface(entities_by_class, designs):
     return interface
 
 
-def _service_fill_violations(filled, repo_interface, svc_design):
+_DICT_METHODS = {
+    "get", "keys", "values", "items", "copy", "update",
+    "setdefault", "pop", "popitem", "clear",
+}
+
+
+def _service_type_context(entities_by_class, designs):
+    """Designed-type information for semantic fill validation.
+
+    entity_fields: {class_name: set(valid field names incl. id)} — entity
+      constructor kwargs and instance attribute reads are checked against
+      these.
+    repo_returns: {(repo_attr, method): tag} derived from the DESIGNED
+      repository return types: ("entity", Class), ("list", Class),
+      ("dict",) — absent when the return type carries no checkable shape.
+    """
+    entity_fields = {}
+    for cls, ent in entities_by_class.items():
+        fields = {"id"}
+        for f in ent.get("fields") or []:
+            if isinstance(f, dict) and f.get("name"):
+                fields.add(f["name"])
+        entity_fields[cls] = fields
+
+    repo_designs = {}
+    for path, kind, data in designs or []:
+        if kind == "repositories" and isinstance(data, dict):
+            repo_designs[Path(path).stem] = data
+
+    def _tag(returns):
+        r = (returns or "").strip()
+        low = r.lower()
+        for cls in entity_fields:
+            if re.search(r"\b%s\b" % cls, r):
+                return ("list", cls) if "list" in low else ("entity", cls)
+        if "dict" in low:
+            return ("dict",)
+        return None
+
+    repo_returns = {}
+    for ent in entities_by_class.values():
+        attr = _snake(ent["name"]) + "_repo"
+        rdes = repo_designs.get(_snake(ent["name"]) + "_repository")
+        if not rdes:
+            continue
+        for m in rdes.get("methods") or []:
+            if isinstance(m, dict) and m.get("name"):
+                t = _tag(m.get("returns"))
+                if t:
+                    repo_returns[(attr, m["name"])] = t
+    return {"entity_fields": entity_fields, "repo_returns": repo_returns}
+
+
+def _semantic_fill_violations(tree, type_ctx):
+    """Semantic checks over an LLM service fill using DESIGNED types only:
+
+    (1) An entity constructor call may only pass declared field names —
+        Expense(amount=...) when the model declares amount_cents is a
+        guaranteed TypeError at runtime.
+    (2) A variable assigned from a repo call whose designed return is an
+        entity may only access declared fields (product.stock vs the
+        declared stock_qty).
+    (3) A variable assigned from a Dict-returning repo call must not be
+        attribute-accessed (budget_status.spending on a plain dict).
+    """
+    entity_fields = type_ctx["entity_fields"]
+    repo_returns = type_ctx["repo_returns"]
+
+    def _repo_call_key_tag(call):
+        if not (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Attribute)
+            and isinstance(call.func.value.value, ast.Name)
+            and call.func.value.value.id == "self"
+            and call.func.value.attr.endswith("_repo")
+        ):
+            return None
+        key = (call.func.value.attr, call.func.attr)
+        return key, repo_returns.get(key)
+
+    dict_keys = type_ctx.get("dict_keys") or {}
+
+    # pass 1b: designed parameter types from the skeleton signatures —
+    # lets us catch guaranteed TypeErrors like date + str concatenation.
+    param_types = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for arg in node.args.args:
+                if arg.arg == "self" or arg.annotation is None:
+                    continue
+                try:
+                    param_types[arg.arg] = ast.unparse(arg.annotation).lower()
+                except Exception:
+                    param_types[arg.arg] = ""
+
+    # pass 1: variable types from repo-call assignments and iterations
+    var_types = {}
+    var_keys = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            hit = _repo_call_key_tag(node.value)
+            if hit:
+                (attr, meth), tag = hit
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name):
+                        var_types[tgt.id] = tag
+                        keys = dict_keys.get((attr, meth))
+                        if keys:
+                            var_keys[tgt.id] = keys
+        elif isinstance(node, ast.For):
+            hit = _repo_call_key_tag(node.iter)
+            if hit:
+                _, tag = hit
+                if tag[0] == "list" and isinstance(node.target, ast.Name):
+                    var_types[node.target.id] = ("entity", tag[1])
+
+    # pass 2: constructor kwargs + attribute accesses
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            fields = entity_fields.get(node.func.id)
+            if fields:
+                bad = sorted(
+                    kw.arg for kw in node.keywords
+                    if kw.arg and kw.arg not in fields
+                )
+                if bad:
+                    violations.append(
+                        "%s() got unknown field(s) %s (declared: %s)"
+                        % (
+                            node.func.id,
+                            ", ".join(bad),
+                            ", ".join(sorted(fields)),
+                        )
+                    )
+                if len(node.args) > len(fields):
+                    violations.append(
+                        "%s() called with %d positional args; the model "
+                        "declares %d field(s)"
+                        % (node.func.id, len(node.args), len(fields))
+                    )
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            tag = var_types.get(node.value.id)
+            if not tag or node.attr in _DICT_METHODS:
+                continue
+            if tag[0] == "entity":
+                if node.attr not in entity_fields.get(tag[1], set()):
+                    violations.append(
+                        "%s.%s: unknown field %r on %s (declared: %s)"
+                        % (
+                            node.value.id,
+                            node.attr,
+                            node.attr,
+                            tag[1],
+                            ", ".join(
+                                sorted(entity_fields.get(tag[1], set()))
+                            ),
+                        )
+                    )
+            elif tag[0] == "dict":
+                violations.append(
+                    "%s is a dict (designed repository return); use "
+                    "['%s'] instead of .%s"
+                    % (node.value.id, node.attr, node.attr)
+                )
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+
+            def _side_kind(n):
+                if isinstance(n, ast.Name):
+                    # Designed range params (start_*/end_*, floored onto date
+                    # columns by _apply_filter_floors) must never be string-
+                    # mangled regardless of their declared type.
+                    if n.id.startswith(("start_", "end_")):
+                        return "date"
+                    t = param_types.get(n.id, "")
+                    return "date" if "date" in t else None
+                if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                    return "str"
+                return None
+
+            kinds = {_side_kind(node.left), _side_kind(node.right)}
+            if kinds == {"date", "str"}:
+                violations.append(
+                    "date + str concatenation (%s + %s) raises TypeError; "
+                    "build the filter values with explicit formatting "
+                    "instead"
+                    % (
+                        ast.unparse(node.left)[:40],
+                        ast.unparse(node.right)[:40],
+                    )
+                )
+        elif (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        ):
+            keys = var_keys.get(node.value.id)
+            if keys and node.slice.value not in keys:
+                violations.append(
+                    "%s['%s']: unknown dict key %r (returned keys: %s)"
+                    % (
+                        node.value.id,
+                        node.slice.value,
+                        node.slice.value,
+                        ", ".join(sorted(keys)),
+                    )
+                )
+    return violations
+
+
+def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
     """Mechanical contract check of an LLM service fill.
 
     Returns a list of human-readable violations (empty list = accept):
@@ -3021,6 +3279,8 @@ def _service_fill_violations(filled, repo_interface, svc_design):
                     sorted(kw_names - set(names[n_pos:])),
                 )
             )
+    if type_ctx:
+        violations.extend(_semantic_fill_violations(tree, type_ctx))
     return violations
 
 
@@ -3125,8 +3385,58 @@ def _merge_stub_bodies(deterministic, filled, stub_names):
     return _splice_functions(deterministic, repls)
 
 
+def _repo_dict_keys(repo_sources, entities_by_class, designs):
+    """{(repo_attr, method): set(string keys)} actually returned by
+    Dict-returning DESIGNED repository customs, extracted from the
+    RENDERED repository sources (deterministic bodies + accepted fills).
+    Lets a service fill be validated against REAL dictionary keys instead
+    of hallucinated ones."""
+    repo_designs = {}
+    for path, kind, data in designs or []:
+        if kind == "repositories" and isinstance(data, dict):
+            repo_designs[Path(path).stem] = data
+
+    out = {}
+    for ent in entities_by_class.values():
+        attr = _snake(ent["name"]) + "_repo"
+        rdes = repo_designs.get(_snake(ent["name"]) + "_repository")
+        src = repo_sources.get(_snake(ent["name"]) + "_repository.py")
+        if not rdes or not src:
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        fdefs = {
+            n.name: n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for m in rdes.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            ret = (m.get("returns") or "").lower()
+            if "dict" not in ret:
+                continue
+            fn = fdefs.get(m["name"])
+            if fn is None:
+                continue
+            keys = set()
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Return)
+                    and isinstance(node.value, ast.Dict)
+                ):
+                    for k in node.value.keys:
+                        if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                            keys.add(k.value)
+            if keys:
+                out[(attr, m["name"])] = keys
+    return out
+
+
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
-                         prompt_text, exception_names=None, verbose=False):
+                         prompt_text, exception_names=None, verbose=False,
+                         repo_sources=None):
     """Deterministic service: real contract bodies + stubs for extras.
 
     Contract methods (the tested surface) get real bodies rendered here with
@@ -3176,6 +3486,11 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     # self.*_repo). Validation is scoped to the STUB methods only: the
     # deterministic contract bodies are not part of the fill context.
     repo_interface = _service_repo_interface(entities_by_class, designs)
+    type_ctx = _service_type_context(entities_by_class, designs)
+    if repo_sources:
+        type_ctx["dict_keys"] = _repo_dict_keys(
+            repo_sources, entities_by_class, designs
+        )
     hint_parts = [
         "AVAILABLE REPOSITORY METHODS — you may call ONLY these on self.*_repo "
         "(never invent repository methods):"
@@ -3192,6 +3507,25 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     else:
         hint_parts.append("  (none)")
     fill_hint = "\n".join(hint_parts)
+    fill_hint += (
+        "\n\nMODEL FIELD NAMES — constructor keyword arguments and "
+        "attribute access MUST use exactly these:\n"
+        + "\n".join(
+            "  %s(%s)"
+            % (cls, ", ".join(sorted(type_ctx["entity_fields"][cls])))
+            for cls in sorted(type_ctx["entity_fields"])
+        )
+    )
+    dict_key_lines = [
+        "  self.%s.%s(...) -> dict with keys: %s"
+        % (attr, meth, ", ".join(sorted(keys)))
+        for (attr, meth), keys in sorted(type_ctx.get("dict_keys", {}).items())
+    ]
+    if dict_key_lines:
+        fill_hint += (
+            "\n\nDICT RETURN KEYS — when a call below returns a dict, index "
+            "it ONLY with these keys:\n" + "\n".join(dict_key_lines)
+        )
 
     # Mini-skeleton: header + ONLY the stub methods. The model never sees the
     # deterministic bodies, so it cannot rewrite/degrade them; its output is
@@ -3210,7 +3544,9 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         service. Returns the merged text or None."""
         if not candidate:
             return None
-        if _service_fill_violations(candidate, repo_interface, stub_design):
+        if _service_fill_violations(
+            candidate, repo_interface, stub_design, type_ctx
+        ):
             return None
         return _merge_stub_bodies(deterministic, candidate, stub_names)
 
@@ -3222,13 +3558,15 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         print(
             "    [fill] service: rejected (%s)"
             % "; ".join(
-                _service_fill_violations(filled, repo_interface, stub_design)[:3]
+                _service_fill_violations(
+                    filled, repo_interface, stub_design, type_ctx
+                )[:3]
             )
         )
     # One corrective retry: show the model EXACTLY which calls violated
     # the repository contract so it fixes those without touching anything.
     violations = (
-        _service_fill_violations(filled, repo_interface, stub_design)
+        _service_fill_violations(filled, repo_interface, stub_design, type_ctx)
         if filled else ["empty output"]
     )
     corrective = (
@@ -3653,6 +3991,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         body = _render_service_file(
             svc_design, svc_class, designs, entities_by_class,
             prompt_text, exception_names, verbose,
+            repo_sources={p: files[p] for p in repo_paths},
         )
         files[sp] = body
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from budget_repository import BudgetRepository
@@ -33,30 +34,31 @@ class ExpenseService:
             Adds a new expense to the system.
         
             Args:
-                data: Dictionary containing expense details including category_id, amount, description, 
-                      date, and recurring (optional).
+                data: Dictionary containing expense details with keys:
+                      - amount_cents: int, the amount of the expense in cents
+                      - category_id: int, the ID of the category
+                      - description: str, a description of the expense
+                      - expense_date: str, date in 'YYYY-MM' format
+                      - is_recurring: bool, whether the expense is recurring
+                      - payment_method: str, payment method (e.g., 'credit', 'cash')
             """
+        amount_cents = data.get('amount_cents')
         category_id = data.get('category_id')
-        amount = data.get('amount_cents', data.get('amount'))
-        description = data.get('description', '')
-        date = data.get('expense_date', data.get('date'))
-        recurring = data.get('is_recurring', data.get('recurring', False))
-        if not category_id or not amount or (not date):
-            raise ValueError('Category ID, amount, and date are required fields.')
-        if self.category_repo.get_by_id(category_id) is None:
-            raise CategoryNotFoundError(f'Category with ID {category_id} not found.')
-        month = str(date)[:7]
+        description = data.get('description')
+        expense_date = data.get('expense_date')
+        is_recurring = data.get('is_recurring', False)
+        payment_method = data.get('payment_method')
+        if not amount_cents or not category_id or (not description) or (not expense_date):
+            raise ValueError('Missing required expense fields')
+        try:
+            self.category_repo.get_by_id(category_id)
+        except CategoryNotFoundError:
+            raise CategoryNotFoundError(f'Category with id {category_id} not found')
+        month = expense_date.split('-')[1]
         if self.check_budget_exceeded(category_id, month):
-            raise BudgetExceededException(f'Expense exceeds the budget for category {category_id} in month {month}.')
-        expense = Expense(
-            amount_cents=amount,
-            description=description,
-            expense_date=date,
-            category_id=category_id,
-            payment_method=data.get('payment_method', 'card'),
-            is_recurring=bool(recurring),
-        )
-        return self.expense_repo.create(expense)
+            raise BudgetExceededException(f'Expense would exceed budget for category {category_id} in month {month}')
+        expense = Expense(amount_cents=amount_cents, category_id=category_id, description=description, expense_date=expense_date, is_recurring=is_recurring, payment_method=payment_method)
+        self.expense_repo.create(expense)
 
     def update_expense(self, id: int, data: Dict[str, Any]) -> None:
         self.expense_repo.update(id, data)
@@ -65,15 +67,11 @@ class ExpenseService:
         return self.expense_repo.delete(id)
 
     def get_monthly_report(self, month: str) -> Dict[str, Any]:
-        rows = [
-            e for e in self.expense_repo.list()
-            if str(e.expense_date)[:7] == month
-        ]
-        total = sum(e.amount_cents for e in rows)
-        breakdown = {}
-        for e in rows:
-            breakdown[e.category_id] = breakdown.get(e.category_id, 0) + e.amount_cents
-        return {'month': month, 'total_spent': total, 'by_category': breakdown}
+        results = {}
+        for row in self.expense_repo.list():
+            key = row.category_id
+            results[key] = results.get(key, 0) + row.amount_cents
+        return results
 
     def get_yearly_summary(self, year: int) -> Dict[str, Any]:
         rows = self.expense_repo.list(
@@ -86,8 +84,8 @@ class ExpenseService:
     def get_category_spending(self, category_id: int, start_date: date, end_date: date) -> int:
         rows = self.expense_repo.list(
             category_id=category_id,
-            start_date=str(start_date),
-            end_date=str(end_date),
+            start_date=start_date,
+            end_date=end_date,
         )
         return sum(e.amount_cents for e in rows)
 
@@ -125,18 +123,15 @@ class ExpenseService:
             Checks if the expense for a given category and month exceeds the budget.
         
             Args:
-                category_id: ID of the category to check.
-                month: Month in format 'YYYY-MM' or 'YYYY-MM-DD'.
-        
+                category_id: int, the ID of the category
+                month: str, month in 'YYYY-MM' format
+            
             Returns:
-                True if the expense exceeds the budget, False otherwise.
+                bool: True if the budget is exceeded, False otherwise
             """
-        budget_status = self.budget_repo.get_budget_status_for_category_month(category_id, month)
-        if not budget_status:
+        status = self.budget_repo.get_budget_status_for_category_month(category_id, month)
+        if not status:
             return False
-        if isinstance(budget_status, dict):
-            return (
-                budget_status.get('total_spent', 0)
-                > budget_status.get('total_budget', 0)
-            )
-        return budget_status.spending > budget_status.budget
+        total_spent = status.get('total_spent', 0)
+        total_budget = status.get('total_budget', 0)
+        return total_spent > total_budget

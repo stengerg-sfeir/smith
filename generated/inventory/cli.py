@@ -35,7 +35,7 @@ def product_list(category, low_only):
 def product_update(id, name, price, category):
     """product/update"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.update_product(id=id, name=name, price_cents=price, category_id=category)
+    result = svc.update_product(id=id, data={'name': name, 'price_cents': price, 'category_id': category})
 
 @cli.command('product-delete')
 @click.option('--id', type=int, required=True)
@@ -57,14 +57,14 @@ def product_restock(id, qty):
 def product_report(low_stock):
     """product/report"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.low_stock_report(none=low_stock)
+    result = svc.low_stock_report()
 
 @cli.command('product-report-2')
 @click.option('--value', is_flag=True, default=False)
 def product_report_2(value):
     """product/report"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.stock_value_by_category(none=value)
+    result = svc.stock_value_by_category()
 
 @cli.command('category-add')
 @click.option('--name', required=True)
@@ -73,7 +73,7 @@ def product_report_2(value):
 def category_add(name, description, threshold):
     """category/add"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.add_product(name=name, description=description, reorder_threshold=threshold)
+    result = svc.add_product(name=name)
 
 @cli.command('category-list')
 def category_list():
@@ -89,7 +89,7 @@ def category_list():
 def category_update(id, name, description, threshold):
     """category/update"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.update_product(id=id, name=name, description=description, reorder_threshold=threshold)
+    result = svc.update_product(id=id, data={'name': name, 'description': description, 'reorder_threshold': threshold})
 
 @cli.command('category-delete')
 @click.option('--id', type=int, required=True)
