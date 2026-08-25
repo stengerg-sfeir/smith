@@ -15,7 +15,7 @@ Generating code ...
       - exceptions.py [exceptions] NotFoundError, ValidationException, DatabaseConnectionError, DuplicateNoteError
       - models.py [models] Note(id:int*, title:str, content:str, created_at:datetime)
       - note_repository.py [repositories] get_notes_by_title(title:str) -> list[Note]; get_notes_by_created_date_range(start_date:datetime, end_date:datetime) -> list[Note]; get_note_count_by_month() -> dict[str, int]; search_notes(query:str) -> list[Note]; get_notes_with_latest_update() -> list[Note]
-    [design] note_service.py: dropped 1 invalid impl(s), accepted
+    [design] note_service.py: dropped 1 invalid impl(s)/method(s), accepted
       - note_service.py [services] create_note(title:str, content:str) -> Optional[Note]; list_notes(title_filter:Optional[str], created_after:Optional[datetime], created_before:Optional[datetime]) -> List[Note]; update_note(note_id:int, title:Optional[str], content:Optional[str]) -> Optional[Note]; delete_note(note_id:int) -> bool; search_notes(query:str) -> List[Note]; get_notes_by_month(year_month:str) -> List[Note]
       - cli.py [cli] commands=6
     Fill phase (service + repository custom methods)...

@@ -15,7 +15,7 @@ Generating code ...
       - exceptions.py [exceptions] NotFoundError, ValidationError, DuplicateEntryError, OutOfStockError, InvalidPriceError, InvalidQuantityError
       - models.py [models] Product(id:int*, name:str, description:str?, price:float, quantity:int)
       - product_repository.py [repositories] get_product_by_name(name:str) -> Product | None; get_products_by_price_range(min_price:float, max_price:float) -> list[Product]; get_products_with_low_stock() -> list[Product]; get_product_count() -> int; get_total_value_of_inventory() -> float; search_products(query:str) -> list[Product]; get_products_by_category(category:str) -> list[Product]; get_product_with_highest_price() -> Product | None; get_product_with_lowest_price() -> Product | None
-    [design] product_service.py: dropped 1 invalid impl(s), accepted
+    [design] product_service.py: dropped 1 invalid impl(s)/method(s), accepted
       - product_service.py [services] create_product(name:str, description:Optional[str], price:float, quantity:int) -> Product; get_product_by_name(name:str) -> Optional[Product]; get_products_by_price_range(min_price:float, max_price:float) -> List[Product]; get_products_with_low_stock() -> List[Product]; get_product_count() -> int; get_total_value_of_inventory() -> float; search_products(query:str) -> List[Product]; get_products_by_category(category:str) -> List[Product]; get_product_with_highest_price() -> Optional[Product]; get_product_with_lowest_price() -> Optional[Product]
       - cli.py [cli] commands=10
     Fill phase (service + repository custom methods)...

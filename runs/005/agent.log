@@ -15,7 +15,7 @@ Generating code ...
       - exceptions.py [exceptions] NotFoundError, ValidationError, DuplicateEntryError, PermissionError
       - models.py [models] Contact(id:int*, name:str, email:str?, phone:str?)
       - contact_repository.py [repositories] get_contact_by_email(email:str) -> Contact | None; get_contact_by_phone(phone:str) -> Contact | None; search_contacts(query:str, case_sensitive:bool) -> list[Contact]; count_contacts() -> int; get_contacts_with_email_domain(domain:str) -> list[Contact]; get_contacts_by_name_prefix(prefix:str) -> list[Contact]; get_contact_with_most_phones() -> Contact | None; get_contact_with_most_emails() -> Contact | None; get_contacts_with_no_email() -> list[Contact]; get_contacts_with_no_phone() -> list[Contact]
-    [design] contact_service.py: dropped 1 invalid impl(s), accepted
+    [design] contact_service.py: dropped 1 invalid impl(s)/method(s), accepted
       - contact_service.py [services] create_contact(name:str, email:Optional[str], phone:Optional[str]) -> Contact; list_contacts() -> List[Contact]; update_contact(contact_id:int, name:Optional[str], email:Optional[str], phone:Optional[str]) -> Contact | None; delete_contact(contact_id:int) -> bool; search_contacts(query:str, case_sensitive:bool) -> List[Contact]; get_contact_by_email(email:str) -> Contact | None; get_contact_by_phone(phone:str) -> Contact | None; get_contacts_with_email_domain(domain:str) -> List[Contact]; get_contacts_by_name_prefix(prefix:str) -> List[Contact]; get_contact_with_most_phones() -> Contact | None; get_contact_with_most_emails() -> Contact | None; get_contacts_with_no_email() -> List[Contact]; get_contacts_with_no_phone() -> List[Contact]
       - cli.py [cli] commands=13
     Fill phase (service + repository custom methods)...

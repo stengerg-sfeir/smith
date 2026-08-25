@@ -15,7 +15,7 @@ Generating code ...
       - exceptions.py [exceptions] BookNotFoundError, InvalidISBNException, DuplicateISBNException, ValidationError, BookUpdateException, BookDeleteException
       - models.py [models] Book(id:int*, title:str, author:str, isbn:str*, publication_year:int)
       - book_repository.py [repositories] get_books_by_author(author:str) -> list[Book]; get_books_by_publication_year_range(start_year:int, end_year:int) -> list[Book]; get_books_by_title_contains(title_keyword:str) -> list[Book]; get_total_books_count() -> int; get_books_with_most_popular_authors(top_n:int) -> list[tuple[str, int]]; search_books_by_isbn_or_title(search_term:str) -> list[Book]; get_books_by_isbn(isbn:str) -> Book | None
-    [design] book_service.py: dropped 1 invalid impl(s), accepted
+    [design] book_service.py: dropped 1 invalid impl(s)/method(s), accepted
       - book_service.py [services] create_book(book:Book) -> bool; list_all_books() -> List[Book]; update_book(book:Book) -> bool; delete_book(isbn:str) -> bool; search_books_by_title_or_isbn(search_term:str) -> List[Book]; get_books_by_author(author:str) -> List[Book]; get_books_by_publication_year_range(start_year:int, end_year:int) -> List[Book]; get_total_books_count() -> int; get_books_with_most_popular_authors(top_n:int) -> List[tuple[str, int]]; validate_isbn_uniqueness(isbn:str) -> bool
     Fill phase (service + repository custom methods)...
     Generated database.py from model AST (1 tables)

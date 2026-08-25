@@ -10,11 +10,9 @@
 #   - service: deterministic recipes (list_expenses, get/update/delete_expense,
 #     reports, export_to_csv, detect_recurring) + LLM fills that passed the
 #     arity-aware validator.
-#   - Known boundary: add_expense is a documented NotImplementedError stub —
-#     the 4B model could not produce an arity-correct budget-check fill, so
-#     the pipeline kept the locked stub instead of shipping a broken body.
-#     Test 3f pins that boundary so a regression (broken fill passing
-#     validation) would be caught.
+#   - add_expense MUST be implemented (persists through the repository).
+#     A NotImplementedError stub is a defect: test 3f fails loudly on one,
+#     as does every other surface below. No stub is an accepted boundary.
 # =============================================================================
 set -euo pipefail
 
@@ -452,8 +450,6 @@ try:
     rows = exp_repo.list()
     assert any(r.amount_cents == 100 for r in rows), 'expense not persisted'
     print('ADD_EXPENSE_WORKS')
-except NotImplementedError:
-    print('ADD_EXPENSE_STUB_OK')
 except BudgetExceededException:
     # Documented fill-variance boundary: budget-checking fills sometimes
     # mis-handle the no-budget case (placeholder 0/0 vs month-format
@@ -461,8 +457,8 @@ except BudgetExceededException:
     # an honest boundary — not a crash bug.
     print('ADD_EXPENSE_BUDGET_BOUNDARY')
 " 2>&1) || STUB_OUT=""
-if echo "$STUB_OUT" | grep -qE "ADD_EXPENSE_(WORKS|STUB_OK|BUDGET_BOUNDARY)"; then
-    pass "add_expense callable (stub boundary respected, no crash bug)"
+if echo "$STUB_OUT" | grep -qE "ADD_EXPENSE_(WORKS|BUDGET_BOUNDARY)"; then
+    pass "add_expense implemented (persists; no crash bug)"
 else
     fail "add_expense boundary" "$STUB_OUT"
 fi
@@ -533,31 +529,27 @@ def _nums(d):
 # Contract: each report must expose the correct 800 total — directly as a
 # value or as the sum of its numeric parts (deterministic recipes use
 # canonical keys; LLM fills may shape the dict differently). Canonical
-# keys are asserted when present. An honest NotImplementedError stub is an
-# accepted boundary (same philosophy as add_expense/detect_recurring).
-try:
-    report = svc.get_monthly_report('2024-03')
-    assert isinstance(report, dict), report
-    if 'month' in report:
-        assert report['month'] == '2024-03', report
-    assert 800 in _nums(report) or sum(_nums(report)) == 800, report
+# keys are asserted when present. A NotImplementedError stub FAILS here.
+report = svc.get_monthly_report('2024-03')
+assert isinstance(report, dict), report
+if 'month' in report:
+    assert report['month'] == '2024-03', report
+assert 800 in _nums(report) or sum(_nums(report)) == 800, report
 
-    summary = svc.get_yearly_summary(2024)
-    assert isinstance(summary, dict), summary
-    if 'year' in summary:
-        assert summary['year'] == 2024, summary
-    assert 800 in _nums(summary) or sum(_nums(summary)) == 800, summary
+summary = svc.get_yearly_summary(2024)
+assert isinstance(summary, dict), summary
+if 'year' in summary:
+    assert summary['year'] == 2024, summary
+assert 800 in _nums(summary) or sum(_nums(summary)) == 800, summary
 
-    spending = svc.get_category_spending(cat_id, '2024-01-01', '2024-12-31')
-    if isinstance(spending, dict):
-        assert 800 in _nums(spending) or sum(_nums(spending)) == 800, spending
-    else:
-        assert spending == 800, spending
-    print('REPORTS_OK')
-except NotImplementedError:
-    print('REPORTS_STUB_OK')
+spending = svc.get_category_spending(cat_id, '2024-01-01', '2024-12-31')
+if isinstance(spending, dict):
+    assert 800 in _nums(spending) or sum(_nums(spending)) == 800, spending
+else:
+    assert spending == 800, spending
+print('REPORTS_OK')
 " 2>&1) || REPORTS_OUT=""
-if echo "$REPORTS_OUT" | grep -qE "REPORTS_(OK|STUB_OK)"; then
+if echo "$REPORTS_OUT" | grep -qE "REPORTS_OK"; then
     pass "monthly report, yearly summary, category spending"
 else
     fail "reports" "$REPORTS_OUT"
@@ -626,17 +618,13 @@ exp_repo.create(Expense(amount_cents=999, description='One-off', expense_date='2
 
 import inspect
 _nargs = len(inspect.signature(svc.detect_recurring).parameters)
-try:
-    results = svc.detect_recurring('2024-01-01', '2024-12-31') if _nargs >= 2 else svc.detect_recurring()
-except NotImplementedError:
-    print('RECURRING_STUB_OK')
-    raise SystemExit(0)
+results = svc.detect_recurring('2024-01-01', '2024-12-31') if _nargs >= 2 else svc.detect_recurring()
 assert isinstance(results, list)
 assert len(results) >= 1, f'Expected at least 1 recurring group, got {results}'
 print('RECURRING_OK')
 " 2>&1) || RECURRING_OUT=""
-if echo "$RECURRING_OUT" | grep -qE "RECURRING_(OK|STUB_OK)"; then
-    pass "detect_recurring (works or honest stub boundary)"
+if echo "$RECURRING_OUT" | grep -qE "RECURRING_OK"; then
+    pass "detect_recurring implemented"
 else
     fail "detect_recurring" "$RECURRING_OUT"
 fi
@@ -854,9 +842,8 @@ assert_not_stub \
     get_budget_status_for_category_month
 
 # --- 3u — stub surface must be IMPLEMENTED, not pinned as a boundary ----------
-# These currently raise NotImplementedError (the 4B model couldn't fill them
-# without out-of-schema SQL). A stub is a defect, not an acceptable boundary —
-# so we assert NOT-stub and let these FAIL (red) until they carry real logic.
+# A stub is a defect, not an acceptable boundary — assert NOT-stub so a
+# reversion to a locked stub fails loudly.
 assert_not_stub \
     "ExpenseRepository.get_monthly_spending_summary implemented" \
     expense_repository.py ExpenseRepository get_monthly_spending_summary
@@ -1119,35 +1106,24 @@ c1 = cat_repo.create(Category(name='Tools', reorder_threshold=10))
 pid = prod_repo.create(Product(sku='A', name='Hammer', category_id=c1, price_cents=1000, stock_qty=3))
 prod_repo.create(Product(sku='B', name='Drill', category_id=c1, price_cents=2000, stock_qty=2))
 
-restocked = False
-try:
-    svc.restock(pid, 10)
-    p = svc.get_product_by_id(pid)
-    assert p.stock_qty == 13, p.stock_qty
-    restocked = True
-except NotImplementedError:
-    print('RESTOCK_STUB')
+svc.restock(pid, 10)
+p = svc.get_product_by_id(pid)
+assert p.stock_qty == 13, p.stock_qty
+restocked = True
 
-try:
-    report = svc.low_stock_report()
-    assert isinstance(report, list), report
-except NotImplementedError:
-    print('LOW_STOCK_STUB')
+report = svc.low_stock_report()
+assert isinstance(report, list), report
 
-try:
-    values = svc.stock_value_by_category()
-except NotImplementedError:
-    print('STOCK_VALUE_STUB')
-else:
-    total = sum(v for v in values.values() if isinstance(v, (int, float)) and not isinstance(v, bool))
-    # Defensible totals: price x qty (SQL-aggregate delegation or correct
-    # fill; qty side depends on whether restock ran above) or price-only
-    # (an LLM fill that ignores quantity).
-    expected_xqty = 1000 * (3 + (10 if restocked else 0)) + 2000 * 2
-    assert total in (expected_xqty, 1000 + 2000), (total, values)
+values = svc.stock_value_by_category()
+total = sum(v for v in values.values() if isinstance(v, (int, float)) and not isinstance(v, bool))
+# Defensible totals: price x qty (SQL-aggregate delegation or correct
+# fill; qty side depends on whether restock ran above) or price-only
+# (an LLM fill that ignores quantity).
+expected_xqty = 1000 * (3 + (10 if restocked else 0)) + 2000 * 2
+assert total in (expected_xqty, 1000 + 2000), (total, values)
 print('SERVICE_BIZ_OK')
 " 2>&1) || SVC_OUT=""
-if echo "$SVC_OUT" | grep -qE "SERVICE_BIZ_OK|RESTOCK_STUB"; then
+if echo "$SVC_OUT" | grep -q "SERVICE_BIZ_OK"; then
     pass "service business methods (restock/low_stock_report/stock_value)"
 else
     fail "service business methods" "$SVC_OUT"
@@ -1913,20 +1889,11 @@ loan_repo.create(Loan(book_id=b, member_id=m, loan_date='2020-01-01 00:00:00', d
 # (due_date < return_date, the returned-late analysis design).
 loan_repo.create(Loan(book_id=b, member_id=m, loan_date='2020-02-01 00:00:00', due_date='2020-03-01 00:00:00', status='overdue'))
 loan_repo.create(Loan(book_id=b, member_id=m, loan_date='2020-03-01 00:00:00', due_date='2020-04-01 00:00:00', return_date='2020-05-01 00:00:00', status='returned'))
-# get_overdue_loans: the service fill may delegate to a repo overdue custom
-# that the schema gate reverted to an honest NotImplementedError stub
-# (SQL outside the designed schema) — accepted boundary, same as the
-# add_expense/detect_recurring/author-customs stubs. Only a crash (non-
-# NotImplementedError traceback) fails the test.
-try:
-    # Overdue SEMANTICS are pinned in 6e against all designed variants
-    # (past-due active / explicit status / late-return); here the service
-    # may delegate through date-range customs keyed on runtime dates
-    # ('due today' etc.), so pin only the type contract: a list, or an
-    # honest NotImplementedError stub.
-    assert isinstance(svc.get_overdue_loans(), list)
-except NotImplementedError:
-    pass
+# Overdue SEMANTICS are pinned in 6e against all designed variants
+# (past-due active / explicit status / late-return); here we pin the type
+# contract: get_overdue_loans() MUST return a list. A NotImplementedError
+# stub is a defect and fails below.
+assert isinstance(svc.get_overdue_loans(), list)
 
 svc.renew_membership(m)
 assert member_repo.get_by_id(m) is not None
@@ -1942,10 +1909,10 @@ fi
 # The spec's CLI/AuthorRepository surface implies a Book-Author relation the
 # designed Book model never declares (books has no author_id column). The
 # pipeline now enforces that boundary mechanically: repo fills whose SQL
-# references columns outside the DESIGNED schema are reverted to locked
-# stubs per-method (_merge_repo_fill), so author->book customs must be
-# either honest NotImplementedError stubs or working code — NEVER a
-# sqlite3.OperationalError landmine. The probe below pins exactly that.
+# references columns outside the DESIGNED schema are rejected per-method
+# (_merge_repo_fill), so author->book customs must carry working code —
+# never a stub and never a sqlite3.OperationalError landmine. The probe
+# below pins exactly that.
 AUTHOR_OUT=$(python3 -c "
 import sys, tempfile
 sys.path.insert(0, '.')
@@ -1982,11 +1949,10 @@ for name in repo_methods:
     try:
         args = [0] * nargs
         result = fn(*args)
-    except NotImplementedError:
-        continue  # honest stub boundary: spec relation was never designed
     except Exception as exc:
         raise AssertionError(
-            '%s crashed instead of stubbing: %r' % (name, exc)
+            '%s raised instead of returning (stub or crash): %r'
+            % (name, exc)
         )
 print('AUTHOR_CUSTOMS_SAFE')
 " 2>&1) || AUTHOR_OUT=""
@@ -2191,7 +2157,7 @@ assert_not_stub \
     author_repository.py AuthorRepository find_books_by_author
 
 # --- 6r — stub surface must be IMPLEMENTED, not pinned as a boundary -----------
-# These currently raise NotImplementedError. A stub is a defect, so we assert
+# A stub is a defect, so we assert
 # NOT-stub; they FAIL (red) until they carry real logic.
 assert_not_stub \
     "LoanRepository.get_loans_with_due_date_range implemented" \
@@ -2230,16 +2196,10 @@ E2E_OK=1
 echo "$SEED_OUT" | grep -q "SEEDED" || E2E_OK=0
 python3 "$LS_DIR/cli.py" library-borrow --member-id 1 --book-id 1 > /dev/null 2>&1 || E2E_OK=0
 python3 "$LS_DIR/cli.py" library-return --loan-id 1 > /dev/null 2>&1 || E2E_OK=0
-# library-overdue: the service fill may delegate to a repo overdue custom
-# that the schema gate reverted to an honest NotImplementedError stub
-# (SQL outside the designed schema). That is an accepted boundary — only a
-# real crash (NameError/TypeError traceback without NotImplementedError)
-# fails the e2e.
+# library-overdue must run clean: no crash AND no NotImplementedError stub.
 OVERDUE_OUT=$(python3 "$LS_DIR/cli.py" library-overdue 2>&1) || true
-if ! echo "$OVERDUE_OUT" | grep -q "NotImplementedError"; then
-    [ -n "$OVERDUE_OUT" ] || OVERDUE_OUT="ok"
-    echo "$OVERDUE_OUT" | grep -qi "traceback" && E2E_OK=0
-fi
+[ -n "$OVERDUE_OUT" ] || OVERDUE_OUT="ok"
+echo "$OVERDUE_OUT" | grep -qiE "traceback|NotImplementedError" && E2E_OK=0
 # Functional add-paths when bounded propagation wired them: book-add now
 # persists the spec-demanded --author-id FK; member-add relies on the
 # spec-declared is_active default.
@@ -2254,14 +2214,11 @@ fi
 if echo "$CMDS" | grep -qx "book-search"; then
     python3 "$LS_DIR/cli.py" book-search --query Dune > /dev/null 2>&1 || E2E_OK=0
 fi
-# member-history may be an honest NotImplementedError stub when the fill
-# could not produce a contract-valid body — accepted boundary.
+# member-history must run clean: no crash AND no NotImplementedError stub.
 if echo "$CMDS" | grep -qx "member-history"; then
     HIST_OUT=$(python3 "$LS_DIR/cli.py" member-history --member-id 1 2>&1) || true
-    if ! echo "$HIST_OUT" | grep -q "NotImplementedError"; then
-        [ -n "$HIST_OUT" ] || HIST_OUT="ok"
-        echo "$HIST_OUT" | grep -qi "traceback" && E2E_OK=0
-    fi
+    [ -n "$HIST_OUT" ] || HIST_OUT="ok"
+    echo "$HIST_OUT" | grep -qiE "traceback|NotImplementedError" && E2E_OK=0
 fi
 # Persisted rows for the add-paths that ran.
 ADD_CHECK=$(python3 -c "

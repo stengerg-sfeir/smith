@@ -15,7 +15,7 @@ Generating code ...
       - exceptions.py [exceptions] NotFoundError, ValidationException, SortingException, InvalidInputException
       - models.py [models] Product(id:int*, name:str, price:float, quantity:int, created_at:datetime, updated_at:datetime)
       - product_repository.py [repositories] list_products_by_name(sort_order:str, filter_name:str) -> list[Product]; list_products_by_price(sort_order:str, min_price:float, max_price:float) -> list[Product]; list_products_by_quantity(sort_order:str, min_quantity:int, max_quantity:int) -> list[Product]; get_product_count() -> int; get_product_report_by_category(category:str) -> dict; list_products_with_pagination(page:int, page_size:int, sort_field:str, sort_order:str) -> list[Product]
-    [design] product_service.py: dropped 3 invalid impl(s), accepted
+    [design] product_service.py: dropped 3 invalid impl(s)/method(s), accepted
       - product_service.py [services] list_products_by_name(sort_order:str, filter_name:Optional[str]) -> List[Product]; list_products_by_price(sort_order:str, min_price:float, max_price:float) -> List[Product]; list_products_by_quantity(sort_order:str, min_quantity:int, max_quantity:int) -> List[Product]; get_product_count() -> int; get_product_report_by_category(category:str) -> Dict[str, float]; list_products_with_pagination(page:int, page_size:int, sort_field:str, sort_order:str) -> List[Product]
       - cli.py [cli] commands=6
     Fill phase (service + repository custom methods)...

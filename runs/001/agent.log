@@ -1,16 +1,4 @@
     [design] no entities designed
-Traceback (most recent call last):
-  File "/Users/gillesstenger/Documents/neurosymbolic/agent.py", line 6220, in main
-    if process_prompt(name, path, verbose=verbose):
-       ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/gillesstenger/Documents/neurosymbolic/agent.py", line 6157, in process_prompt
-    files = _multi_pass(prompt_text, verbose=verbose)
-  File "/Users/gillesstenger/Documents/neurosymbolic/agent.py", line 6006, in _multi_pass
-    raise RuntimeError(
-    ...<2 lines>...
-    )
-RuntimeError: manifest-first pipeline failed for this prompt (legacy fallback paths have been removed)
-  FAILED: manifest-first pipeline failed for this prompt (legacy fallback paths have been removed)
 
 ============================================================
   Prompt : 01
@@ -26,7 +14,13 @@ Generating code ...
     Generating architecture manifest...
     Design phase (schema-constrained JSON)...
       - exceptions.py [exceptions] (none)
+    No data entities — single-pass script generation
+  wrote generated/01/hello/__init__.py
+  wrote generated/01/hello/cli.py
 
-Done -- 0 succeeded, 1 failed out of 1 prompt(s).
+  Project written to generated/01/
+
+
+Done -- 1 succeeded, 0 failed out of 1 prompt(s).
 $ /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 01
 

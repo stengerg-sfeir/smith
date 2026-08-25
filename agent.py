@@ -1333,6 +1333,29 @@ def _strip_invalid_impls(d):
     return removed
 
 
+def _strip_reserved_methods(d):
+    """Drop designed methods literally named 'impl' (services/repositories).
+
+    The services system prompt tells the model to attach an '"impl" OBJECT'
+    to a method; the 4B model sometimes echoes that hint as METHODS NAMED
+    impl instead (observed five times on one design). Such entries pass
+    shape validation but poison the fill phase: duplicate names collapse in
+    the merge's found-dict while the deterministic tree carries one def per
+    entry, so every splice mismatches. They are schema-confusion artifacts,
+    not methods — strip them like any other malformed hint.
+    Returns the number of entries removed.
+    """
+    kept = []
+    removed = 0
+    for m in d.get("methods") or []:
+        if isinstance(m, dict) and m.get("name") == "impl":
+            removed += 1
+        else:
+            kept.append(m)
+    d["methods"] = kept
+    return removed
+
+
 def _strip_invalid_list_filters(d):
     """Drop invalid list_filter declarations in-place (models design).
 
@@ -2531,7 +2554,8 @@ def _design_module(path, kind, prompt_text, context, verbose=False):
                 label = "invalid list_filter(s)"
             else:
                 stripped = _strip_invalid_impls(data)
-                label = "invalid impl(s)"
+                stripped += _strip_reserved_methods(data)
+                label = "invalid impl(s)/method(s)"
             if stripped:
                 errs = validator(data)
                 if not errs:
@@ -4928,6 +4952,12 @@ def _merge_stub_bodies(deterministic, filled, stub_names):
     `deterministic`, leaving every other byte of the deterministic file
     untouched. Returns the merged text, or None when the fill does not
     provide exactly the expected methods."""
+    # A mismatched merge (or an earlier fill that returned None) must never
+    # reach ast.parse with None — that raised a TypeError deep in the
+    # salvage loop (observed on a service whose design carried garbage
+    # "impl"-named methods). Fail the merge cleanly instead.
+    if not isinstance(deterministic, str) or not isinstance(filled, str):
+        return None
     try:
         ftree = ast.parse(filled)
         dtree = ast.parse(deterministic)
@@ -5484,8 +5514,14 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 if cand else ["empty output"]
             )
             if not viol:
-                salvaged = _merge_stub_bodies(salvaged, cand, [name])
-                ok = True
+                # A merge can legitimately fail (fill missing a method);
+                # assigning its None result here used to crash the NEXT
+                # stub with ast.parse(None) (TypeError, observed on run 08).
+                # Keep the previous salvage state instead.
+                merged = _merge_stub_bodies(salvaged, cand, [name])
+                if merged is not None:
+                    salvaged = merged
+                    ok = True
                 break
             if verbose:
                 print(
@@ -5726,6 +5762,91 @@ def _generate_file(file_spec, manifest, prompt_text, prior_files,
     return code, "ok" if code else "generation returned None"
 
 
+def _render_main_file(files, db_file="app.db"):
+    """Deterministic application entry point.
+
+    The manifest declares a main.py entry point, but the manifest-first
+    pipeline renders only exceptions/models/cli/repositories/services/
+    database deterministically — a declared main.py used to fall through to
+    an empty file. This renderer produces a real, compilable entry point:
+
+      - prefers the click CLI when the layout declared one;
+      - else instantiates Database + the designed service and prints a
+        ready message;
+      - else just initializes the database, or prints a plain message.
+
+    Never returns an empty string, so the shipped project always has a
+    runnable entry point.
+    """
+    if "cli.py" in files:
+        return (
+            '"""Application entry point."""\n'
+            "from __future__ import annotations\n"
+            "\n"
+            "from cli import cli\n"
+            "\n"
+            'if __name__ == "__main__":\n'
+            "    cli()\n"
+        )
+    svc_files = [f for f in files if f.endswith("_service.py")]
+    if svc_files:
+        svc_stem = Path(svc_files[0]).stem
+        svc_class = _camel(svc_stem[: -len("_service")]) + "Service"
+        return (
+            '"""Application entry point."""\n'
+            "from __future__ import annotations\n"
+            "\n"
+            "from database import Database\n"
+            "from %s import %s\n"
+            "\n"
+            'DB_PATH = "%s"\n'
+            "\n"
+            "def main() -> None:\n"
+            '    """Initialize the application and run a smoke check."""\n'
+            "    db = Database(DB_PATH)\n"
+            "    svc = %s(db)\n"
+            '    print("Application ready — database initialized at %s")\n'
+            "\n"
+            'if __name__ == "__main__":\n'
+            "    main()\n"
+        ) % (svc_stem, svc_class, db_file, svc_class, db_file)
+    if "database.py" in files:
+        return (
+            '"""Application entry point."""\n'
+            "from __future__ import annotations\n"
+            "\n"
+            "from database import Database\n"
+            "\n"
+            'DB_PATH = "%s"\n'
+            "\n"
+            "def main() -> None:\n"
+            '    """Initialize the application."""\n'
+            "    Database(DB_PATH)\n"
+            '    print("Application ready — database initialized at %s")\n'
+            "\n"
+            'if __name__ == "__main__":\n'
+            "    main()\n"
+        ) % (db_file, db_file)
+    return (
+        '"""Application entry point."""\n'
+        "from __future__ import annotations\n"
+        "\n"
+        "def main() -> None:\n"
+        '    """Run the application."""\n'
+        '    print("Application ready.")\n'
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n"
+    )
+
+
+class _NoEntityScript(Exception):
+    """Raised when a manifest declares no data entities (a script-like
+    project such as a hello-world app). The multi-pass pipeline is
+    entity-driven; such a spec degrades to single-pass generation rather
+    than failing outright."""
+
+
 def _manifest_first_blocks(prompt_text, verbose=False):
     """smith-style manifest-first pipeline.
 
@@ -5790,7 +5911,11 @@ def _manifest_first_blocks(prompt_text, verbose=False):
 
     if not entities_by_class:
         print("    [design] no entities designed", file=sys.stderr)
-        return None, None
+        # A manifest that plans no data model is a script-like project
+        # (hello-world, a pure CLI tool): the entity-driven multi-pass
+        # pipeline cannot serve it. Signal the caller to degrade to
+        # single-pass generation rather than failing outright.
+        raise _NoEntityScript()
 
     # 2.5 Generic repository/service stems are renamed to per-entity files
     # using the DECLARED entity metadata of the layout design (falling back
@@ -5961,11 +6086,24 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         if model_classes:
             files["database.py"] = _generate_database_file(model_classes, db_file)
 
-    # ensure every manifest file exists (e.g. a main.py the LLM invented)
+    # ensure every manifest file exists: a declared main/app entry point gets
+    # a deterministic renderer; invented "other" modules are dropped rather
+    # than shipped empty (an empty file is worse than an absent one, and a
+    # file with no schema-constrained design contract has no business being
+    # written by hand).
     for spec in manifest:
         fn = spec["file"]
-        if fn not in files:
-            files[fn] = ""
+        if fn in files:
+            continue
+        kind = spec.get("kind")
+        if kind == "main" or Path(fn).stem in ("main", "app"):
+            files[fn] = _render_main_file(files, db_file)
+            continue
+        if verbose:
+            print(
+                "    dropped invented module %s (no design contract)" % fn,
+                file=sys.stderr,
+            )
 
     # Mechanical AST validation of the generated tree (same as the legacy
     # path): syntax, sibling-import resolution, structural checks.
@@ -6001,7 +6139,18 @@ def _multi_pass(prompt_text, verbose=False):
     degrading to the removed legacy multi-pass / single-pass paths (which
     let the 4B model write full file bodies and hallucinate).
     """
-    files, design_ctx = _manifest_first_blocks(prompt_text, verbose=verbose)
+    try:
+        files, design_ctx = _manifest_first_blocks(
+            prompt_text, verbose=verbose
+        )
+    except _NoEntityScript:
+        # Script-like project (no data entities designed): the entity-
+        # driven multi-pass cannot serve it. Single-pass is the honest
+        # generator for a one-file script/tool — not a legacy fallback,
+        # but the correct route for this shape.
+        if verbose:
+            print("    No data entities — single-pass script generation")
+        return _single_pass(prompt_text, verbose=verbose)
     if not files:
         raise RuntimeError(
             "manifest-first pipeline failed for this prompt "

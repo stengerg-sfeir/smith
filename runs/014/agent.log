@@ -15,7 +15,7 @@ Generating code ...
       - exceptions.py [exceptions] ProjectNotFoundError, ValidationError, ProjectAlreadyExistsError, ProjectSoftDeleteError
       - models.py [models] Project(id:int*, name:str, description:str?, status:str, created_at:datetime, updated_at:datetime, deleted_at:datetime?)
       - project_repository.py [repositories] get_project_by_name(name:str) -> Project | None; list_projects_by_status(status:str) -> list[Project]; get_project_count() -> int; list_active_projects() -> list[Project]; list_projects_with_pagination(page:int, page_size:int) -> list[Project]; get_project_stats() -> dict; search_projects(query:str, status_filter:str | None) -> list[Project]
-    [design] project_service.py: dropped 1 invalid impl(s), accepted
+    [design] project_service.py: dropped 1 invalid impl(s)/method(s), accepted
       - project_service.py [services] create_project(name:str, description:Optional[str], status:str) -> Project; update_project(project_id:int, name:Optional[str], description:Optional[str], status:Optional[str]) -> Project | None; list_projects(status:Optional[str], query:Optional[str]) -> list[Project]; list_active_projects() -> list[Project]; delete_project(project_id:int) -> bool; export_projects_to_csv(file_path:str, status_filter:Optional[str]) -> None; get_project_stats() -> dict
       - cli.py [cli] commands=7
     Fill phase (service + repository custom methods)...

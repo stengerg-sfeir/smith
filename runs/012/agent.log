@@ -16,7 +16,7 @@ Generating code ...
       - exceptions.py [exceptions] CustomerNotFoundError, EmailAlreadyExistsError, InvalidEmailError, ValidationError, DomainFilterError
       - models.py [models] Customer(id:int*, name:str, email:str*, phone:str?)
       - customer_repository.py [repositories] get_customers_by_domain(domain:str) -> list[Customer]; get_customer_count_by_domain(domain:str) -> int; get_customers_with_email_pattern(pattern:str) -> list[Customer]; get_customers_with_name_containing(substring:str) -> list[Customer]; get_customers_with_phone_prefix(prefix:str) -> list[Customer]; get_total_customers() -> int; get_customers_with_valid_email_format() -> list[Customer]; get_customers_by_name_and_domain(name:str, domain:str) -> list[Customer]
-    [design] customer_service.py: dropped 2 invalid impl(s), accepted
+    [design] customer_service.py: dropped 2 invalid impl(s)/method(s), accepted
       - customer_service.py [services] create_customer(name:str, email:str, phone:Optional[str]) -> bool; get_customer_by_email(email:str) -> Optional[Customer]; get_customers_by_domain(domain:str) -> List[Customer]; search_customers_by_name(name:str) -> List[Customer]; filter_customers_by_email_domain(domain:str) -> List[Customer]; get_total_customers() -> int; get_customers_with_phone_prefix(prefix:str) -> List[Customer]
     [design] cli invalid: customer/stats/count: option '--domain' maps to no parameter of get_total_customers()
     [design] cli invalid: customer/stats/count: option '--domain' maps to no parameter of get_total_customers()
