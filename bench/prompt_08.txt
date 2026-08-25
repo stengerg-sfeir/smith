@@ -1,0 +1,1 @@
+Create a Python 3.12 inventory application. Products have a name, category, price and quantity. Provide CRUD operations. Users must be able to filter products by category and display products whose quantity is below a specified threshold.

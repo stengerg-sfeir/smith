@@ -1,0 +1,1 @@
+Create a Python 3.12 customer management application. Customers have a name, email and phone number. Email addresses must be unique. Provide CRUD operations, search by name and filtering by email domain. Use SQLite persistence.

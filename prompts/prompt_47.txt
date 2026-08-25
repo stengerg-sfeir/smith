@@ -1,0 +1,1 @@
+Build a tool for managing a software team's work. The team needs projects, tasks and people, and should be able to see who is responsible for what.

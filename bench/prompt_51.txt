@@ -1,0 +1,1 @@
+Create a product management application. Each product must have a unique SKU. At the same time, the system must allow multiple products to use the same SKU when they belong to different categories.

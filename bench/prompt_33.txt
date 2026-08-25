@@ -1,0 +1,1 @@
+Create a Python 3.12 customer management application. Provide CRUD operations for customers. Every creation, update and deletion must also produce an audit record containing the operation, customer ID and timestamp.

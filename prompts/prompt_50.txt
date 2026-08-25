@@ -1,0 +1,1 @@
+Create a small application for managing events. People should be able to create events and register for them. The application should prevent registrations when an event is full.

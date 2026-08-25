@@ -1,0 +1,1 @@
+Create a Python 3.12 application that prints "Hello, World!" when executed. Organize the application as a small Python package with a main entry point.

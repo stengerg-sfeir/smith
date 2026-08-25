@@ -1,0 +1,1 @@
+Build a simple booking system for a small hotel. Staff should be able to manage rooms, guests and bookings and should not accidentally book the same room twice for the same period.

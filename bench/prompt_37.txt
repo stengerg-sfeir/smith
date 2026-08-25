@@ -1,0 +1,1 @@
+Create a Python 3.12 project management application with projects and tasks. Deleting a project must also remove its tasks. The operation must be atomic.

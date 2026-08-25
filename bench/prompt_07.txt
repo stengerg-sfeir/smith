@@ -1,0 +1,1 @@
+Create a Python 3.12 application for managing books. Users can create, list, update and delete books. Users must also be able to search books by title. Persist the books in SQLite.

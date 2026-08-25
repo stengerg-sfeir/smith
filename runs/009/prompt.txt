@@ -1,0 +1,1 @@
+Create a Python 3.12 application for managing employees. An employee has a name, email address, age and salary. The email must be valid, age must be between 18 and 70, and salary must be positive. Provide CRUD operations using SQLite.

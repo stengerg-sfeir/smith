@@ -1,0 +1,1 @@
+Build a small application for managing a library. Users should be able to manage books and members and keep track of loans. The application should make it easy to know which books are available.

@@ -1,0 +1,20 @@
+
+============================================================
+  Prompt : 03
+  Source : /Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_03.txt
+============================================================
+
+--- Prompt ---
+Create a Python 3.12 command-line todo application. Users can add tasks, list tasks, mark a task as completed and delete a task. Store the tasks in memory.
+--------------
+
+Generating code ...
+  Mode: single-pass
+  wrote generated/03/todo_app.py
+
+  Project written to generated/03/
+
+
+Done -- 1 succeeded, 0 failed out of 1 prompt(s).
+$ /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 03
+

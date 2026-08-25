@@ -1,0 +1,1 @@
+Create an order management application. Customers can place orders containing products. A customer must not be able to place an order if any product has insufficient stock. When an order is successfully created, the corresponding stock quantities must be decreased.

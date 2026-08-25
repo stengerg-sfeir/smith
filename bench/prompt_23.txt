@@ -1,0 +1,1 @@
+Create a Python 3.12 blog management application. Authors can create posts. Each post belongs to one author and can have multiple tags. A tag can be associated with multiple posts. Provide CRUD operations for authors, posts and tags, and allow posts to be searched by tag.

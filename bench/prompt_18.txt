@@ -1,0 +1,1 @@
+Create a Python 3.12 contact management application using SQLite. Provide normal CRUD operations and commands to export all contacts to CSV and import contacts from CSV. Invalid rows during import must be rejected without corrupting existing data.

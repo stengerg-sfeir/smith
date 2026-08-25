@@ -1,0 +1,20 @@
+
+============================================================
+  Prompt : 02
+  Source : /Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_02.txt
+============================================================
+
+--- Prompt ---
+Create a Python 3.12 CLI calculator. It must support addition, subtraction, multiplication and division of two numbers. Display the result on the command line. Division by zero must produce a clear error message.
+--------------
+
+Generating code ...
+  Mode: single-pass
+  wrote generated/02/calculator.py
+
+  Project written to generated/02/
+
+
+Done -- 1 succeeded, 0 failed out of 1 prompt(s).
+$ /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 02
+

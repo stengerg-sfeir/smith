@@ -1,0 +1,1 @@
+Create a Python 3.12 application for managing projects. Projects have a name, description and status. Users can create, update, list and delete projects. Deleting a project must be implemented as a soft delete: the project remains in the database but is no longer returned by normal listing operations.

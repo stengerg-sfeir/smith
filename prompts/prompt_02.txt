@@ -1,0 +1,1 @@
+Create a Python 3.12 CLI calculator. It must support addition, subtraction, multiplication and division of two numbers. Display the result on the command line. Division by zero must produce a clear error message.

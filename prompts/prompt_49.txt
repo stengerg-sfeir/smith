@@ -1,0 +1,1 @@
+Build an application for managing employees in a company. Managers need to know which employees belong to which departments and should be able to find employees quickly.

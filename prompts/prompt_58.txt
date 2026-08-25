@@ -1,0 +1,1 @@
+Create a Python 3.12 application that manages customers and retrieves additional customer information from an external service. The application should continue to operate correctly when the external service is unavailable.

@@ -1,0 +1,1 @@
+Create a Python 3.12 task management application using a repository pattern. The application must have a repository interface, a SQLite implementation and a service layer. The CLI must use the service layer and must not access SQLite directly.
