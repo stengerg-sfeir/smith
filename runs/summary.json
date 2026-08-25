@@ -1,0 +1,833 @@
+{
+  "started_at": "2026-08-25T17:20:19.899625+00:00",
+  "agent": "/Users/gillesstenger/Documents/neurosymbolic/agent.py",
+  "prompts_dir": "/Users/gillesstenger/Documents/neurosymbolic/prompts",
+  "generated_root": "/Users/gillesstenger/Documents/neurosymbolic/generated",
+  "total": 20,
+  "generation": {
+    "success": 20,
+    "failed": 0
+  },
+  "output": {
+    "present": 20,
+    "missing": 0
+  },
+  "checks": {
+    "pass": 20,
+    "fail": 0,
+    "not_run": 0
+  },
+  "results": [
+    {
+      "prompt": "01",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_01.txt",
+      "started_at": "2026-08-25T17:20:19.902278+00:00",
+      "duration_seconds": 5.19,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 01",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/01",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 2,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/001/agent.log"
+    },
+    {
+      "prompt": "02",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_02.txt",
+      "started_at": "2026-08-25T17:20:25.236973+00:00",
+      "duration_seconds": 6.352,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 02",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/02",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 1,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/002/agent.log"
+    },
+    {
+      "prompt": "03",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_03.txt",
+      "started_at": "2026-08-25T17:20:31.690488+00:00",
+      "duration_seconds": 10.464,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 03",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/03",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 1,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/003/agent.log"
+    },
+    {
+      "prompt": "04",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_04.txt",
+      "started_at": "2026-08-25T17:20:42.234767+00:00",
+      "duration_seconds": 12.081,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 04",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/04",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 1,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/004/agent.log"
+    },
+    {
+      "prompt": "05",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_05.txt",
+      "started_at": "2026-08-25T17:20:54.413751+00:00",
+      "duration_seconds": 118.354,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 05",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/05",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/005/agent.log"
+    },
+    {
+      "prompt": "06",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_06.txt",
+      "started_at": "2026-08-25T17:22:53.145124+00:00",
+      "duration_seconds": 123.229,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 06",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/06",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "files": [
+              "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py"
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/agent.log"
+    },
+    {
+      "prompt": "07",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_07.txt",
+      "started_at": "2026-08-25T17:32:29.723154+00:00",
+      "duration_seconds": 150.155,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 07",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/07",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/007/agent.log"
+    },
+    {
+      "prompt": "08",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_08.txt",
+      "started_at": "2026-08-25T17:37:31.029582+00:00",
+      "duration_seconds": 110.223,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 08",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/08",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/008/agent.log"
+    },
+    {
+      "prompt": "09",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_09.txt",
+      "started_at": "2026-08-25T17:39:21.703738+00:00",
+      "duration_seconds": 113.538,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 09",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/09",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 6,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/009/agent.log"
+    },
+    {
+      "prompt": "10",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_10.txt",
+      "started_at": "2026-08-25T17:41:15.625933+00:00",
+      "duration_seconds": 96.751,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 10",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/10",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "files": [
+              "/Users/gillesstenger/Documents/neurosymbolic/runs/010/generated/note_repository.py"
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/010/agent.log"
+    },
+    {
+      "prompt": "11",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_11.txt",
+      "started_at": "2026-08-25T17:44:11.263540+00:00",
+      "duration_seconds": 90.057,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 11",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/11",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 6,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/011/agent.log"
+    },
+    {
+      "prompt": "12",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_12.txt",
+      "started_at": "2026-08-25T17:45:41.709422+00:00",
+      "duration_seconds": 124.022,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 12",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/12",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/012/agent.log"
+    },
+    {
+      "prompt": "13",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_13.txt",
+      "started_at": "2026-08-25T17:47:47.557718+00:00",
+      "duration_seconds": 188.16,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 13",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/13",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "files": [
+              "/Users/gillesstenger/Documents/neurosymbolic/runs/013/generated/product_service.py"
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/013/agent.log"
+    },
+    {
+      "prompt": "14",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_14.txt",
+      "started_at": "2026-08-25T17:50:56.156495+00:00",
+      "duration_seconds": 99.733,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 14",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/14",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/014/agent.log"
+    },
+    {
+      "prompt": "15",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_15.txt",
+      "started_at": "2026-08-25T17:52:36.432857+00:00",
+      "duration_seconds": 123.538,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 15",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/15",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/015/agent.log"
+    },
+    {
+      "prompt": "16",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_16.txt",
+      "started_at": "2026-08-25T17:54:40.408029+00:00",
+      "duration_seconds": 147.157,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 16",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/16",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "files": [
+              "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py"
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/agent.log"
+    },
+    {
+      "prompt": "17",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_17.txt",
+      "started_at": "2026-08-25T17:58:29.794201+00:00",
+      "duration_seconds": 84.939,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 17",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/17",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/017/agent.log"
+    },
+    {
+      "prompt": "18",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_18.txt",
+      "started_at": "2026-08-25T17:59:55.158210+00:00",
+      "duration_seconds": 182.488,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 18",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/18",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/018/agent.log"
+    },
+    {
+      "prompt": "19",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_19.txt",
+      "started_at": "2026-08-25T18:02:58.103463+00:00",
+      "duration_seconds": 179.624,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 19",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/19",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "files": [
+              "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py"
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/agent.log"
+    },
+    {
+      "prompt": "20",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_20.txt",
+      "started_at": "2026-08-25T18:05:58.171293+00:00",
+      "duration_seconds": 174.956,
+      "agent": {
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 20",
+        "exit_code": 0,
+        "generation_status": "success"
+      },
+      "output": {
+        "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/20",
+        "exists": true,
+        "captured": true
+      },
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "files": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          }
+        }
+      },
+      "checks_exit_code": 0,
+      "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/020/agent.log"
+    }
+  ],
+  "finished_at": "2026-08-25T18:08:54.097456+00:00"
+}
