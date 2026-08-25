@@ -60,7 +60,9 @@ def create_tables(conn: sqlite3.Connection) -> None:
             isbn TEXT NOT NULL,
             published_year INTEGER NOT NULL,
             available_copies INTEGER NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            author_id INTEGER,
+            FOREIGN KEY (author_id) REFERENCES authors (id)
         );
 
         CREATE TABLE IF NOT EXISTS authors (

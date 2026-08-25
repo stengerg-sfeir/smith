@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional
 
 from category_repository import CategoryRepository
 from database import Database
-from exceptions import CategoryNotFoundError
-from models import Product
+from exceptions import CategoryNotFoundError, ProductNotFoundError
+from models import Category, Product
 from product_repository import ProductRepository
 
 
@@ -36,10 +36,22 @@ class InventoryService:
         return self.product_repo.list(category_id=category_id, low_only=low_only)
 
     def restock(self, id: int, qty: int) -> None:
-        raise NotImplementedError()
+        """Restock a product by increasing its stock quantity."""
+        product = self.product_repo.get_by_id(id)
+        if not product:
+            raise ProductNotFoundError(f'Product with id {id} not found')
+        updated_product_data = {'stock_qty': product.stock_qty + qty}
+        self.product_repo.update(id, updated_product_data)
 
     def low_stock_report(self) -> List[Product]:
-        raise NotImplementedError()
+        """Generate a report of products with stock below reorder threshold."""
+        low_stock_products = []
+        for product in self.product_repo.get_all():
+            if product.category_id:
+                category = self.category_repo.get_by_id(product.category_id)
+                if category and product.stock_qty < category.reorder_threshold:
+                    low_stock_products.append(product)
+        return low_stock_products
 
     def stock_value_by_category(self) -> Dict[str, int]:
         results = {}
@@ -47,4 +59,18 @@ class InventoryService:
             key = row.category_id
             results[key] = results.get(key, 0) + row.price_cents
         return results
+
+    def add_category(self, name: str, description: str, reorder_threshold: int) -> int:
+        category = Category(name=name, description=description, reorder_threshold=reorder_threshold)
+        return self.category_repo.create(category)
+
+    def list_category(self) -> List[Category]:
+        return self.category_repo.list()
+
+    def update_category(self, id: int, name: str, description: str, reorder_threshold: int) -> bool:
+        data = {k: v for k, v in {'name': name, 'description': description, 'reorder_threshold': reorder_threshold}.items() if v is not None}
+        return self.category_repo.update(id, data)
+
+    def delete_category(self, id: int) -> bool:
+        return self.category_repo.delete(id)
 

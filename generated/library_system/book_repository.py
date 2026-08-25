@@ -17,8 +17,8 @@ class BookRepository:
         with self.db.connect() as conn:
             cur = conn.cursor()
             cur.execute(
-                "INSERT INTO books (title, isbn, published_year, available_copies) VALUES (?, ?, ?, ?)",
-                (book.title, book.isbn, book.published_year, book.available_copies),
+                "INSERT INTO books (title, isbn, published_year, available_copies, author_id) VALUES (?, ?, ?, ?, ?)",
+                (book.title, book.isbn, book.published_year, book.available_copies, book.author_id),
             )
             conn.commit()
             return cur.lastrowid
@@ -37,7 +37,7 @@ class BookRepository:
             ).fetchall()
             return [Book(**dict(r)) for r in rows]
 
-    def list(self, title: Optional[Any] = None, available_copies: Optional[Any] = None, isbn: Optional[Any] = None) -> List[Book]:
+    def list(self, title: Optional[Any] = None, available_copies: Optional[Any] = None, author_id: Optional[Any] = None, isbn: Optional[Any] = None, published_year: Optional[Any] = None, available_only: Optional[Any] = None) -> List[Book]:
         with self.db.connect() as conn:
             query = "SELECT * FROM books WHERE 1=1"
             params: List[Any] = []
@@ -47,16 +47,24 @@ class BookRepository:
             if available_copies is not None:
                 query += ' AND available_copies >= ?'
                 params.append(available_copies)
+            if author_id is not None:
+                query += ' AND author_id = ?'
+                params.append(author_id)
             if isbn is not None:
                 query += ' AND isbn = ?'
                 params.append(isbn)
+            if published_year is not None:
+                query += ' AND published_year = ?'
+                params.append(published_year)
+            if available_only:
+                query += ' AND available_copies > 0'
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Book(**dict(r)) for r in rows]
 
     def update(self, id: int, data: Dict[str, Any]) -> bool:
         if not data:
             return False
-        allowed = ['title', 'isbn', 'published_year', 'available_copies']
+        allowed = ['title', 'isbn', 'published_year', 'available_copies', 'author_id']
         sets = [k for k in data if k in allowed]
         if not sets:
             return False
@@ -81,53 +89,52 @@ class BookRepository:
             return cur.rowcount > 0
 
     def find_by_isbn(self, isbn: str) -> Optional[Book]:
-        return self.list(isbn=isbn)
+        return self.list(
+            isbn=isbn,
+        )
 
     def find_by_title(self, title: str) -> Optional[Book]:
-        return self.list(title=title)
+        return self.list(
+            title=title,
+        )
 
     def find_by_author(self, author_id: int) -> List[Book]:
-        with self.db.connect() as conn:
-            # Assuming there's a junction table or books have author_id field
-            # This implementation assumes a books_authors junction table
-            query = "SELECT b.* FROM books b JOIN books_authors ba ON b.id = ba.book_id WHERE ba.author_id = ?"
-            rows = conn.execute(query, (author_id,)).fetchall()
-            return [Book(**dict(r)) for r in rows]
+        return self.list(
+            author_id=author_id,
+        )
 
     def filter_by_available_copies(self, min_copies: int, max_copies: int) -> List[Book]:
         with self.db.connect() as conn:
-            query = "SELECT * FROM books WHERE available_copies >= ? AND available_copies <= ? ORDER BY available_copies"
-            rows = conn.execute(query, (min_copies, max_copies)).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM books WHERE available_copies BETWEEN ? AND ?', (min_copies, max_copies))
+            rows = cursor.fetchall()
             return [Book(**dict(r)) for r in rows]
 
     def search_books(self, query: str) -> List[Book]:
         with self.db.connect() as conn:
-            # Case-insensitive search on title and isbn
-            query = query.strip()
-            if not query:
-                return self.get_all()
-
-            # Search in title and isbn fields
-            search_query = "SELECT * FROM books WHERE title LIKE ? OR isbn LIKE ? ORDER BY title"
-            search_term = f"%{query}%"
-            rows = conn.execute(search_query, (search_term, search_term)).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM books WHERE title LIKE ? OR isbn LIKE ?', (f'%{query}%', f'%{query}%'))
+            rows = cursor.fetchall()
             return [Book(**dict(r)) for r in rows]
 
     def get_total_available_copies(self) -> int:
         with self.db.connect() as conn:
-            cursor = conn.execute("SELECT SUM(available_copies) FROM books")
+            cursor = conn.cursor()
+            cursor.execute('SELECT SUM(available_copies) FROM books')
             result = cursor.fetchone()
             return result[0] if result[0] is not None else 0
 
     def get_books_by_year_range(self, start_year: int, end_year: int) -> List[Book]:
         with self.db.connect() as conn:
-            query = "SELECT * FROM books WHERE published_year >= ? AND published_year <= ? ORDER BY published_year"
-            rows = conn.execute(query, (start_year, end_year)).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM books WHERE published_year BETWEEN ? AND ?', (str(start_year), str(end_year)))
+            rows = cursor.fetchall()
             return [Book(**dict(r)) for r in rows]
 
     def get_books_with_lowest_copies(self, limit: int) -> List[Book]:
         with self.db.connect() as conn:
-            query = "SELECT * FROM books ORDER BY available_copies ASC LIMIT ?"
-            rows = conn.execute(query, (limit,)).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM books ORDER BY available_copies ASC LIMIT ?', (limit,))
+            rows = cursor.fetchall()
             return [Book(**dict(r)) for r in rows]
 

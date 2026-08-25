@@ -1,7 +1,6 @@
 """CategoryRepository data access."""
 from __future__ import annotations
 
-from datetime import date
 from typing import Any, Dict, List, Optional
 
 from database import Database
@@ -39,8 +38,24 @@ class CategoryRepository:
             ).fetchall()
             return [Category(**dict(r)) for r in rows]
 
-    def list(self) -> List[Category]:
-        return self.get_all()
+    def list(self, description: Optional[Any] = None, icon: Optional[Any] = None, monthly_budget: Optional[Any] = None, name: Optional[Any] = None) -> List[Category]:
+        with self.db.connect() as conn:
+            query = "SELECT * FROM categories WHERE 1=1"
+            params: List[Any] = []
+            if description is not None:
+                query += ' AND description = ?'
+                params.append(description)
+            if icon is not None:
+                query += ' AND icon = ?'
+                params.append(icon)
+            if monthly_budget is not None:
+                query += ' AND monthly_budget = ?'
+                params.append(monthly_budget)
+            if name is not None:
+                query += ' AND name = ?'
+                params.append(name)
+            rows = conn.execute(query + " ORDER BY id", params).fetchall()
+            return [Category(**dict(r)) for r in rows]
 
     def update(self, id: int, data: Dict[str, Any]) -> bool:
         if not data:
@@ -71,63 +86,41 @@ class CategoryRepository:
 
     def get_expenses_by_category(self, category_id: int) -> List[Expense]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM expenses WHERE category_id = ?", (category_id,)
-            ).fetchall()
-            return [Expense(**dict(row)) for row in rows]
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM expenses WHERE category_id = ? ORDER BY expense_date', (category_id,))
+            rows = cursor.fetchall()
+            return [Expense(**dict(r)) for r in rows]
 
-    def get_category_summary(self, category_id: int, start_date: Optional[date] = None, end_date: Optional[date] = None) -> Dict[str, Any]:
+    def get_category_summary(self, category_id: int, start_date: Optional[str]=None, end_date: Optional[str]=None) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            query = "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category_id = ?"
+            cursor = conn.cursor()
+            query = 'SELECT * FROM expenses WHERE category_id = ?'
             params = [category_id]
             if start_date:
-                query += " AND date >= ?"
+                query += ' AND expense_date >= ?'
                 params.append(start_date)
             if end_date:
-                query += " AND date <= ?"
+                query += ' AND expense_date <= ?'
                 params.append(end_date)
-            rows = conn.execute(query, params).fetchone()
-            return {
-                "total_amount": rows[0] if rows[0] is not None else 0,
-                "expense_count": rows[1] if rows[1] is not None else 0,
-            }
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            total_amount_cents = sum((row[2] for row in rows))
+            count = len(rows)
+            return {'total_amount_cents': total_amount_cents, 'expense_count': count}
 
     def get_category_budget_status(self, category_id: int, month: str) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            # Example: "2024-03" format
-            month_year = month.strip()
-            if not month_year:
-                raise ValueError("Month must be provided in format 'YYYY-MM'")
-
-            # Parse month and year
-            try:
-                year, month_part = month_year.split('-')
-                year = int(year)
-                month_num = int(month_part)
-                if month_num < 1 or month_num > 12:
-                    raise ValueError("Invalid month")
-            except ValueError as e:
-                raise ValueError(f"Invalid month format: {month_year}") from e
-
-            # Query for expenses in that month
-            query = """
-                SELECT 
-                    SUM(e.amount) as total_spent,
-                    c.monthly_budget as budget
-                FROM expenses e
-                JOIN categories c ON e.category_id = c.id
-                WHERE c.id = ? 
-                  AND strftime('%Y-%m', e.date) = ?
-            """
-            params = [category_id, month_year]
-            row = conn.execute(query, params).fetchone()
-            total_spent = row[0] if row[0] is not None else 0
-            budget = row[1] if row[1] is not None else 0
-
-            return {
-                "total_spent": total_spent,
-                "budget": budget,
-                "percentage_used": round((total_spent / budget) * 100 if budget > 0 else 0, 2),
-                "is_over_budget": total_spent > budget
-            }
+            cursor = conn.cursor()
+            cursor.execute('SELECT b.amount_limit_cents, b.month, c.monthly_budget FROM budgets b JOIN categories c ON b.category_id = c.id WHERE b.category_id = ? AND b.month = ?', (category_id, month))
+            row = cursor.fetchone()
+            if row is None:
+                return {'budget_limit_cents': 0, 'monthly_budget_cents': 0, 'is_over_budget': False}
+            amount_limit_cents = row[0]
+            monthly_budget_cents = row[2]
+            total_spent = 0
+            cursor.execute('SELECT SUM(amount_cents) FROM expenses WHERE category_id = ? AND expense_date BETWEEN ? AND ?', (category_id, month + '-01', month + '-31'))
+            spent_row = cursor.fetchone()
+            total_spent = spent_row[0] if spent_row[0] is not None else 0
+            is_over_budget = total_spent > amount_limit_cents
+            return {'budget_limit_cents': amount_limit_cents, 'monthly_budget_cents': monthly_budget_cents, 'is_over_budget': is_over_budget}
 

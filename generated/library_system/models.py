@@ -12,6 +12,7 @@ class Book:
     published_year: int
     available_copies: int
     id: Optional[int] = None
+    author_id: Optional[int] = None
 
 
 @dataclass

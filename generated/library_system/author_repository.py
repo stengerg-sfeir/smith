@@ -37,8 +37,15 @@ class AuthorRepository:
             ).fetchall()
             return [Author(**dict(r)) for r in rows]
 
-    def list(self) -> List[Author]:
-        return self.get_all()
+    def list(self, name: Optional[Any] = None) -> List[Author]:
+        with self.db.connect() as conn:
+            query = "SELECT * FROM authors WHERE 1=1"
+            params: List[Any] = []
+            if name is not None:
+                query += ' AND name = ?'
+                params.append(name)
+            rows = conn.execute(query + " ORDER BY id", params).fetchall()
+            return [Author(**dict(r)) for r in rows]
 
     def update(self, id: int, data: Dict[str, Any]) -> bool:
         if not data:
@@ -69,56 +76,28 @@ class AuthorRepository:
 
     def find_books_by_author(self, author_id: int) -> List[Book]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                "SELECT * FROM books WHERE author_id = ?", (author_id,)
-            ).fetchall()
-            return [Book(**dict(row)) for row in cur.fetchall()]
+            rows = conn.execute('SELECT * FROM books WHERE author_id = ?', (author_id,)).fetchall()
+            return [Book(**dict(r)) for r in rows]
 
     def get_author_books_count(self, author_id: int) -> int:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM books WHERE author_id = ?", (author_id,)
-            ).fetchone()
-            return cur[0] if cur else 0
+            rows = conn.execute('SELECT COUNT(*) AS count FROM books WHERE author_id = ?', (author_id,)).fetchone()
+            return rows['count'] if rows else 0
 
     def get_author_with_most_books(self) -> Optional[Author]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                """
-                SELECT a.id, a.name, a.birth_year, a.biography
-                FROM authors a
-                JOIN (
-                    SELECT author_id, COUNT(*) as book_count
-                    FROM books
-                    GROUP BY author_id
-                    ORDER BY book_count DESC
-                    LIMIT 1
-                ) b ON a.id = b.author_id
-                """
-            ).fetchone()
-            if cur:
-                return Author(**dict(cur))
-            return None
+            rows = conn.execute('SELECT * FROM authors ORDER BY (SELECT COUNT(*) FROM books WHERE books.author_id = authors.id) DESC LIMIT 1').fetchall()
+            if not rows:
+                return None
+            return Author(**dict(rows[0]))
 
     def get_books_by_author_and_year_range(self, author_id: int, start_year: int, end_year: int) -> List[Book]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                """
-                SELECT * FROM books 
-                WHERE author_id = ? AND year BETWEEN ? AND ?
-                """,
-                (author_id, start_year, end_year)
-            ).fetchall()
-            return [Book(**dict(row)) for row in cur]
+            rows = conn.execute('SELECT * FROM books WHERE author_id = ? AND published_year BETWEEN ? AND ?', (author_id, f'{start_year}-01-01', f'{end_year}-12-31')).fetchall()
+            return [Book(**dict(r)) for r in rows]
 
     def get_books_by_author_and_copies_range(self, author_id: int, min_copies: int, max_copies: int) -> List[Book]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                """
-                SELECT * FROM books 
-                WHERE author_id = ? AND copies BETWEEN ? AND ?
-                """,
-                (author_id, min_copies, max_copies)
-            ).fetchall()
-            return [Book(**dict(row)) for row in cur]
+            rows = conn.execute('SELECT * FROM books WHERE author_id = ? AND available_copies BETWEEN ? AND ?', (author_id, min_copies, max_copies)).fetchall()
+            return [Book(**dict(r)) for r in rows]
 

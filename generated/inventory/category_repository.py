@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from database import Database
 from exceptions import CategoryNotFoundError
-from models import Category
+from models import Category, Product
 
 
 class CategoryRepository:
@@ -38,13 +38,19 @@ class CategoryRepository:
             ).fetchall()
             return [Category(**dict(r)) for r in rows]
 
-    def list(self, name: Optional[Any] = None) -> List[Category]:
+    def list(self, description: Optional[Any] = None, name: Optional[Any] = None, reorder_threshold: Optional[Any] = None) -> List[Category]:
         with self.db.connect() as conn:
             query = "SELECT * FROM categories WHERE 1=1"
             params: List[Any] = []
+            if description is not None:
+                query += ' AND description = ?'
+                params.append(description)
             if name is not None:
                 query += ' AND name = ?'
                 params.append(name)
+            if reorder_threshold is not None:
+                query += ' AND reorder_threshold = ?'
+                params.append(reorder_threshold)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Category(**dict(r)) for r in rows]
 
@@ -76,5 +82,9 @@ class CategoryRepository:
             return cur.rowcount > 0
 
     def find_products_by_category(self, category_id: int) -> list[Product]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM products WHERE category_id = ?', (category_id,))
+            rows = cursor.fetchall()
+            return [Product(**dict(r)) for r in rows]
 

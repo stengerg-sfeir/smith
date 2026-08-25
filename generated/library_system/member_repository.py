@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from database import Database
-from models import Member
+from models import Loan, Member
 
 
 class MemberRepository:
@@ -37,7 +37,7 @@ class MemberRepository:
             ).fetchall()
             return [Member(**dict(r)) for r in rows]
 
-    def list(self, is_active: Optional[Any] = None, email: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None, start_year: Optional[Any] = None, end_year: Optional[Any] = None) -> List[Member]:
+    def list(self, is_active: Optional[Any] = None, email: Optional[Any] = None, name: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None, start_year: Optional[Any] = None, end_year: Optional[Any] = None, active_only: Optional[Any] = None) -> List[Member]:
         with self.db.connect() as conn:
             query = "SELECT * FROM members WHERE 1=1"
             params: List[Any] = []
@@ -47,6 +47,9 @@ class MemberRepository:
             if email is not None:
                 query += ' AND email = ?'
                 params.append(email)
+            if name is not None:
+                query += ' AND name = ?'
+                params.append(name)
             if start_date is not None:
                 query += ' AND membership_date >= ?'
                 params.append(start_date)
@@ -59,6 +62,8 @@ class MemberRepository:
             if end_year is not None:
                 query += ' AND membership_date <= ?'
                 params.append(end_year)
+            if active_only:
+                query += ' AND is_active = 1'
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Member(**dict(r)) for r in rows]
 
@@ -90,32 +95,43 @@ class MemberRepository:
             return cur.rowcount > 0
 
     def find_by_email(self, email: str) -> Optional[Member]:
-        # Find member by email — returns first match (only one expected)
-        rows = self.list(email=email)
-        return rows[0] if rows else None
+        return self.list(
+            email=email,
+        )
 
     def find_active_members(self) -> List[Member]:
-        return self.list(is_active=True)
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM members WHERE is_active = 1')
+            rows = cursor.fetchall()
+            return [Member(**dict(r)) for r in rows]
 
     def find_inactive_members(self) -> List[Member]:
-        return self.list(is_active=False)
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM members WHERE is_active = 0')
+            rows = cursor.fetchall()
+            return [Member(**dict(r)) for r in rows]
 
     def get_total_active_members(self) -> int:
         with self.db.connect() as conn:
-            cur = conn.execute("SELECT COUNT(*) FROM members WHERE is_active = 1")
-            return cur.fetchone()[0]
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM members WHERE is_active = 1')
+            result = cursor.fetchone()
+            return result[0] if result else 0
 
     def get_total_inactive_members(self) -> int:
         with self.db.connect() as conn:
-            cur = conn.execute("SELECT COUNT(*) FROM members WHERE is_active = 0")
-            return cur.fetchone()[0]
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM members WHERE is_active = 0')
+            result = cursor.fetchone()
+            return result[0] if result else 0
 
     def get_members_by_name_prefix(self, prefix: str) -> List[Member]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM members WHERE name LIKE ? ORDER BY name",
-                (f"{prefix}%",)
-            ).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM members WHERE name LIKE ?', (prefix + '%',))
+            rows = cursor.fetchall()
             return [Member(**dict(r)) for r in rows]
 
     def get_members_with_membership_date_range(self, start_date: date, end_date: date) -> List[Member]:
@@ -125,8 +141,16 @@ class MemberRepository:
         )
 
     def get_member_loan_history(self, member_id: int) -> List[Loan]:
-        raise NotImplementedError("Loan history not implemented — requires Loan model and database schema.")
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM loans WHERE member_id = ?', (member_id,))
+            rows = cursor.fetchall()
+            return [Loan(**dict(r)) for r in rows]
 
     def get_book_loan_history_by_member(self, member_id: int) -> List[Loan]:
-        raise NotImplementedError("Book loan history not implemented — requires Loan model and database schema.")
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM loans WHERE member_id = ?', (member_id,))
+            rows = cursor.fetchall()
+            return [Loan(**dict(r)) for r in rows]
 

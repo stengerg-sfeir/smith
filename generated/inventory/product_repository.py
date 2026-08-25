@@ -98,25 +98,16 @@ class ProductRepository:
     def find_low_stock_products(self, category_id: int) -> list[Product]:
         return self.list(
             category_id=category_id,
-            low_only=True
         )
 
     def aggregate_stock_value_by_category(self) -> dict[str, int]:
         with self.db.connect() as conn:
-            cursor = conn.execute(
-                """
-                SELECT 
-                    category_id,
-                    SUM(stock_qty * price_cents) AS total_stock_value
-                FROM products
-                GROUP BY category_id
-                """
-            )
+            cursor = conn.cursor()
+            cursor.execute('\n                SELECT c.name, SUM(p.stock_qty * p.price_cents) \n                FROM products p \n                JOIN categories c ON p.category_id = c.id \n                GROUP BY c.name\n            ')
             rows = cursor.fetchall()
-            result = {}
+            result: Dict[str, int] = {}
             for row in rows:
-                category_id = row[0]
-                total_value = row[1]
-                result[str(category_id)] = total_value
+                category_name, stock_value = row
+                result[category_name] = int(stock_value)
             return result
 

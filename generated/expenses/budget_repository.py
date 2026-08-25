@@ -1,7 +1,6 @@
 """BudgetRepository data access."""
 from __future__ import annotations
 
-from datetime import date
 from typing import Any, Dict, List, Optional
 
 from database import Database
@@ -38,7 +37,7 @@ class BudgetRepository:
             ).fetchall()
             return [Budget(**dict(r)) for r in rows]
 
-    def list(self, category: Optional[Any] = None, month: Optional[Any] = None, category_id: Optional[Any] = None) -> List[Budget]:
+    def list(self, category: Optional[Any] = None, month: Optional[Any] = None, amount_limit_cents: Optional[Any] = None, category_id: Optional[Any] = None) -> List[Budget]:
         with self.db.connect() as conn:
             query = "SELECT * FROM budgets WHERE 1=1"
             params: List[Any] = []
@@ -48,6 +47,9 @@ class BudgetRepository:
             if month is not None:
                 query += ' AND month = ?'
                 params.append(month)
+            if amount_limit_cents is not None:
+                query += ' AND amount_limit_cents = ?'
+                params.append(amount_limit_cents)
             if category_id is not None:
                 query += ' AND category_id = ?'
                 params.append(category_id)
@@ -95,89 +97,41 @@ class BudgetRepository:
         )
 
     def get_budget_status_for_category_month(self, category_id: int, month: str) -> Dict[str, Any]:
-        budgets = self.list(category_id=category_id, month=month)
-        if not budgets:
-            return {
-                "category_id": category_id,
-                "month": month,
-                "total_budget": 0,
-                "total_spent": 0,
-                "status": "no_budget"
-            }
-
-        # Assuming we have a way to calculate spent amount (this would require additional data)
-        # Since we don't have transaction data in the models, we'll return just the budget info
-        # This is a placeholder - in a real implementation, you'd need to join with transactions
-        budget = budgets[0]
-        return {
-            "category_id": category_id,
-            "month": month,
-            "total_budget": budget.amount_limit_cents,
-            "total_spent": 0,
-            "status": "within_budget" if budget.amount_limit_cents > 0 else "no_budget"
-        }
+        return self.list(
+            category_id=category_id,
+            month=month,
+        )
 
     def check_budget_exceeded(self, category_id: int, month: str) -> bool:
-        budgets = self.list(category_id=category_id, month=month)
-        if not budgets:
-            return False
-
-        # This is a placeholder - without transaction data, we can't determine if budget is exceeded
-        # In a real implementation, you'd need to join with transaction data to calculate spent
-        budget = budgets[0]
-        return False  # Placeholder - budget is not exceeded without transaction data
+        return self.list(
+            category_id=category_id,
+            month=month,
+        )
 
     def get_budget_by_category_and_month(self, category_id: int, month: str) -> Optional[Budget]:
-        return self.get_by_category_and_month(category_id, month)
-
-    def list_budgets_with_category_summary(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict[str, Any]]:
-        # This method would require joining budgets with category data and potentially transaction data
-        # Since we don't have category or transaction models in this scope, we'll return a basic structure
         with self.db.connect() as conn:
-            query = "SELECT * FROM budgets"
+            cursor = conn.cursor()
+            cursor.execute('SELECT b.amount_limit_cents, b.category_id, b.month FROM budgets b WHERE b.category_id = ? AND b.month = ?', (category_id, month))
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Budget(**{key: row[i] for i, key in enumerate(['amount_limit_cents', 'category_id', 'month'])})
+
+    def list_budgets_with_category_summary(self, start_date: Optional[str]=None, end_date: Optional[str]=None) -> List[Dict[str, Any]]:
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            date_filter = ''
             params = []
-
             if start_date:
-                query += " WHERE month >= ?"
-                params.append(start_date.strftime('%Y-%m'))
+                date_filter += ' AND expense_date >= ?'
+                params.append(start_date)
             if end_date:
-                query += " AND month <= ?"
-                params.append(end_date.strftime('%Y-%m'))
-
-            query += " ORDER BY month, category_id"
-
-            rows = conn.execute(query, params).fetchall()
-
+                date_filter += ' AND expense_date <= ?'
+                params.append(end_date)
+            cursor.execute('\n                SELECT \n                    b.month,\n                    c.name AS category_name,\n                    b.amount_limit_cents,\n                    SUM(e.amount_cents) AS total_spent\n                FROM budgets b\n                JOIN categories c ON b.category_id = c.id\n                LEFT JOIN expenses e ON e.category_id = c.id AND e.expense_date BETWEEN substr(b.month,1,7) AND substr(b.month,1,7)\n                WHERE 1=1\n                {} \n                GROUP BY b.month, c.name\n            '.format(date_filter), params)
+            rows = cursor.fetchall()
             result = []
-            category_budgets = {}
-
             for row in rows:
-                budget = Budget(**dict(row))
-                category_id = budget.category_id
-                month = budget.month
-
-                if category_id not in category_budgets:
-                    category_budgets[category_id] = {
-                        "category_id": category_id,
-                        "budgets": [],
-                        "total_budget": 0,
-                        "total_spent": 0
-                    }
-
-                category_budgets[category_id]["budgets"].append({
-                    "month": month,
-                    "amount_limit_cents": budget.amount_limit_cents
-                })
-
-                category_budgets[category_id]["total_budget"] += budget.amount_limit_cents
-
-            # Convert to list of dictionaries
-            for category_id, data in category_budgets.items():
-                result.append({
-                    "category_id": category_id,
-                    "total_budget": data["total_budget"],
-                    "budgets": data["budgets"]
-                })
-
+                result.append({'month': row[0], 'category_name': row[1], 'amount_limit_cents': row[2], 'total_spent': row[3]})
             return result
 

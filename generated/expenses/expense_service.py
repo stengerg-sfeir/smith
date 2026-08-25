@@ -7,8 +7,11 @@ from typing import Any, Dict, List, Optional
 from budget_repository import BudgetRepository
 from category_repository import CategoryRepository
 from database import Database
+from exceptions import (
+    CategoryNotFoundError,
+)
 from expense_repository import ExpenseRepository
-from models import Expense
+from models import Budget, Category, Expense
 
 
 class ExpenseService:
@@ -25,7 +28,7 @@ class ExpenseService:
         return self.expense_repo.get_by_id(id)
 
     def add_expense(self, data: Dict[str, Any]) -> None:
-        expense = Expense(amount_cents=data.get('amount_cents'), category_id=data.get('category_id'), description=data.get('description'), expense_date=data.get('expense_date'), id=data.get('id'), is_recurring=data.get('is_recurring', False), payment_method=data.get('payment_method'))
+        expense = Expense(amount_cents=data['amount_cents'], category_id=data['category_id'], description=data['description'], expense_date=data['expense_date'], id=data.get('id'), is_recurring=data.get('is_recurring', False), payment_method=data.get('payment_method'))
         self.expense_repo.create(expense)
 
     def update_expense(self, id: int, data: Dict[str, Any]) -> None:
@@ -50,8 +53,8 @@ class ExpenseService:
         return {'year': year, 'total_yearly_spent': total}
 
     def get_category_spending(self, category_id: int, start_date: date, end_date: date) -> int:
-        rows = self.expense_repo.list(category_id=category_id, start_date=start_date, end_date=end_date)
-        return sum(e.amount_cents for e in rows)
+        spending_range = self.expense_repo.get_category_spending_range(category_id, start_date, end_date)
+        return spending_range
 
     def export_to_csv(self, file_path: str, start_date: date, end_date: date) -> None:
         rows = self.expense_repo.list(start_date=start_date, end_date=end_date, )
@@ -84,4 +87,38 @@ class ExpenseService:
 
     def check_budget_exceeded(self, category_id: int, month: str) -> bool:
         return self.expense_repo.check_budget_exceeded(category_id, month)
+
+    def add_category(self, name: str, description: str, monthly_budget: int, icon: str) -> int:
+        category = Category(name=name, description=description, monthly_budget=monthly_budget, icon=icon)
+        return self.category_repo.create(category)
+
+    def list_category(self) -> List[Category]:
+        return self.category_repo.list()
+
+    def update_category(self, id: int, name: str, description: str, monthly_budget: int, icon: str) -> bool:
+        data = {k: v for k, v in {'name': name, 'description': description, 'monthly_budget': monthly_budget, 'icon': icon}.items() if v is not None}
+        return self.category_repo.update(id, data)
+
+    def delete_category(self, id: int) -> bool:
+        return self.category_repo.delete(id)
+
+    def list_budget(self, category_id: int, month: str) -> List[Budget]:
+        return self.budget_repo.list(category_id=category_id, month=month)
+
+    def add_budget(self, category_id: int, month: str, amount_limit_cents: int) -> int:
+        if category_id is not None:
+            if self.category_repo.get_by_id(category_id) is None:
+                raise CategoryNotFoundError(category_id)
+        budget = Budget(category_id=category_id, month=month, amount_limit_cents=amount_limit_cents)
+        return self.budget_repo.create(budget)
+
+    def update_budget(self, category_id: int, month: str, amount_limit_cents: int) -> bool:
+        row = self.budget_repo.get_by_category_and_month(category_id, month)
+        if row is None:
+            return False
+        data = {k: v for k, v in {'amount_limit_cents': amount_limit_cents}.items() if v is not None}
+        return self.budget_repo.update(row.id, data)
+
+    def delete_budget(self, category_id: int, month: str) -> bool:
+        return self.budget_repo.delete(category_id, month)
 

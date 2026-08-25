@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import ast
+import builtins
 import json
 import os
 import re
@@ -55,13 +56,31 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
 LLM_MAX_TOKENS_LONG = int(os.environ.get("LLM_MAX_TOKENS_LONG", "8192"))
 
 
+class _StreamLimitExceeded(Exception):
+    """Raised when a streaming completion exceeds max_output_chars.
+
+    Carries the partial output so callers can log the diagnostic and discard
+    it — a truncated/degenerate decode is never returned as valid code.
+    """
+
+    def __init__(self, partial):
+        self.partial = partial
+        super().__init__("stream output exceeded max_output_chars")
+
+
 def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
-                     timeout=180):
+                     timeout=180, stream=False, max_output_chars=None):
     """Call the local OpenAI-compatible llama-server.
 
     When `schema` is a dict, it is passed as response_format so the server
     constrains generation with a GBNF grammar (smith's approach) — the model
     physically cannot emit malformed or out-of-schema JSON.
+
+    When `stream` is True the request uses SSE streaming and the accumulated
+    text is returned. `max_output_chars` (with stream=True) aborts early by
+    raising _StreamLimitExceeded once the running output exceeds it — this
+    bounds degenerate/repetition decodes that a non-streaming caller could
+    only wait out until the socket timeout.
     """
     body = {
         "messages": messages,
@@ -70,6 +89,8 @@ def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
     }
     if schema is not None:
         body["response_format"] = {"type": "json_object", "schema": schema}
+    if stream:
+        body["stream"] = True
     req = urllib.request.Request(
         LLM_BASE_URL + "/chat/completions",
         data=json.dumps(body).encode("utf-8"),
@@ -77,17 +98,52 @@ def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    choice = data["choices"][0]
-    if choice.get("finish_reason") == "length":
-        # Truncated output: make it VISIBLE instead of letting it surface
-        # later as a mysterious validation failure.
-        print(
-            "    [warn] completion hit max_tokens=%d — output truncated"
-            % max_tokens,
-            file=sys.stderr,
-        )
-    return choice["message"]["content"]
+        if not stream:
+            data = json.loads(resp.read().decode("utf-8"))
+            choice = data["choices"][0]
+            if choice.get("finish_reason") == "length":
+                # Truncated output: make it VISIBLE instead of letting it
+                # surface later as a mysterious validation failure.
+                print(
+                    "    [warn] completion hit max_tokens=%d — output truncated"
+                    % max_tokens,
+                    file=sys.stderr,
+                )
+            return choice["message"]["content"]
+
+        # ---- streaming SSE ----
+        parts = []
+        chars = 0
+        finish = None
+        for raw_line in resp:
+            line = raw_line.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                chunk = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            for ch in chunk.get("choices") or []:
+                delta = ch.get("delta") or {}
+                piece = delta.get("content") or ""
+                if piece:
+                    parts.append(piece)
+                    chars += len(piece)
+                if ch.get("finish_reason"):
+                    finish = ch["finish_reason"]
+            if max_output_chars is not None and chars > max_output_chars:
+                raise _StreamLimitExceeded("".join(parts))
+        text = "".join(parts)
+        if finish == "length":
+            print(
+                "    [warn] completion hit max_tokens=%d — output truncated"
+                % max_tokens,
+                file=sys.stderr,
+            )
+        return text
 
 
 def _json_block(text):
@@ -1487,6 +1543,9 @@ def _v_cli(d):
             continue
         group = c.get("group")
         name = c.get("name")
+        full = "/".join(
+            [str(g) for g in (group or []) if isinstance(g, str)] + [str(name)]
+        )
         if not isinstance(group, list) or not group or not all(
             isinstance(g, str) and _NAME_SNAKE.fullmatch(g) for g in group
         ):
@@ -1550,6 +1609,7 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
         {"role": "system", "content": _CLI_SYSTEM},
         {"role": "user", "content": user},
     ]
+    data = None
     for attempt in (0, 1):
         # 4096-token budget: an 11-command CLI design with option arrays
         # overflows the 2048 default mid-JSON -> truncated -> parse failure.
@@ -1597,6 +1657,13 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
                 errs.append(
                     "target %r is not a designed service method" % c.get("target")
                 )
+        # Inter-design consistency (CLI <-> services/models designs): every
+        # option must map onto the TARGET's real parameters and every
+        # required parameter of the target must be covered — otherwise the
+        # deterministic renderer silently ships dead flags / calls with
+        # missing arguments (observed as `--author-id` + svc.borrow_book()
+        # on the ambiguous library spec).
+        errs.extend(_cli_wiring_errors(data, service_methods))
         if not errs:
             return data
         if verbose:
@@ -1608,12 +1675,814 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
             + "\n".join("  - " + e for e in errs)
         )
         messages = [messages[0], {"role": "user", "content": retry_user}]
-    print(
-        "    [design] cli.py: FAILED (%s)"
-        % ("; ".join(errs[:3]) if errs else "no valid JSON"),
-        file=sys.stderr,
+    if data is None:
+        print("    [design] cli.py: FAILED (no valid JSON)", file=sys.stderr)
+        return None
+    # Wiring conflicts are reconciled by the CALLER (_reconcile_cli_design):
+    # bounded back-propagation into the designs first, deterministic
+    # sanitization as the backstop. Returning raw keeps every option open.
+    return data
+
+
+def _cli_target_sigs(service_methods):
+    """{method_name: [(param, type)]} from the DESIGNED services."""
+    sigs = {}
+    for m in service_methods or []:
+        if isinstance(m, dict) and m.get("name"):
+            sigs[m["name"]] = [
+                (p.get("name"), p.get("type") or "")
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+    return sigs
+
+
+def _cli_wiring_errors(data, service_methods, entities_by_class=None):
+    """Cross-design consistency between the CLI design and the designed
+    service signatures (models/services designs are authoritative):
+
+    - every option key (declared field, else the option variable, resolved
+      through the SAME exact/suffix rule the renderer uses) must map to a
+      parameter of the command's target — an unmapped option would render
+      as a decorator whose value is silently discarded;
+    - every non-Optional parameter of the target must be covered by some
+      option — otherwise the renderer emits a call missing required
+      arguments (guaranteed TypeError at runtime).
+
+    update-style (id, data) targets pack leftover options into the data
+    dict, so every option is consumable there.
+    """
+    sigs = _cli_target_sigs(service_methods)
+    errs = []
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        label = "/".join(
+            [str(g) for g in (c.get("group") or [])] + [str(c.get("name"))]
+        )
+        target = c.get("target")
+        sig = sigs.get(target)
+        if sig is None:
+            continue  # unknown targets are reported by the existing check
+        params = [n for n, _ in sig]
+        opts = [o for o in (c.get("options") or []) if isinstance(o, dict)]
+        # Cross-entity guard (applies to BOTH the data-style and the
+        # arity-style paths): the target's entity must match the command's
+        # OWNING entity. A CRUD verb aimed at another entity (e.g.
+        # category-list -> list_expenses, category-delete -> delete_expense)
+        # used to validate clean on arity/all-optional targets and silently
+        # read or delete rows from the WRONG table.
+        own = tent = None
+        if entities_by_class:
+            cls = _command_entity(c, entities_by_class)
+            own = _snake(cls) if cls else None
+            tlow = str(target or "").lower()
+            tent = next(
+                (
+                    _snake(e)
+                    for e in sorted(entities_by_class)
+                    if _snake(e).lower() in tlow
+                ),
+                None,
+            )
+        if own is not None and tent is not None and own != tent:
+            errs.append(
+                "%s: target %s targets '%s', not '%s'"
+                % (label, target, tent, own)
+            )
+        if "data" in params:
+            # update-style (id, data) targets pack leftover options into
+            # the data dict, so unmapped options are consumed there. The
+            # non-data required parameters must still be covered.
+            direct = [n for n in params if n != "data"]
+            covered = set()
+            for o in opts:
+                oname = o.get("name")
+                if not isinstance(oname, str) or not oname.startswith("--"):
+                    continue
+                key = o.get("field") or _optvar(o)
+                match = _match_param(key, direct)
+                if match is not None:
+                    covered.add(match)
+            missing = sorted(
+                n for n, t in sig
+                if n != "data"
+                and not t.strip().startswith("Optional")
+                and n not in covered
+            )
+            if missing:
+                errs.append(
+                    "%s: target %s accepts (%s); no option covers %s"
+                    % (label, target, ", ".join(params), ", ".join(missing))
+                )
+            continue
+        covered = set()
+        for o in opts:
+            oname = o.get("name")
+            if not isinstance(oname, str) or not oname.startswith("--"):
+                continue
+            key = o.get("field") or _optvar(o)
+            match = _match_param(key, params)
+            if match is None:
+                errs.append(
+                    "%s: option %r maps to no parameter of %s(%s)"
+                    % (label, oname, target, ", ".join(params))
+                )
+            else:
+                covered.add(match)
+        missing = sorted(
+            n for n, t in sig
+            if not t.strip().startswith("Optional") and n not in covered
+        )
+        if missing:
+            errs.append(
+                "%s: target %s accepts (%s); no option covers %s"
+                % (label, target, ", ".join(params), ", ".join(missing))
+            )
+    return errs
+
+
+def _sanitize_cli_design(data, service_methods):
+    """Deterministic repair of a CLI design that still violates wiring after
+    the corrective retry: drop options that map to no parameter of their
+    target, then drop commands whose target still has uncovered required
+    parameters. Returns (cleaned_design, notes); never raises."""
+    sigs = _cli_target_sigs(service_methods)
+    notes = []
+    cleaned = []
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        label = "/".join(
+            [str(g) for g in (c.get("group") or [])] + [str(c.get("name"))]
+        )
+        sig = sigs.get(c.get("target"))
+        if sig is None:
+            notes.append("%s -> dropped (unknown target)" % label)
+            continue
+        params = [n for n, _ in sig]
+        opts = [o for o in (c.get("options") or []) if isinstance(o, dict)]
+        if "data" in params:
+            cleaned.append(c)
+            continue
+        kept, covered, dropped = [], set(), []
+        for o in opts:
+            key = o.get("field") or _optvar(o)
+            match = _match_param(key, params)
+            if match is None:
+                dropped.append(o.get("name"))
+            else:
+                kept.append(o)
+                covered.add(match)
+        missing = sorted(
+            n for n, t in sig
+            if not t.strip().startswith("Optional") and n not in covered
+        )
+        if missing:
+            notes.append(
+                "%s -> dropped (no designed service method serves its surface)"
+                % label
+            )
+            continue
+        if dropped:
+            notes.append(
+                "%s: stripped dead option(s) %s" % (label, ", ".join(dropped))
+            )
+            c["options"] = kept
+        cleaned.append(c)
+    return {"commands": cleaned}, notes
+
+
+def _spec_has_token(prompt_text, key):
+    """True when `key` (snake_case) appears verbatim in the spec text, in
+    any of its snake/hyphen/space spellings — the gate that keeps
+    propagation from becoming a hallucination channel."""
+    low = (prompt_text or "").lower()
+    return (
+        key in low
+        or key.replace("_", "-") in low
+        or key.replace("_", " ") in low
     )
+
+
+def _command_entity(c, entities_by_class):
+    """Entity addressed by a command: last group/name token matching a
+    designed entity (CamelCase lookup over snake tokens)."""
+    tokens = [str(t) for t in (c.get("group") or [])]
+    tokens.append(str(c.get("name") or ""))
+    for tok in reversed(tokens):
+        cand = _camel(tok)
+        if cand in entities_by_class:
+            return cand
     return None
+
+
+def _entity_field_names(cls_ent):
+    return {
+        f.get("name")
+        for f in (cls_ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+
+
+def _resolve_flag_field(ent, stem):
+    """Resolve an '<stem>_only' CLI flag onto exactly ONE owner-entity field.
+
+    Matches exact, prefix ('available' -> available_copies), or suffix
+    ('active' -> is_active). Returns (column, type) for a unique int/bool
+    match, else None so the caller keeps the honest-drop behavior.
+    """
+    fields = [
+        f for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name") and f["name"] != "id"
+    ]
+    cands = [
+        f for f in fields
+        if f["name"] == stem
+        or f["name"].startswith(stem + "_")
+        or f["name"].endswith("_" + stem)
+    ]
+    if len(cands) != 1:
+        return None
+    col = cands[0]["name"]
+    ftype = cands[0].get("type")
+    if ftype not in ("int", "bool"):
+        return None
+    return col, ftype
+
+
+def _propagate_cli_commands(data, prompt_text, entities_by_class,
+svc_design, designs):
+    """Bounded back-propagation of CLI wiring conflicts into the designs.
+
+    Three gates keep this from becoming a hallucination channel:
+      1. a missing key must appear VERBATIM in the spec text;
+      2. foreign keys must match '<existing_entity>_id' and are added as
+         nullable int columns on the command's owning entity;
+      3. synthesized service methods are plain CRUD/history signatures,
+         rendered afterwards through the existing deterministic delegation
+         tiers or the contract-validated fill — no new LLM freedom.
+
+    Additionally, an add-command may cover a required boolean `is_*` field
+    through a baked constant WHEN the spec itself declares its default
+    ("is_active (default True)") — recorded as a declarative `defaults`
+    map on the synthesized method, applied by the deterministic renderer.
+
+    Mutates `data`, `entities_by_class` and `svc_design` IN PLACE (callers
+    trial-run on deepcopies and replay on success). Returns notes.
+    """
+    notes = []
+    sigs = {
+        m.get("name"): m
+        for m in (svc_design or {}).get("methods") or []
+        if isinstance(m, dict) and m.get("name")
+    }
+
+    def required_missing(cls, covered):
+        fields = [
+            f for f in (entities_by_class[cls].get("fields") or [])
+            if isinstance(f, dict) and f.get("name")
+        ]
+        req = {
+            f["name"] for f in fields
+            if f["name"] != "id" and not f.get("nullable")
+        }
+        auto_now = {
+            f["name"] for f in fields
+            if f.get("auto") == "now"
+            and f.get("type") in ("date", "datetime")
+        }
+        return req - covered - auto_now
+
+    # ---- Pass A: FK completion ------------------------------------------
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        owner = _command_entity(c, entities_by_class)
+        if owner is None:
+            continue
+        for o in c.get("options") or []:
+            if not isinstance(o, dict):
+                continue
+            key = o.get("field") or _optvar(o)
+            if (
+                not isinstance(key, str) or key == "id"
+                or not key.endswith("_id")
+            ):
+                continue
+            ref_cls = _camel(key[: -len("_id")])
+            if ref_cls not in entities_by_class:
+                continue
+            # Never attach an entity's own id onto itself (member-history
+            # resolving owner=Member with --member-id would otherwise create
+            # a nonsense self-referential column).
+            if ref_cls == owner:
+                continue
+            if not _spec_has_token(prompt_text, key):
+                continue
+            if key in _entity_field_names(entities_by_class[owner]):
+                continue
+            entities_by_class[owner]["fields"].append(
+                {"name": key, "type": "int", "nullable": True}
+            )
+            notes.append(
+                "propagated %s.%s <- CLI/spec (nullable FK)" % (owner, key)
+            )
+
+    # ---- Pass B: service-method synthesis --------------------------------
+    repo_customs = []  # (repo_attr, method_name, [param names])
+    for path, kind, d in designs or []:
+        if kind != "repositories" or not isinstance(d, dict):
+            continue
+        stem = Path(path).stem
+        attr = (
+            stem[: -len("_repository")]
+            if stem.endswith("_repository") else stem
+        ) + "_repo"
+        for m in d.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            ps = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            repo_customs.append((attr, m["name"], ps))
+
+    def synth(name, params, returns, defaults=None, flag_filters=None):
+        if name in sigs:
+            return name
+        entry = {
+            "name": name,
+            "params": [{"name": n, "type": t} for n, t in params],
+            "returns": returns,
+        }
+        if defaults:
+            entry["defaults"] = defaults
+        if flag_filters:
+            entry["flag_filters"] = flag_filters
+        svc_design.setdefault("methods", []).append(entry)
+        sigs[name] = entry
+        notes.append(
+            "synthesized %s(%s) -> %s"
+            % (name, ", ".join(n for n, _ in params), returns)
+        )
+        return name
+
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        label = "/".join(
+            [str(g) for g in (c.get("group") or [])] + [str(c.get("name"))]
+        )
+        cls = _command_entity(c, entities_by_class)
+        tgt = c.get("target")
+        if tgt in sigs:
+            # Known target: skip only when FULLY wired (every option maps,
+            # every required param covered). An existing-but-wrong target
+            # (book-add -> borrow_book) is exactly what needs repairing.
+            tparams = [
+                p.get("name")
+                for p in (sigs[tgt].get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            treq = [
+                p.get("name")
+                for p in (sigs[tgt].get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+                and not str(p.get("type") or "").startswith("Optional")
+            ]
+            # Entity match FIRST: a CRUD verb aimed at a DIFFERENT entity
+            # than the command owner is a semantic mis-wire even when
+            # option mapping passes — the data-dict exemption previously
+            # hid it entirely (category-add -> add_expense shipped an
+            # insert into the expenses table).
+            own = _snake(cls) if cls else None
+            tlow = str(tgt or "").lower()
+            tent = next(
+                (
+                    _snake(e)
+                    for e in sorted(entities_by_class)
+                    if _snake(e).lower() in tlow
+                ),
+                None,
+            )
+            ent_ok = cls is None or tent is None or own == tent
+
+            def _ent_mismatch():
+                return not ent_ok
+
+            if "data" in tparams:
+                if ent_ok:
+                    continue
+            else:
+                tcov, tok = set(), True
+                for o in c.get("options") or []:
+                    if not isinstance(o, dict):
+                        continue
+                    k = o.get("field") or _optvar(o)
+                    m = _match_param(k, tparams)
+                    if m is None:
+                        tok = False
+                        break
+                    tcov.add(m)
+                if tok and not (set(treq) - tcov):
+                    if ent_ok:
+                        continue
+        if cls is None:
+            continue
+        sn = _snake(cls)
+        cname = str(c.get("name") or "")
+        opts = [o for o in (c.get("options") or []) if isinstance(o, dict)]
+
+        if cname in ("add", "create"):
+            params, covered, dead = [], set(), []
+            field_names = sorted(_entity_field_names(entities_by_class[cls]))
+            for o in opts:
+                if o.get("type") == "flag":
+                    dead.append(o.get("name"))
+                    continue
+                key = o.get("field") or _optvar(o)
+                match = _match_param(key, field_names)
+                if match is None:
+                    dead.append(o.get("name"))
+                    continue
+                covered.add(match)
+                params.append(
+                    (match, "int" if o.get("type") == "int" else "str")
+                )
+            miss = required_missing(cls, covered)
+            # Bounded boolean defaults: required is_* bools whose default
+            # the SPEC itself declares become baked constants.
+            defaults = {}
+            for fname in sorted(miss):
+                fent = next(
+                    (
+                        f for f in (entities_by_class[cls].get("fields") or [])
+                        if isinstance(f, dict) and f.get("name") == fname
+                    ),
+                    {},
+                )
+                if (
+                    fent.get("type") == "bool"
+                    and fname.startswith("is_")
+                    and re.search(
+                        r"%s\s*\(\s*default\s+true\b" % re.escape(fname),
+                        prompt_text or "", re.IGNORECASE,
+                    )
+                ):
+                    defaults[fname] = True
+            remaining = miss - set(defaults)
+            if remaining:
+                notes.append(
+                    "%s: cannot synthesize add_%s (uncovered required: %s)"
+                    % (label, sn, ", ".join(sorted(remaining)))
+                )
+                continue
+            if dead:
+                c["options"] = [
+                    o for o in c["options"]
+                    if not (isinstance(o, dict) and o.get("name") in dead)
+                ]
+            meth = synth("add_" + sn, params, "int", defaults or None)
+            c["target"] = meth
+            notes.append("%s -> %s" % (label, meth))
+            continue
+
+        if cname in ("list", "show"):
+            # Entity-owned listing: every non-flag option must map onto the
+            # owner entity's DECLARED list-filter params; then a plain
+            # list_<entity> delegation renders deterministically. A flag
+            # option named '<stem>_only' resolves onto ONE int/bool field of
+            # the owner entity and becomes a constant-predicate filter
+            # (available_copies > 0 / is_active = 1), recorded on the
+            # synthesized method as flag_filters; _apply_filter_floors turns
+            # those into repo.list() filters afterwards. Unresolvable flags
+            # keep the honest drop.
+            fparams = {
+                s.get("param")
+                for s in (entities_by_class[cls].get("list_filters") or [])
+                if isinstance(s, dict) and s.get("param")
+            }
+            mapped = []
+            flag_filters = {}
+            ok = True
+            for o in opts:
+                if not isinstance(o, dict):
+                    continue
+                if o.get("type") == "flag":
+                    oname = _optvar(o)
+                    res = None
+                    if oname.endswith("_only"):
+                        res = _resolve_flag_field(
+                            entities_by_class[cls], oname[: -len("_only")]
+                        )
+                    if res is None:
+                        ok = False
+                        break
+                    col, ftype = res
+                    op = "gt_zero" if ftype == "int" else "eq_true"
+                    if oname not in flag_filters:
+                        flag_filters[oname] = {"column": col, "op": op}
+                        mapped.append((oname, "bool"))
+                    continue
+                k = o.get("field") or _optvar(o)
+                fm = None
+                if fparams:
+                    fm = _match_param(k, sorted(fparams))
+                if fm is None:
+                    # Declared filters may be incomplete at propagate time
+                    # (_apply_filter_floors runs AFTER reconciliation): fall
+                    # back to the entity's own non-id fields — the filter
+                    # floor adopts these params once it sees the synthesized
+                    # signature, so repo.list() grows to serve them.
+                    fm = _match_param(
+                        k,
+                        sorted(
+                            f["name"]
+                            for f in (
+                                entities_by_class[cls].get("fields") or []
+                            )
+                            if isinstance(f, dict) and f.get("name")
+                            and f["name"] != "id"
+                        ),
+                    )
+                if fm is None:
+                    ok = False
+                    break
+                if fm not in {p for p, _ in mapped}:
+                    mapped.append(
+                        (fm, "int" if o.get("type") == "int" else "str")
+                    )
+            if not ok:
+                continue
+            # Zero-option lists ("category list") legitimately synthesize
+            # as list_<entity>() — the delegation tier renders a plain
+            # repo.list(). Unresolvable flags stay dropped above (ok=False).
+            meth = synth(
+                "list_" + sn, mapped, "List[%s]" % cls,
+                flag_filters=flag_filters or None,
+            )
+            c["target"] = meth
+            notes.append("%s -> %s" % (label, meth))
+            continue
+
+        if cname == "delete":
+            # Unique-pair delete: BOTH non-flag options must map onto one
+            # declared unique_together pair of the owner entity -> a plain
+            # delete_<entity>(a, b) delegating to the deterministic repo
+            # pair delete. Single-id deletes already wire through the
+            # designed surface and never reach this branch.
+            pairs = entities_by_class[cls].get("unique_together") or []
+            keys = []
+            ok = True
+            for o in opts:
+                if not isinstance(o, dict):
+                    continue
+                if o.get("type") == "flag":
+                    ok = False
+                    break
+                k = o.get("field") or _optvar(o)
+                fm = _match_param(
+                    k, _entity_field_names(entities_by_class[cls])
+                )
+                if fm is None:
+                    ok = False
+                    break
+                keys.append(fm)
+            if not ok:
+                continue
+            # Single-id delete (--id / <entity>_id): synthesize the plain
+            # id-based delete_<entity>(id). Cross-entity single-id deletes
+            # (category-delete -> delete_expense) used to survive because
+            # arity coverage passed while the table was wrong.
+            if len(keys) == 1 and keys[0] in ("id", sn + "_id"):
+                meth = synth("delete_" + sn, [("id", "int")], "bool")
+                c["target"] = meth
+                notes.append("%s -> %s" % (label, meth))
+                continue
+            if len(keys) != 2:
+                continue
+            hit = next(
+                (
+                    [str(x) for x in p]
+                    for p in pairs
+                    if isinstance(p, list) and len(p) == 2
+                    and {str(x) for x in p} == set(keys)
+                ),
+                None,
+            )
+            if hit is None:
+                continue
+            meth = synth(
+                "delete_" + sn,
+                [
+                    (hit[0], "int" if hit[0].endswith("_id") else "str"),
+                    (hit[1], "int" if hit[1].endswith("_id") else "str"),
+                ],
+                "bool",
+            )
+            c["target"] = meth
+            notes.append("%s -> %s (unique-pair)" % (label, meth))
+            continue
+
+        if cname in ("update", "edit"):
+            # Two bounded shapes, both rendered deterministically by the
+            # generic CRUD delegation tier afterwards:
+            #   id-based   : an id option (--id / <entity>_id) plus >= 1
+            #                field option, EVERY non-flag option mapping
+            #                onto the owner entity ->
+            #                update_<entity>(id, ...) delegating to
+            #                repo.update(id, data).
+            #   pair-based : NO id option; the mapped fields cover a
+            #                declared unique_together pair plus >= 1 other
+            #                field -> update_<entity>(a, b, ...) resolved
+            #                through the repo's get_by_<a>_and_<b> getter.
+            fields = {
+                f.get("name"): f.get("type")
+                for f in (entities_by_class[cls].get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            pairs = [
+                [str(x) for x in p]
+                for p in (entities_by_class[cls].get("unique_together") or [])
+                if isinstance(p, list) and len(p) == 2
+            ]
+            id_seen, mapped, ok = False, [], True
+            for o in opts:
+                if o.get("type") == "flag":
+                    ok = False
+                    break
+                key = o.get("field") or _optvar(o)
+                if key == "id" or key == sn + "_id":
+                    if id_seen:
+                        ok = False
+                        break
+                    id_seen = True
+                    continue
+                fm = _match_param(key, sorted(n for n in fields if n != "id"))
+                if fm is None or fm in mapped:
+                    ok = False
+                    break
+                mapped.append(fm)
+            if not ok:
+                continue
+
+            def _ptype(n):
+                if n.endswith("_id"):
+                    return "int"
+                return str(fields.get(n) or "str")
+
+            if id_seen and mapped:
+                meth = synth(
+                    "update_" + sn,
+                    [("id", "int")] + [(fm, _ptype(fm)) for fm in mapped],
+                    "bool",
+                )
+                c["target"] = meth
+                notes.append("%s -> %s" % (label, meth))
+                continue
+            if not id_seen and pairs and len(mapped) >= 3:
+                hit = next(
+                    (
+                        p for p in pairs
+                        if {p[0], p[1]} <= set(mapped)
+                        and len([m for m in mapped if m not in p]) >= 1
+                    ),
+                    None,
+                )
+                if hit is not None:
+                    extra = [m for m in mapped if m not in hit]
+                    meth = synth(
+                        "update_" + sn,
+                        [
+                            (hit[0], _ptype(hit[0])),
+                            (hit[1], _ptype(hit[1])),
+                        ]
+                        + [(m, _ptype(m)) for m in extra],
+                        "bool",
+                    )
+                    c["target"] = meth
+                    notes.append(
+                        "%s -> %s (unique-pair)" % (label, meth)
+                    )
+                    continue
+
+        if cname in ("history", "loans"):
+            idopts = [
+                o for o in opts
+                if str(o.get("field") or _optvar(o) or "").endswith("_id")
+                and o.get("type") == "int"
+            ]
+            if len(opts) != 1 or len(idopts) != 1:
+                continue
+            key = idopts[0].get("field") or _optvar(idopts[0])
+            hit = next(
+                ((a, m) for a, m, ps in repo_customs if ps == [key]), None
+            )
+            if hit is None:
+                continue
+            attr, meth = hit
+            rret = "List[Any]"
+            for path, kind, d in designs or []:
+                if kind != "repositories" or not isinstance(d, dict):
+                    continue
+                for m in d.get("methods") or []:
+                    if isinstance(m, dict) and m.get("name") == meth:
+                        rret = m.get("returns") or rret
+            sname = "get_%s_history" % sn
+            synth(sname, [(key, "int")], rret)
+            c["target"] = sname
+            notes.append(
+                "%s -> %s (delegates to %s.%s)"
+                % (label, sname, attr, meth)
+            )
+    return notes
+
+
+def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
+                          verbose=False):
+    """Propagation-first reconciliation of one CLI design against the
+    designed services/models: try bounded back-propagation on deepcopies,
+    commit on clean validation, then sanitize whatever remains unwired.
+    Returns (data_or_None, service_methods)."""
+    svc_design = next((d for p, k, d in designs if k == "services"), None)
+    if svc_design is None:
+        # Propagation synthesizes service methods; give them a home even
+        # when the pipeline reached reconciliation without a services
+        # design (defensive — the manifest pipeline always designs one).
+        svc_design = {"methods": []}
+        designs.append(("expense_service.py", "services", svc_design))
+    service_methods = (svc_design or {}).get("methods") or []
+
+    def _validate(d, methods):
+        errs = _v_cli(d)
+        allowed = {
+            m.get("name") for m in methods if isinstance(m, dict)
+        }
+        for c in d.get("commands") or []:
+            if isinstance(c, dict) and c.get("target") not in allowed:
+                errs.append(
+                    "target %r is not a designed service method"
+                    % c.get("target")
+                )
+        errs.extend(_cli_wiring_errors(d, methods, entities_by_class))
+        return errs
+
+    errs = _validate(data, service_methods)
+    if not errs:
+        return data, service_methods
+
+    wiring_tokens = (
+        "maps to no parameter", "no option covers",
+        # Cross-entity mis-wires (e.g. category-update -> update_expense):
+        # repairable by bounded propagation, NOT fatal shape errors.
+        "targets '",
+        # Missing-target commands are repairable the same way: the
+        # propagation branches assign c["target"] when a verb shape maps.
+        "target must be a non-empty string",
+    )
+    shape_errs = [
+        e for e in errs
+        if not e.startswith("target ")
+        and not any(t in e for t in wiring_tokens)
+    ]
+
+    if not shape_errs:
+        import copy as _copy
+
+        trial_data = _copy.deepcopy(data)
+        trial_ents = _copy.deepcopy(entities_by_class)
+        trial_svc = _copy.deepcopy(svc_design or {"methods": []})
+        notes = _propagate_cli_commands(
+            trial_data, prompt_text, trial_ents, trial_svc, designs
+        )
+        new_methods = trial_svc.get("methods") or []
+        if notes:
+            # Commit: replay the deterministic mutations on the LIVE
+            # structures (entities_by_class values ARE the models-design
+            # dicts, so models.py/DDL render the propagated field).
+            # Partial repairs are fine — whatever stays unwired goes to the
+            # sanitizer below.
+            _propagate_cli_commands(
+                data, prompt_text, entities_by_class, svc_design, designs
+            )
+            service_methods = (svc_design or {}).get("methods") or []
+            errs = _validate(data, service_methods)
+            if verbose:
+                for n in notes:
+                    print(
+                        "    [design] cli.py propagated: %s" % n,
+                        file=sys.stderr,
+                    )
+
+    if errs:
+        cleaned, snotes = _sanitize_cli_design(data, service_methods)
+        for n in snotes:
+            print("    [design] cli.py sanitized: %s" % n, file=sys.stderr)
+        data = cleaned
+        if not data.get("commands"):
+            return None, service_methods
+    return data, service_methods
 
 
 def _design_module(path, kind, prompt_text, context, verbose=False):
@@ -1900,6 +2769,270 @@ def _repo_fill_ok(filled, design):
     return required.issubset(defined)
 
 
+def _repo_schema_from_entities(entities_by_class):
+    """{table_name: set(columns)} from the DESIGNED entities (+ id), honouring
+    declared irregular table names — the same mapping the deterministic DDL
+    and repository renderers use."""
+    schema = {}
+    for cls, ent in entities_by_class.items():
+        cols = {"id"}
+        for f in ent.get("fields") or []:
+            if isinstance(f, dict) and f.get("name"):
+                cols.add(f["name"])
+        schema[_entity_table_name(ent)] = cols
+    return schema
+
+
+def _repo_sql_context_hint(schema_ctx, stub_names):
+    """Render the DESIGNED SQLite schema + stub-method list for the LLM
+    repository fill prompt. Without this the model must guess table/column
+    names from sibling CRUD SQL, so cross-table customs reference invented
+    relations (books_authors, budgets.budget_amount, ...) and the schema gate
+    reverts them to locked stubs."""
+    lines = [
+        "Fill ONLY these repository custom methods; keep every other method, "
+        "signature, import, and class exact: %s." % ", ".join(stub_names),
+        "Use ONLY the DESIGNED SQLite tables/columns below. SQLite dialect; "
+        "parameter placeholders '?'. Never invent a table or column. A column "
+        "ending in _id is a foreign key to the table of that name (minus id).",
+        "Never import datetime/date/time. All date/datetime columns are "
+        "ISO-8601 TEXT: compare them as plain strings (WHERE expense_date "
+        "BETWEEN '2024-01-01' AND '2024-12-31') and derive year/month with "
+        "substr(col,1,4)/substr(col,1,7).",
+        "Each method reads ONLY its own table: 'SELECT * FROM <table> ...' "
+        "then 'return [Model(**dict(r)) for r in rows]'. NEVER join other "
+        "tables, NEVER select columns from them, NEVER pass extra keyword "
+        "arguments to the model constructor (use ONLY its designed fields).",
+        "",
+        "TABLES:",
+    ]
+    for table in sorted(schema_ctx):
+        cols = ", ".join(sorted(schema_ctx[table]))
+        lines.append("  %s(%s)" % (table, cols))
+    return "\n".join(lines)
+
+
+_TABLE_REF_RE = re.compile(
+    r"\b(?:from|join|into|update)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE
+)
+_ALIAS_DECL_RE = re.compile(
+    r"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:as\s+)?"
+    r"([A-Za-z_][A-Za-z0-9_]*)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_sql_segment(segment, schema):
+    """Schema violations inside ONE SQL statement segment.
+
+    Narrow, false-positive-averse checks over the DESIGNED schema:
+    - table names after FROM/JOIN/INTO/UPDATE must be designed;
+    - INSERT column lists, UPDATE SET columns, and WHERE left-hand
+      identifiers must be designed columns of their (resolved) table.
+    Dynamic concat fragments carry no FROM of their own and are therefore
+    never scoped — they are skipped, not guessed.
+    """
+    violations = []
+    tables = {m.group(1).lower() for m in _TABLE_REF_RE.finditer(segment)}
+    aliases = {
+        m.group(2).lower(): m.group(1).lower()
+        for m in _ALIAS_DECL_RE.finditer(segment)
+        if m.group(1).lower() in schema
+    }
+    # Output aliases declared via "<expr> AS <name>" in this statement —
+    # referencing them later (ORDER BY book_count) is legal, not a column.
+    sql_aliases = {
+        m.group(1).lower()
+        for m in re.finditer(
+            r"\bas\s+([A-Za-z_][A-Za-z0-9_]*)",
+            segment, re.IGNORECASE,
+        )
+    }
+    unknown = sorted(t for t in tables if t not in schema)
+    if unknown:
+        violations.append(
+            "references unknown table(s) %s (designed: %s)"
+            % (", ".join(unknown), ", ".join(sorted(schema)))
+        )
+
+    def _resolve(ident):
+        """(table, column) for a possibly aliased identifier; None when the
+        table cannot be resolved (unresolvable => skipped, never rejected)."""
+        if "." in ident:
+            alias, col = ident.split(".", 1)
+            tbl = aliases.get(alias.lower())
+            return (tbl, col) if tbl else None
+        known = [t for t in tables if t in schema]
+        owners = [t for t in known if ident in schema[t]]
+        if len(owners) == 1:
+            return (owners[0], ident)
+        if len(known) == 1 and ident.lower() not in ("true", "false", "null"):
+            return (known[0], ident)
+        return None
+
+    def _flag(ident, label):
+        """Flag `ident` when it cannot denote a real column of the DESIGNED
+        schema: resolved to a table that lacks it, or unqualified and absent
+        from EVERY referenced table (SQLite would raise OperationalError).
+        Rowid pseudo-columns and AS aliases declared here are exempt."""
+        resolved = _resolve(ident)
+        if resolved:
+            if resolved[1] not in schema[resolved[0]]:
+                violations.append(
+                    "%s uses unknown column %r (table %s)"
+                    % (label, ident, resolved[0])
+                )
+            return
+        if "." in ident:
+            return  # unknown qualifier: cannot judge, skip
+        low = ident.lower()
+        if low in ("rowid", "oid", "_rowid_", "true", "false", "null"):
+            return
+        if low in sql_aliases:
+            return
+        if any(ident in schema[t] for t in tables if t in schema):
+            return  # ambiguous but resolvable somewhere in scope
+        violations.append("%s uses unknown column %r" % (label, ident))
+
+    im = re.search(
+        r"\binsert\s+into\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)",
+        segment, re.IGNORECASE,
+    )
+    if im:
+        tbl = im.group(1).lower()
+        if tbl in schema:
+            for raw in im.group(2).split(","):
+                col = raw.strip().strip('"').strip("'").strip("`").strip()
+                if col and col not in schema[tbl]:
+                    violations.append(
+                        "INSERT into %s uses unknown column %r" % (tbl, col)
+                    )
+
+    um = re.search(
+        r"\bupdate\s+([A-Za-z_][A-Za-z0-9_]*)\s+set\s+(.*)",
+        segment, re.IGNORECASE | re.DOTALL,
+    )
+    if um:
+        tbl = um.group(1).lower()
+        if tbl in schema:
+            set_part = re.split(
+                r"\bwhere\b", um.group(2), flags=re.IGNORECASE
+            )[0]
+            for cm in re.finditer(
+                r"(?:^|,)\s*([A-Za-z_][A-Za-z0-9_.]*)\s*=", set_part
+            ):
+                resolved = _resolve(cm.group(1))
+                if (
+                    resolved and resolved[0] == tbl
+                    and resolved[1] not in schema[tbl]
+                ):
+                    violations.append(
+                        "UPDATE %s sets unknown column %r"
+                        % (tbl, cm.group(1))
+                    )
+
+    wm = re.search(r"\bwhere\b(.*)", segment, re.IGNORECASE | re.DOTALL)
+    if wm:
+        tail = wm.group(1)
+        for stop in ("group by", "order by", "limit", "having", "returning"):
+            tail = re.split(r"\b%s\b" % stop, tail, flags=re.IGNORECASE)[0]
+        for term in re.split(r"\band\b|\bor\b", tail, flags=re.IGNORECASE):
+            tm = re.match(
+                r"\s*\(?\s*([A-Za-z_][A-Za-z0-9_.]*)\s*"
+                r"(?:=|>=|<=|<>|!=|>|<|\bbetween\b|\blike\b|\bin\b)",
+                term, re.IGNORECASE,
+            )
+            if not tm:
+                continue
+            ident = tm.group(1)
+            if ident.lower() in ("select", "exists", "case", "when"):
+                continue
+            _flag(ident, "WHERE clause")
+
+    def _check_ident_list(text, label):
+        """Validate bare column identifiers in a comma-separated clause
+        (GROUP BY / ORDER BY). Functions, literals and expressions are
+        skipped — only bare refs are checked."""
+        for raw in text.split(","):
+            ident = raw.strip().rstrip(";").strip()
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", ident):
+                continue
+            _flag(ident, label)
+
+    # JOIN conditions: both sides of every ON a.x = b.y must be designed
+    for om in re.finditer(
+        r"\bon\b\s+([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*"
+        r"([A-Za-z_][A-Za-z0-9_.]*)",
+        segment, re.IGNORECASE,
+    ):
+        for ident in om.groups():
+            _flag(ident, "JOIN condition")
+    # GROUP BY / ORDER BY bare column refs
+    gm = re.search(
+        r"\bgroup\s+by\b(.*?)(?:\border\s+by\b|\blimit\b|\bhaving\b|$)",
+        segment, re.IGNORECASE | re.DOTALL,
+    )
+    if gm:
+        _check_ident_list(gm.group(1), "GROUP BY")
+    om2 = re.search(
+        r"\border\s+by\b(.*?)(?:\blimit\b|\bhaving\b|$)",
+        segment, re.IGNORECASE | re.DOTALL,
+    )
+    if om2:
+        _check_ident_list(om2.group(1), "ORDER BY")
+    # Bare column refs in the SELECT list (functions/expressions skipped)
+    sm = re.search(
+        r"\bselect\s+(.*?)\s+\bfrom\b", segment, re.IGNORECASE | re.DOTALL
+    )
+    if sm:
+        for raw in sm.group(1).split(","):
+            m2 = re.fullmatch(
+                r"(?:distinct\s+)?([A-Za-z_][A-Za-z0-9_.]*)",
+                raw.strip(), re.IGNORECASE,
+            )
+            if not m2:
+                continue
+            ident = m2.group(1)
+            if ident.lower() == "distinct":
+                continue
+            _flag(ident, "SELECT list")
+    return violations
+
+
+def _repo_fill_schema_violations(source, schema):
+    """Schema-aware semantic validation of an LLM repository fill: every SQL
+    statement literal in the filled source must reference only DESIGNED
+    tables/columns. Catches fills written against hallucinated relations
+    (e.g. books.author_id when the Book model defines no such field) that
+    compile fine and crash only at runtime with OperationalError."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ["output does not compile"]
+    violations = []
+
+    def _has_sql(text):
+        return bool(
+            re.search(r"\b(select|insert|update|delete)\b", text, re.IGNORECASE)
+        )
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        sql = node.value
+        if not _has_sql(sql):
+            continue
+        seen = set()
+        for segment in sql.split(";"):
+            if not _has_sql(segment):
+                continue
+            for v in _check_sql_segment(segment, schema):
+                if v not in seen:
+                    seen.add(v)
+                    violations.append(v)
+    return violations
+
+
 def _render_repository_file(ent_snake, design, entities_by_class, exception_names=None,
                             prompt_text="", verbose=False):
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
@@ -1927,8 +3060,19 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     # --- declared filter API (from the entity design's list_filters) --------
     filter_specs = _declared_filters(ent)
     filter_params = [(p, None) for p, _, _ in filter_specs]
-    _FRAG = {"eq": " AND %s = ?", "gte": " AND %s >= ?", "lte": " AND %s <= ?"}
-    filter_where = [(_FRAG[op] % col, p) for p, col, op in filter_specs]
+    # Constant-predicate ops (eq_true/gt_zero) arrive via bounded CLI flag
+    # propagation (_apply_filter_floors): they bind NO value and guard on
+    # truthiness instead of is-not-None (a click flag defaults to False,
+    # and False must mean "no filter", never "filter on false").
+    _FRAG = {
+        "eq": " AND %s = ?", "gte": " AND %s >= ?", "lte": " AND %s <= ?",
+        "eq_true": " AND %s = 1", "gt_zero": " AND %s > 0",
+    }
+    _BOUND_OPS = {"eq", "gte", "lte"}
+    filter_where = [
+        (_FRAG[op] % col, p, op in _BOUND_OPS)
+        for p, col, op in filter_specs
+    ]
 
     # --- unique_together pair -> lookup + delete-by-pair --------------------
     unique_pairs = ent.get("unique_together") or []
@@ -1952,7 +3096,13 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     L.append("from typing import Any, Dict, List, Optional")
     L.append("")
     L.append("from database import Database")
-    L.append("from models import %s" % model)
+    # Import ALL designed entity classes: custom-method fills legitimately
+    # reference related entities (a member-repo fill returning Loan rows),
+    # and the per-method splice keeps only bodies — the fill's own imports
+    # never survive. A complete models import makes the merged namespace
+    # self-consistent; _merge_repo_fill's undefined-name gate then rejects
+    # any residual hallucinated name instead of shipping a NameError.
+    L.append("from models import %s" % ", ".join(sorted(entities_by_class)))
     if raise_missing:
         L.append("from exceptions import %s" % not_found_exc)
     L.append("")
@@ -1993,10 +3143,14 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         L.append("        with self.db.connect() as conn:")
         L.append('            query = "SELECT * FROM %s WHERE 1=1"' % table)
         L.append("            params: List[Any] = []")
-        for frag, expr in filter_where:
-            L.append("            if %s is not None:" % expr)
+        for frag, expr, bound in filter_where:
+            guard = (
+                "if %s is not None:" % expr if bound else "if %s:" % expr
+            )
+            L.append("            " + guard)
             L.append("                query += %r" % frag)
-            L.append("                params.append(%s)" % expr)
+            if bound:
+                L.append("                params.append(%s)" % expr)
         L.append("            rows = conn.execute(query + \" ORDER BY id\", params).fetchall()")
         L.append("            return [%s(**dict(r)) for r in rows]" % model)
     else:
@@ -2084,14 +3238,102 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         return deterministic
     # Same contract as services: the LLM fills only the remaining stubs, and
     # the result is accepted only if every designed custom method survived.
-    filled = _llm_fill("repository", "", deterministic, prompt_text, verbose=verbose)
-    if not filled:
-        return deterministic
-    if not _repo_fill_ok(filled, design):
+    # Unlike services, repos speak raw SQL, so the fill is given a DESIGNED
+    # SQLite-schema context hint, and on schema-gate rejection it gets ONE
+    # corrective retry that feeds the specific violations back.
+    schema_ctx = _repo_schema_from_entities(entities_by_class)
+    # Designed model fields, for the model-construction contract gate in
+    # _merge_repo_fill (fills must construct models with ONLY these kwargs).
+    model_fields = {
+        cls: {
+            f.get("name") for f in (e.get("fields") or []) if isinstance(f, dict)
+        }
+        for cls, e in entities_by_class.items()
+    }
+    # This repository's OWN table (single-entity contract): fills may read
+    # ONLY this table — no JOINs, no cross-table SELECTs.
+    own_ent = entities_by_class.get(_camel(ent_snake)) or next(
+        iter(entities_by_class.values()), {}
+    )
+    own_table = _entity_table_name(own_ent)
+    stub_names = [m["name"] for m in stub_methods]
+
+    def _hint(extra=""):
+        return _repo_sql_context_hint(schema_ctx, stub_names) + extra
+
+    # Mini-skeleton, same contract as services: header + ONLY the stub
+    # methods travel to the LLM. Deterministic CRUD bodies never enter the
+    # prompt, so they cannot be degraded, and the decode shrinks ~3x —
+    # re-emitting a whole repo file drove degenerate repetition loops on
+    # large repositories (6250+ token decodes for a ~1900-token file).
+    head = deterministic.split("    def create(")[0]
+    mini = (
+        head.rstrip()
+        + "\n\n"
+        + "\n\n".join(_method_stub_code(m, 1) for m in stub_methods)
+        + "\n"
+    )
+
+    merged = None
+    rejected = []
+    instruction = _hint()
+    for attempt in range(3):
+        filled = _llm_fill(
+            "repository", instruction, mini, prompt_text,
+            verbose=verbose,
+        )
+        if not filled:
+            break
+        merged, rejected, violations = _merge_repo_fill(
+            deterministic, filled, stub_names, schema_ctx,
+            model_fields=model_fields, own_table=own_table,
+        )
+        if merged is not None and not rejected:
+            return merged
+        if merged is not None and rejected:
+            instruction = _hint(
+                "\\n\\nYour previous fill was REJECTED because these methods "
+                "referenced columns/tables outside the DESIGNED schema:\\n"
+                + "\\n".join(
+                    "  - %s: %s" % (name, "; ".join(vs))
+                    for name, vs in sorted(violations.items())
+                )
+                + "\\n\\nEmit ONLY these methods (%s), each complete with its "
+                "body, using ONLY the tables/columns listed above."
+                % ", ".join(stub_names)
+            )
+            if any("not on the" in v for vs in violations.values() for v in vs):
+                instruction += (
+                    "\\n\\nEXAMPLE FIX  every method body must be exactly:\\n"
+                    "with self.db.connect() as conn:\\n"
+                    "    rows = conn.execute('SELECT * FROM %s WHERE <column> = ?', (value,)).fetchall()\\n"
+                    "    return [%s(**dict(r)) for r in rows]"
+                    % (own_table, _camel(ent_snake))
+                )
+            continue
+        break
+    if merged is None:
         if verbose:
-            print("    [fill] repository: rejected (signature mismatch)")
+            print(
+                "    [fill] repository: rejected (missing methods or uncompilable)"
+            )
         return deterministic
-    return filled
+    if rejected and verbose:
+        print(
+            "    [fill] repository: kept %d/%d customs; reverted %s (SQL "
+            "outside designed schema)"
+            % (
+                len(stub_names) - len(rejected),
+                len(stub_names),
+                ", ".join(rejected),
+            )
+        )
+        for name in rejected:
+            print(
+                "        - %s: %s"
+                % (name, "; ".join(violations.get(name, [])))
+            )
+    return merged
 
 
 def _sanitize_type_hint(t):
@@ -2197,23 +3439,42 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False):
         },
         {"role": "user", "content": user},
     ]
+    # Sanity bound on a legit fill output: repo fills re-emit the whole file
+    # (~skeleton size); service fills re-emit the full service (~4x the mini
+    # skeleton). 2x with a 10k floor leaves headroom for real files while
+    # catching degenerate repetition loops that otherwise decode to
+    # max_tokens (observed: 6250+ tokens for a ~1900-token repo fill).
+    max_output_chars = max(len(skeleton) * 2, 10000)
     for attempt in range(2):
-        raw = _chat_completion(messages, max_tokens=LLM_MAX_TOKENS_LONG)
-        body = _extract_code_block(raw)
+        try:
+            raw = _chat_completion(
+                messages, max_tokens=LLM_MAX_TOKENS_LONG,
+                stream=True, max_output_chars=max_output_chars,
+            )
+        except _StreamLimitExceeded:
+            if verbose:
+                print("    [fill] %s: output runaway — stream aborted (attempt %d)"
+                      % (path, attempt + 1))
+            raw = None
+        body = _extract_code_block(raw) if raw else None
         if body and _compiles(body):
             return body + "\n"
-        if verbose:
+        if verbose and raw is not None:
             print("    [fill] %s: output rejected (attempt %d)" % (path, attempt + 1))
-        messages = messages + [
-            {"role": "assistant", "content": raw},
+        # No-accumulate retry: rebuild the conversation fresh so the prompt
+        # never grows with the model's own (large) previous output — retry
+        # prompts used to balloon to ~6k tokens and blow past the call
+        # timeout. Only a short correction note is added.
+        messages = [
+            messages[0],
             {
                 "role": "user",
-                "content": (
-                    "The previous output did not compile or kept the structure. "
-                    "Re-emit the COMPLETE corrected file in a single "
-                    "```python ... ``` block, keeping every class name, method "
-                    "signature and import line exactly as in the skeleton."
-                ),
+                "content": user
+                + "\n\nYour previous output was rejected because it did not "
+                "compile or preserve the locked structure. Re-emit the COMPLETE "
+                "corrected file in a single ```python ... ``` block, keeping "
+                "every class name, method signature and import line exactly as "
+                "in the skeleton.",
             },
         ]
     return None
@@ -2671,6 +3932,11 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
                 return None
             for af in sorted(auto_now - covered):
                 kwargs.append("%s=datetime.datetime.now().isoformat()" % af)
+            # Constants baked by bounded CLI propagation (bool is_* fields
+            # whose default the spec itself declares).
+            for dk, dv in (m.get("defaults") or {}).items():
+                if dk in fields:
+                    kwargs.append("%s=%r" % (dk, dv))
             lines = []
             # Generic FK validation: for any designed param that is a
             # foreign-key column of this entity (<x>_id), when the referenced
@@ -2705,6 +3971,49 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
             idp = param_names[0] if param_names else "id"
             return ["        return self.%s_repo.get_by_id(%s)" % (var, idp)]
         if name == "update_%s" % var:
+            # Pair-keyed update (the leading two params form the entity's
+            # declared unique_together pair, e.g. update_budget(
+            # category_id, month, amount)): resolve the row through the
+            # repo's deterministic get_by_<a>_and_<b> getter, then
+            # delegate to the id-based repo.update with None-dropped
+            # field values. Generic `data`-style and id-based signatures
+            # fall through to the existing branches below.
+            upair = next(
+                (
+                    [str(x) for x in p]
+                    for p in (ent.get("unique_together") or [])
+                    if isinstance(p, list) and len(p) == 2
+                ),
+                None,
+            )
+            if (
+                upair is not None
+                and len(param_names) >= 3
+                and {param_names[0], param_names[1]} == set(upair)
+            ):
+                a_fn = upair[0][:-3] if upair[0].endswith("_id") else upair[0]
+                b_fn = upair[1][:-3] if upair[1].endswith("_id") else upair[1]
+                rest = [p for p in param_names[2:] if p in fields]
+                lines = [
+                    "        row = self.%s_repo.get_by_%s_and_%s(%s)"
+                    % (var, a_fn, b_fn, ", ".join(upair)),
+                    "        if row is None:",
+                    "            return False",
+                ]
+                if rest:
+                    mapping = ", ".join(
+                        "'%s': %s" % (p, p) for p in rest
+                    )
+                    lines.append(
+                        "        data = {k: v for k, v in {%s}.items() if v is not None}"
+                        % mapping
+                    )
+                    lines.append(
+                        "        return self.%s_repo.update(row.id, data)" % var
+                    )
+                else:
+                    lines.append("        return False")
+                return lines
             idp = param_names[0] if param_names else "id"
             if "data" in param_names:
                 return ["        self.%s_repo.update(%s, data)" % (var, idp)]
@@ -2719,6 +4028,24 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
                 "        return self.%s_repo.update(%s, data)" % (var, idp),
             ]
         if name == "delete_%s" % var:
+            # Unique-pair delete (declared unique_together covering ALL
+            # method params) delegates to the deterministic repo pair
+            # delete; otherwise fall back to the id-based delete.
+            if len(param_names) == 2:
+                pair = next(
+                    (
+                        [str(x) for x in p]
+                        for p in (ent.get("unique_together") or [])
+                        if isinstance(p, list) and len(p) == 2
+                        and {str(x) for x in p} == set(param_names)
+                    ),
+                    None,
+                )
+                if pair is not None:
+                    return [
+                        "        return self.%s_repo.delete(%s)"
+                        % (var, ", ".join(pair))
+                    ]
             idp = param_names[0] if param_names else "id"
             return ["        return self.%s_repo.delete(%s)" % (var, idp)]
     return None
@@ -2808,6 +4135,49 @@ def _apply_filter_floors(entities_by_class, designs):
             declared.update((pa, pb))
         ent["list_filters"] = lf
 
+    # Flag filters from bounded CLI propagation: a synthesized
+    # list_<entity>(<flag>: bool) carries flag_filters mapping each bool
+    # param onto a constant predicate over ONE real column. Adopt them into
+    # the owning entity's declared filters so repo.list() serves them and
+    # the generic delegation tier passes them through.
+    for path, kind, data in designs:
+        if kind != "services" or not isinstance(data, dict):
+            continue
+        for m in data.get("methods") or []:
+            ff = m.get("flag_filters") if isinstance(m, dict) else None
+            if not isinstance(ff, dict) or not ff:
+                continue
+            mname = m.get("name") or ""
+            if not mname.startswith("list_"):
+                continue
+            ent_snake = mname[len("list_"):]
+            ent = next(
+                (
+                    e for e in entities_by_class.values()
+                    if _snake(e.get("name") or "") == ent_snake
+                ),
+                None,
+            )
+            if ent is None:
+                continue
+            cols = {
+                f.get("name")
+                for f in (ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            lf = ent.setdefault("list_filters", [])
+            declared = {
+                s.get("param") for s in lf if isinstance(s, dict)
+            }
+            for pname, spec in sorted(ff.items()):
+                if not isinstance(spec, dict) or pname in declared:
+                    continue
+                col, op = spec.get("column"), spec.get("op")
+                if col not in cols or op not in ("eq_true", "gt_zero"):
+                    continue
+                lf.append({"param": pname, "column": col, "op": op})
+                declared.add(pname)
+
 
 def _apply_impl_floors(entities_by_class, designs):
     """Deterministic floor for declarative service impls, derived ONLY from
@@ -2822,12 +4192,24 @@ def _apply_impl_floors(entities_by_class, designs):
       candidate entity's declared list_filters.
 
     Only fills gaps: methods already carrying a valid impl are untouched.
+
+    CRUD-shaped methods (add_/create_/update_/delete_/list_/get_/<entity>)
+    are NEVER stamped here: they render deterministically through generic
+    CRUD delegation, and stamping an aggregate impl over a create signature
+    silently turns add_category into "sum of filtered rows" (observed on
+    inventory after propagation synthesized add_category).
     """
     for path, kind, data in designs:
         if kind != "services" or not isinstance(data, dict):
             continue
         for m in data.get("methods") or []:
             if not isinstance(m, dict) or m.get("impl") is not None:
+                continue
+            mname = m.get("name") or ""
+            if re.match(
+                r"^(add|create|update|delete|remove|set|list|get|search|find)_",
+                mname,
+            ):
                 continue
             returns = m.get("returns") or ""
             low_ret = returns.lower()
@@ -3054,6 +4436,32 @@ def _service_type_context(entities_by_class, designs):
     return {"entity_fields": entity_fields, "repo_returns": repo_returns}
 
 
+def _repo_return_strings(entities_by_class, designs):
+    """{(repo_attr, method): raw designed returns annotation}.
+
+    Example: ('expense_repo', 'get_category_spending_range') -> 'int'.
+    Feeds the service-fill hint and non-dict-access violation notes so the
+    LLM knows the EXACT return type even when no shape gate applies
+    (scalar annotations like int carry no ('dict',)-style tag).
+    """
+    returns = {}
+    repo_designs = {}
+    for path, kind, data in designs or []:
+        if kind == "repositories" and isinstance(data, dict):
+            repo_designs[Path(path).stem] = data
+    for ent in entities_by_class.values():
+        attr = _snake(ent["name"]) + "_repo"
+        rdes = repo_designs.get(_snake(ent["name"]) + "_repository")
+        if not rdes:
+            continue
+        for m in rdes.get("methods") or []:
+            if isinstance(m, dict) and m.get("name"):
+                ret = (m.get("returns") or "").strip()
+                if ret:
+                    returns[(attr, m["name"])] = ret
+    return returns
+
+
 def _semantic_fill_violations(tree, type_ctx):
     """Semantic checks over an LLM service fill using DESIGNED types only:
 
@@ -3115,7 +4523,13 @@ def _semantic_fill_violations(tree, type_ctx):
             hit = _repo_call_key_tag(node.iter)
             if hit:
                 _, tag = hit
-                if tag[0] == "list" and isinstance(node.target, ast.Name):
+                # Scalar-returning repo methods carry no shape tag (None):
+                # only a designed List[Entity] iterates as entities.
+                if (
+                    tag
+                    and tag[0] == "list"
+                    and isinstance(node.target, ast.Name)
+                ):
                     var_types[node.target.id] = ("entity", tag[1])
 
     # pass 2: constructor kwargs + attribute accesses
@@ -3245,6 +4659,14 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
     except SyntaxError:
         return ["output does not compile"]
     violations = []
+
+    def _ret_note(attr, meth):
+        """'(it returns X)' suffix from the DESIGNED repo annotation."""
+        raw = ((type_ctx or {}).get("repo_returns_raw") or {}).get(
+            (attr, meth)
+        )
+        return (" (it returns %s)" % raw) if raw else ""
+
     defined = {
         n.name for n in ast.walk(tree)
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -3332,6 +4754,108 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
                     "the entity instance first"
                     % (value.attr, ast.unparse(bad[0])[:60])
                 )
+    # Return-type contract: dict-style accessors (.get/.keys/.items/.values)
+    # may only be applied to results of repo methods DECLARED to return
+    # dicts (type_ctx["dict_keys"]). Calling .get() on an int/bool/List
+    # result is a guaranteed AttributeError at runtime (observed twice on
+    # get_category_spending -> int-returning repo aggregate).
+    if type_ctx:
+        dict_returns = set(type_ctx.get("dict_keys") or {})
+        ACCESSORS = ("get", "keys", "items", "values")
+
+        def _repo_call_key(expr):
+            """(repo_attr, method) when expr is self.<repo>.<method>(...)"""
+            if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute):
+                f = expr.func
+                if (
+                    isinstance(f.value, ast.Attribute)
+                    and isinstance(f.value.value, ast.Name)
+                    and f.value.value.id == "self"
+                ):
+                    return (f.value.attr, f.attr)
+            return None
+
+        # (a) direct chaining: self.<repo>.meth(...)['key'] / .get('key') /
+        # .keys() etc. String-keyed access on a non-dict result is a
+        # guaranteed TypeError; list indexing (ints) stays allowed.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                acc = node.func.attr
+                if acc not in ACCESSORS:
+                    continue
+                key = _repo_call_key(node.func.value)
+                if not key or key in dict_returns:
+                    continue
+                if acc in ("keys", "items", "values") or (
+                    acc == "get"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    violations.append(
+                        "self.%s.%s(...) does not return a dict — do not "
+                        "use .%s() on its result" % (key[0], key[1], acc)
+                        + _ret_note(key[0], key[1])
+                    )
+            elif isinstance(node, ast.Subscript):
+                key = _repo_call_key(node.value)
+                sl = node.slice
+                sval = sl.value if isinstance(sl, ast.Constant) else (
+                    getattr(sl.value, "value", None)
+                    if isinstance(sl, ast.Index) else None
+                )
+                if (
+                    key
+                    and key not in dict_returns
+                    and isinstance(sval, str)
+                ):
+                    violations.append(
+                        "self.%s.%s(...) does not return a dict — do not "
+                        "index it with '%s'" % (key[0], key[1], sval)
+                        + _ret_note(key[0], key[1])
+                    )
+
+        # (b) assignment then access: x = <repo call>; x['key'] / x.get('key')
+        repo_assigns = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                k = _repo_call_key(node.value)
+                if k:
+                    for t in node.targets:
+                        if isinstance(t, ast.Name):
+                            repo_assigns[t.id] = k
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                acc = node.func.attr
+                if acc not in ACCESSORS or not isinstance(node.func.value, ast.Name):
+                    continue
+                k = repo_assigns.get(node.func.value.id)
+                if not k or k in dict_returns:
+                    continue
+                if acc in ("keys", "items", "values") or (
+                    acc == "get"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    violations.append(
+                        "%s (self.%s.%s) does not return a dict — do not "
+                        "use .%s() on it" % (node.func.value.id, k[0], k[1], acc)
+                        + _ret_note(k[0], k[1])
+                    )
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+                sl = node.slice
+                sval = sl.value if isinstance(sl, ast.Constant) else (
+                    getattr(sl.value, "value", None)
+                    if isinstance(sl, ast.Index) else None
+                )
+                k = repo_assigns.get(node.value.id)
+                if k and k not in dict_returns and isinstance(sval, str):
+                    violations.append(
+                        "%s (self.%s.%s) does not return a dict — do not "
+                        "index it with '%s'" % (node.value.id, k[0], k[1], sval)
+                        + _ret_note(k[0], k[1])
+                    )
     if type_ctx:
         violations.extend(_semantic_fill_violations(tree, type_ctx))
     return violations
@@ -3487,6 +5011,278 @@ def _repo_dict_keys(repo_sources, entities_by_class, designs):
     return out
 
 
+def _target_names(t):
+    """All identifier names bound by an assignment target."""
+    if isinstance(t, ast.Name):
+        return {t.id}
+    if isinstance(t, (ast.Tuple, ast.List)):
+        out = set()
+        for elt in t.elts:
+            out |= _target_names(elt)
+        return out
+    if isinstance(t, ast.Starred):
+        return _target_names(t.value)
+    return set()
+
+
+def _module_defined_names(source):
+    """Module-level names DEFINED or IMPORTED in `source` — the visible
+    namespace a spliced fill body may legally reference."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    names = set()
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                names |= _target_names(t)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            names |= _target_names(node.target)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                names.add(a.asname or a.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                names.add(a.asname or a.name)
+    return names
+
+
+def _fn_defined_names(fn):
+    """Names bound inside one function: params, assignments, loop/comprehension
+    targets, nested defs/classes, except-handlers, walrus."""
+    names = {a.arg for a in fn.args.args + fn.args.kwonlyargs
+             + fn.args.posonlyargs}
+    if fn.args.vararg:
+        names.add(fn.args.vararg.arg)
+    if fn.args.kwarg:
+        names.add(fn.args.kwarg.arg)
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                names |= _target_names(t)
+        elif isinstance(node, ast.AnnAssign):
+            names |= _target_names(node.target)
+        elif isinstance(node, ast.For):
+            names |= _target_names(node.target)
+        elif isinstance(node, ast.comprehension):
+            names |= _target_names(node.target)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                               ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.With):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    names |= _target_names(item.optional_vars)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.NamedExpr):
+            names |= _target_names(node.target)
+    return names
+
+
+_PY_BUILTINS = set(dir(builtins)) | {"self", "cls"}
+
+
+def _fn_undefined_names(fn, module_names):
+    """Names LOADED anywhere in `fn` that resolve to nothing visible:
+    not module-level defined/imported, not locally bound, not builtins.
+    Catches the classic landmine of fills referencing sibling model classes
+    (`Loan(**dict(r))`) without importing them — a guaranteed NameError at
+    runtime. Returns sorted list of offending names."""
+    visible = _fn_defined_names(fn) | module_names | _PY_BUILTINS
+    undefined = {
+        n.id for n in ast.walk(fn)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+        and n.id not in visible
+    }
+    return sorted(undefined)
+
+
+def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
+                     model_fields=None, own_table=None):
+    """Per-method splice of an LLM repository fill into the deterministic
+    file: a method body is kept ONLY when its SQL stays inside the DESIGNED
+    schema AND every name it references resolves (module imports/defs,
+    locals, builtins); offending methods revert to their locked stubs
+    instead of dragging valid siblings down with them (a single hallucinated
+    relation used to cost the whole file). Returns (merged_text,
+    rejected_names, violations_by_name), or (None, [], {}) when the fill
+    misses methods or does not compile."""
+    try:
+        ftree = ast.parse(filled)
+        dtree = ast.parse(deterministic)
+    except SyntaxError:
+        return None, [], {}
+    needed = set(stub_names)
+    found = {}
+    for node in ast.walk(ftree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in needed
+        ):
+            found[node.name] = node
+    if set(found) != needed:
+        return None, [], {}
+    module_names = _module_defined_names(deterministic)
+    rejected = {}
+    # Inter-file surface of the shared Database object (rendered
+    # deterministically by _generate_database_file): instance attrs/methods
+    # a repository fill may legitimately touch.
+    db_surface = {"connect", "db_path"}
+    # Money convention: *_cents columns are integer cents; dividing by 100
+    # silently converts aggregates to dollars (observed on inventory stock
+    # value) and breaks every cents-expecting consumer.
+    cents_div_re = re.compile(
+        r"\b([A-Za-z_][A-Za-z0-9_]*_cents)\s*/\s*100(?:\.0+)?\b"
+    )
+    # Intra-file self-method gate: fills may not CALL self.<missing>() —
+    # helpers must already exist in the deterministic file (observed:
+    # LoanRepository.find_overdue_loans calling self.get_current_date(),
+    # which never existed and crashed at runtime).
+    own_methods = {
+        n.name for n in ast.walk(dtree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name, fn in found.items():
+        violations = _repo_fill_schema_violations(ast.unparse(fn), schema_ctx)
+        undef = _fn_undefined_names(fn, module_names)
+        if undef:
+            violations.append(
+                "references undefined name%s %s"
+                % ("s" if len(undef) > 1 else "", ", ".join(undef))
+            )
+        # Inter-file attribute gate: self.db.<attr> must exist on the
+        # rendered Database class. Bare-name checks cannot see attribute
+        # access, so 'self.db.connection' used to validate clean and crash
+        # at runtime (AttributeError) — the exact intra-vs-inter-file gap.
+        db_attrs = {
+            n.attr
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Attribute)
+            and n.value.attr == "db"
+            and isinstance(n.value.value, ast.Name)
+            and n.value.value.id == "self"
+        }
+        bad_db = sorted(db_attrs - db_surface)
+        if bad_db:
+            violations.append(
+                "self.db.%s does not exist on Database — open connections "
+                "with 'with self.db.connect() as conn:'"
+                % ", ".join(bad_db)
+            )
+        divs = sorted(set(cents_div_re.findall(ast.unparse(fn))))
+        if divs:
+            violations.append(
+                "divides monetary column(s) %s by 100 — money is stored as "
+                "integer cents; aggregate in cents" % ", ".join(divs)
+            )
+        called_self = {
+            n.func.attr
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "self"
+        }
+        bad_self = sorted(called_self - own_methods)
+        if bad_self:
+            violations.append(
+                "calls self.%s() which does not exist on this repository — "
+                "never invent helper methods" % ", ".join(bad_self)
+            )
+        # Model-construction contract: Model(**kwargs) may only use the
+        # DESIGNED fields of that model. Extra kwargs (author_name,
+        # book_title, ...) are guaranteed runtime TypeErrors and usually
+        # come from JOINing sibling tables for display columns — which also
+        # silently drops rows with NULL FKs (INNER JOIN). Reject so the
+        # corrective retry re-emits a plain SELECT * of the row.
+        if model_fields:
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in model_fields
+                ):
+                    kwargs = {kw.arg for kw in node.keywords if kw.arg}
+                    extra = sorted(kwargs - model_fields[node.func.id])
+                    if extra:
+                        violations.append(
+                            "%s(...) got unknown keyword(s) %s — construct "
+                            "%s with ONLY its designed fields"
+                            % (node.func.id, ", ".join(extra), node.func.id)
+                        )
+        # Non-model-column gate: the JOIN-for-display-fields bug is
+        # 'SELECT b.*, a.name AS author_name' then Model(**dict(row)) — a
+        # guaranteed TypeError (unknown kwarg) plus silent row-dropping via
+        # INNER JOIN NULL-FK semantics. Fires ONLY when a designed model is
+        # CONSTRUCTED and its SQL selects an alias that is not one of that
+        # model's fields; legitimate cross-table reads (find_X_by_Y,
+        # aggregates returning dicts/scalars) pass untouched.
+        if model_fields:
+            sql_strs = [
+                n.value for n in ast.walk(fn)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            ]
+            for node in ast.walk(fn):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in model_fields
+                ):
+                    continue
+                cls = node.func.id
+                bad_cols = set()
+                for s in sql_strs:
+                    low = s.lower()
+                    for m in re.finditer(r"\bas\s+([a-z_][a-z0-9_]*)", low):
+                        alias = m.group(1)
+                        if alias not in model_fields[cls]:
+                            bad_cols.add(alias)
+                if bad_cols:
+                    violations.append(
+                        "%s(...) constructed with SQL column(s) not on the "
+                        "%s model (%s) — select ONLY its designed fields; "
+                        "never JOIN other tables to fetch display columns"
+                        % (cls, cls, ", ".join(sorted(bad_cols)))
+                    )
+        if violations:
+            rejected[name] = violations
+    repls = []
+    for node in ast.walk(dtree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in needed
+            and node.name not in rejected
+        ):
+            new_src = ast.unparse(found[node.name])
+            repls.append(
+                (
+                    node.lineno,
+                    node.end_lineno,
+                    _indent_block(new_src, node.col_offset),
+                )
+            )
+    if len(repls) != len(needed) - len(rejected):
+        return None, sorted(rejected), rejected
+    merged = _splice_functions(deterministic, repls)
+    try:
+        mtree = ast.parse(merged)
+    except SyntaxError:
+        return None, sorted(rejected), rejected
+    defined = {
+        n.name for n in ast.walk(mtree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if not needed.issubset(defined):
+        return None, sorted(rejected), rejected
+    return merged, sorted(rejected), rejected
+
+
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                          prompt_text, exception_names=None, verbose=False,
                          repo_sources=None):
@@ -3544,6 +5340,9 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         type_ctx["dict_keys"] = _repo_dict_keys(
             repo_sources, entities_by_class, designs
         )
+    type_ctx["repo_returns_raw"] = _repo_return_strings(
+        entities_by_class, designs
+    )
     hint_parts = [
         "AVAILABLE REPOSITORY METHODS — you may call ONLY these on self.*_repo "
         "(never invent repository methods). Signatures are EXACT:"
@@ -3560,7 +5359,18 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                     pname = e[0] if isinstance(e, tuple) else e
                     req = e[1] if isinstance(e, tuple) else True
                     parts.append(pname if req else "%s=None" % pname)
-                sigs.append("%s(%s)" % (meth, ", ".join(parts)))
+                ret = (type_ctx.get("repo_returns_raw") or {}).get(
+                    (attr, meth)
+                )
+                if ret == "dict":
+                    # Exact key names are listed under DICT RETURN KEYS.
+                    sigs.append("%s(%s) -> dict" % (meth, ", ".join(parts)))
+                elif ret:
+                    sigs.append(
+                        "%s(%s) -> %s" % (meth, ", ".join(parts), ret)
+                    )
+                else:
+                    sigs.append("%s(%s)" % (meth, ", ".join(parts)))
             hint_parts.append(
                 "  self.%s: %s" % (attr, "; ".join(sorted(sigs)))
             )
@@ -3587,9 +5397,14 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     ]
     if dict_key_lines:
         fill_hint += (
-            "\n\nDICT RETURN KEYS — when a call below returns a dict, index "
-            "it ONLY with these keys:\n" + "\n".join(dict_key_lines)
+            "\\n\\nDICT RETURN KEYS  when a call below returns a dict, index "
+            "it ONLY with these keys:\\n" + "\\n".join(dict_key_lines)
         )
+    fill_hint += (
+        "\\n\\nCREATE CONTRACT  self.<entity>_repo.create() takes an ENTITY "
+        "INSTANCE, never a plain dict: build one with EntityClass(**data) "
+        "and pass that object."
+    )
 
     # Mini-skeleton: header + ONLY the stub methods. The model never sees the
     # deterministic bodies, so it cannot rewrite/degrade them; its output is
@@ -3614,38 +5429,88 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             return None
         return _merge_stub_bodies(deterministic, candidate, stub_names)
 
-    filled = _llm_fill("service", fill_hint, mini, prompt_text, verbose=verbose)
-    merged = _accept(filled)
-    if merged is not None:
-        return merged
-    if filled and verbose:
-        print(
-            "    [fill] service: rejected (%s)"
-            % "; ".join(
+    instruction = fill_hint
+    for attempt in range(4):
+        filled = _llm_fill(
+            "service", instruction, mini, prompt_text, verbose=verbose
+        )
+        merged = _accept(filled)
+        if merged is not None:
+            return merged
+        violations = (
+            _service_fill_violations(
+                filled, repo_interface, stub_design, type_ctx
+            )
+            if filled else ["empty output"]
+        )
+        if filled and verbose:
+            print(
+                "    [fill] service: rejected (attempt %d: %s)"
+                % (attempt + 1, "; ".join(violations[:4]))
+            )
+        instruction = (
+            fill_hint
+            + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
+            + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
+            + "\n".join("  - " + v for v in violations[:8])
+        )
+    # Batch fill exhausted its retries. Salvage per-method: one stubborn
+    # body must not revert every other stub, so fill each stub alone and
+    # merge whichever bodies pass their own contract check.
+    salvaged = deterministic
+    reverted = []
+    for m in stubs:
+        name = m.get("name")
+        one_design = {"methods": [m]}
+        one_mini = (
+            "\n".join(
+                _service_header_lines(
+                    svc_class, entities, entities_by_class, exception_names
+                )
+                + [_method_stub_code(m, 1)]
+            ).rstrip()
+            + "\n"
+        )
+        one_instr = fill_hint
+        ok = False
+        for attempt in range(2):
+            cand = _llm_fill(
+                "service", one_instr, one_mini, prompt_text, verbose=verbose
+            )
+            viol = (
                 _service_fill_violations(
-                    filled, repo_interface, stub_design, type_ctx
-                )[:3]
+                    cand, repo_interface, one_design, type_ctx
+                )
+                if cand else ["empty output"]
+            )
+            if not viol:
+                salvaged = _merge_stub_bodies(salvaged, cand, [name])
+                ok = True
+                break
+            if verbose:
+                print(
+                    "    [fill] service.%s: rejected (attempt %d: %s)"
+                    % (name, attempt + 1, "; ".join(viol[:3]))
+                )
+            one_instr = (
+                fill_hint
+                + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
+                + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
+                + "\n".join("  - " + v for v in viol[:6])
+            )
+        if not ok:
+            reverted.append(name)
+    if verbose and len(reverted) < len(stub_names):
+        print(
+            "    [fill] service: salvaged %d/%d stubs per-method; still "
+            "stubbed: %s"
+            % (
+                len(stub_names) - len(reverted),
+                len(stub_names),
+                ", ".join(sorted(reverted)) or "(none)",
             )
         )
-    # One corrective retry: show the model EXACTLY which calls violated
-    # the repository contract so it fixes those without touching anything.
-    violations = (
-        _service_fill_violations(filled, repo_interface, stub_design, type_ctx)
-        if filled else ["empty output"]
-    )
-    corrective = (
-        fill_hint
-        + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
-        + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
-        + "\n".join("  - " + v for v in violations[:8])
-    )
-    refilled = _llm_fill(
-        "service", corrective, mini, prompt_text, verbose=verbose
-    )
-    merged = _accept(refilled)
-    if merged is not None:
-        return merged
-    return deterministic
+    return salvaged
 
 
 def _render_cli_file(design, svc_class, entities_by_class, service_methods,
@@ -3970,6 +5835,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     cli_failed = False
     for cp in cli_paths:
         data = _design_cli(prompt_text, _fmt_design_context(designs), service_methods, verbose)
+        if data is None:
+            print("    [design] %s: FAILED (will generate via per-file path)" % cp, file=sys.stderr)
+            cli_failed = True
+            continue
+        # Reconcile wiring conflicts: bounded back-propagation into the
+        # designs first (spec-token gated FK completion + CRUD/history
+        # synthesis), deterministic sanitization as the backstop.
+        data, service_methods = _reconcile_cli_design(
+            data, prompt_text, entities_by_class, designs, verbose
+        )
         if data is None:
             print("    [design] %s: FAILED (will generate via per-file path)" % cp, file=sys.stderr)
             cli_failed = True
@@ -4345,6 +6220,8 @@ def main():
             if process_prompt(name, path, verbose=verbose):
                 succeeded += 1
         except Exception as exc:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             print("  FAILED: %s" % exc, file=sys.stderr)
             failed += 1
 

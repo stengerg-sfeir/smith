@@ -13,7 +13,7 @@ def cli():
 @click.option('--name', required=True)
 @click.option('--category', type=int, required=True)
 @click.option('--price', type=int, required=True)
-@click.option('--stock', type=int)
+@click.option('--stock', type=int, required=True)
 def product_add(sku, name, category, price, stock):
     """product/add"""
     svc = InventoryService(Database(DB_PATH))
@@ -52,17 +52,15 @@ def product_restock(id, qty):
     svc = InventoryService(Database(DB_PATH))
     result = svc.restock(id=id, qty=qty)
 
-@cli.command('product-report')
-@click.option('--low-stock', is_flag=True, default=False)
-def product_report(low_stock):
-    """product/report"""
+@cli.command('report-low_stock')
+def report_low_stock():
+    """product/report/low_stock"""
     svc = InventoryService(Database(DB_PATH))
     result = svc.low_stock_report()
 
-@cli.command('product-report-2')
-@click.option('--value', is_flag=True, default=False)
-def product_report_2(value):
-    """product/report"""
+@cli.command('report-value')
+def report_value():
+    """product/report/value"""
     svc = InventoryService(Database(DB_PATH))
     result = svc.stock_value_by_category()
 
@@ -73,13 +71,13 @@ def product_report_2(value):
 def category_add(name, description, threshold):
     """category/add"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.add_product(name=name)
+    result = svc.add_category(name=name, description=description, reorder_threshold=threshold)
 
 @cli.command('category-list')
 def category_list():
     """category/list"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.list_products()
+    result = svc.list_category()
 
 @cli.command('category-update')
 @click.option('--id', type=int, required=True)
@@ -89,14 +87,14 @@ def category_list():
 def category_update(id, name, description, threshold):
     """category/update"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.update_product(id=id, data={'name': name, 'description': description, 'reorder_threshold': threshold})
+    result = svc.update_category(id=id, name=name, description=description, reorder_threshold=threshold)
 
 @cli.command('category-delete')
 @click.option('--id', type=int, required=True)
 def category_delete(id):
     """category/delete"""
     svc = InventoryService(Database(DB_PATH))
-    result = svc.delete_product(id=id)
+    result = svc.delete_category(id=id)
 
 
 if __name__ == "__main__":

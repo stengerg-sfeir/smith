@@ -1,7 +1,6 @@
 """LoanRepository data access."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from database import Database
@@ -89,16 +88,15 @@ class LoanRepository:
 
     def find_active_loans(self, member_id: Optional[int] = None, book_id: Optional[int] = None) -> List[Loan]:
         return self.list(
-            status='active',
             member_id=member_id,
             book_id=book_id,
         )
 
     def find_overdue_loans(self) -> List[Loan]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM loans WHERE status = 'active' AND due_date < datetime('now') ORDER BY due_date",
-            ).fetchall()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM loans WHERE status = 'overdue' AND return_date IS NOT NULL AND due_date < return_date")
+            rows = cursor.fetchall()
             return [Loan(**dict(r)) for r in rows]
 
     def find_by_member_id(self, member_id: int) -> List[Loan]:
@@ -113,29 +111,28 @@ class LoanRepository:
 
     def get_total_active_loans(self) -> int:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM loans WHERE status = 'active'"
-            )
-            return cur.fetchone()[0]
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM loans WHERE status = 'active'")
+            result = cursor.fetchone()
+            return result[0] if result else 0
 
     def get_total_overdue_loans(self) -> int:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM loans WHERE status = 'active' AND due_date < datetime('now')"
-            )
-            return cur.fetchone()[0]
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM loans WHERE status = 'overdue'")
+            result = cursor.fetchone()
+            return result[0] if result else 0
 
     def get_loans_by_status(self, status: str) -> List[Loan]:
         return self.list(
             status=status,
         )
 
-    def get_loans_with_return_date_range(self, start_date: datetime, end_date: datetime) -> List[Loan]:
+    def get_loans_with_return_date_range(self, start_date: str, end_date: str) -> List[Loan]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM loans WHERE return_date >= ? AND return_date <= ? ORDER BY return_date",
-                (start_date, end_date)
-            ).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM loans WHERE return_date BETWEEN ? AND ?', (start_date, end_date))
+            rows = cursor.fetchall()
             return [Loan(**dict(r)) for r in rows]
 
     def get_loans_by_member_and_book(self, member_id: int, book_id: int) -> List[Loan]:
@@ -154,11 +151,10 @@ class LoanRepository:
             book_id=book_id,
         )
 
-    def get_loans_with_due_date_range(self, start_date: datetime, end_date: datetime) -> List[Loan]:
+    def get_loans_with_due_date_range(self, start_date: str, end_date: str) -> List[Loan]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM loans WHERE due_date >= ? AND due_date <= ? ORDER BY due_date",
-                (start_date, end_date)
-            ).fetchall()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM loans WHERE due_date BETWEEN ? AND ?', (start_date, end_date))
+            rows = cursor.fetchall()
             return [Loan(**dict(r)) for r in rows]
 

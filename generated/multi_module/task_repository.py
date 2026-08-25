@@ -1,7 +1,6 @@
 """TaskRepository data access."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from database import Database
@@ -94,35 +93,17 @@ class TaskRepository:
 
     def count_tasks_by_status(self, status: str) -> int:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM tasks WHERE status = ?", (status,)
-            )
-            return cur.fetchone()[0]
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM tasks WHERE status = ?', (status,))
+            result = cursor.fetchone()
+            return result[0] if result else 0
 
     def get_tasks_with_creation_stats(self) -> Dict[str, Any]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                """
-                SELECT 
-                    status,
-                    COUNT(*) as task_count,
-                    MIN(created_at) as first_created,
-                    MAX(created_at) as last_created,
-                    AVG(julianday(created_at)) as avg_created_date
-                FROM tasks 
-                GROUP BY status
-                ORDER BY status
-                """
-            )
-            result = {}
-            for row in cur.fetchall():
-                result[row[0]] = {
-                    "task_count": row[1],
-                    "first_created": row[2],
-                    "last_created": row[3],
-                    "avg_created_date": row[4]
-                }
-            return result
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM tasks')
+            rows = cursor.fetchall()
+            return [Task(**dict(r)) for r in rows]
 
     def get_tasks_in_time_range(self, start_date: datetime, end_date: datetime) -> List[Task]:
         return self.list(
@@ -132,11 +113,8 @@ class TaskRepository:
 
     def get_tasks_with_status_distribution(self) -> Dict[str, int]:
         with self.db.connect() as conn:
-            cur = conn.execute(
-                "SELECT status, COUNT(*) as count FROM tasks GROUP BY status"
-            )
-            result = {}
-            for row in cur.fetchall():
-                result[row[0]] = row[1]
-            return result
+            cursor = conn.cursor()
+            cursor.execute('SELECT status, COUNT(*) as count FROM tasks GROUP BY status')
+            rows = cursor.fetchall()
+            return {row[0]: row[1] for row in rows}
 
