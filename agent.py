@@ -1526,6 +1526,75 @@ def _feas_token_resolves(tok, own_fields, all_classes):
     return any(c.lower() in (sing, base) for c in all_classes)
 
 
+def _entity_token(tok, entities_by_class):
+    """Return the designed entity class a param-like token references, or None.
+
+    Strips common name/suffix markers (tag_name -> tag, author_id -> author)
+    and singularizes, then matches a designed entity class (class name or its
+    snake form). Used to decide whether an unresolved param is actually a
+    cross-entity discriminator the recipes/LLM should build a JOIN for, rather
+    than being an honest-empty.
+    """
+    core = tok
+    for suf in ("_id", "_name", "_contains", "_prefix", "_pattern",
+                "_substring", "_suffix", "_domain", "_min", "_max",
+                "_category", "_type", "_kind", "_label", "_title"):
+        if core.endswith(suf):
+            core = core[: -len(suf)]
+            break
+    core = core[:-1] if core.endswith("s") and len(core) > 3 else core
+    for cls in (entities_by_class or {}):
+        lower = cls.lower()
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", cls).lower()
+        if core in {lower, lower + "s", snake, snake + "s"}:
+            return cls
+    return None
+
+
+def _is_aggregate_bound(p):
+    """True for params that are aggregation boundaries (not honest-empty)."""
+    return bool(
+        re.match(r"^(min|max|threshold|limit|below|above|floor|ceiling)_", p)
+        or p.endswith(("_threshold", "_limit", "_minimum", "_maximum",
+                       "_min", "_max", "_floor", "_ceiling"))
+    )
+
+
+def _param_is_child_fk(p, owner_snake, entities_by_class):
+    """True when `p` is the owner-FK discriminator of a child entity.
+
+    owner=customer, p=customer_id -> an Order child references it -> True, so a
+    get_customer_orders_* method on the customer repo queries the CHILD and must
+    not be honest-emptied.
+    """
+    if p == owner_snake + "_id":
+        return True
+    base = p[:-3] if p.endswith("_id") else p
+    return base == owner_snake or base == owner_snake + "_id"
+
+
+def _param_is_other_entity_field(p, owner_model, entities_by_class):
+    """True when `p` is a real field of some NON-owner entity.
+
+    Such a param references another entity's data (e.g. customer_name on the
+    Order entity while the repo owns OrderItem) — a cross-entity attribute
+    that needs a JOIN, so it must not be honest-emptied.
+    """
+    for cls, ent in (entities_by_class or {}).items():
+        if cls == owner_model:
+            continue
+        fnames = {f.get("name") for f in (ent.get("fields") or [])
+                  if isinstance(f, dict) and f.get("name")}
+        if p in fnames:
+            return True
+    return False
+
+
+def _camel_to_snake(s):
+    """OrderItem -> order_item; Post -> post; Tag -> tag."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", s).lower()
+
+
 def _repo_method_feasibility_errors(m, ent_snake, entities_by_class):
     """[] when the designed repo custom method is implementable against the
     DESIGNED schema; else human-readable reasons (for the drop log)."""
@@ -3146,7 +3215,8 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         return lines
 
     is_list_model = (
-        model in ret and ("List[" in ret or "list[" in ret)
+        (model in ret and ("List[" in ret or "list[" in ret))
+        or ret_l == "list"
     )
     is_opt_model = model in ret and "Optional[" in ret
 
@@ -3576,10 +3646,11 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             ]
 
     # ---- 8.8 bounded date range (start/end pair) ----------------------------
-    if is_list_model and len(params) == 2 and (
-        re.search(r"_(?:date_)?range$", name)
-        or re.search(r"_between$", name)
-    ):
+    # Trigger on the bound parameter pair alone (start_/end_/from_/to_/min_/
+    # max_/begin_ or _start/_end suffixes) over a unique date column — no
+    # reliance on the method-name suffix, so e.g. get_sales_with_product_names
+    # still compiles to a real date-range SELECT.
+    if is_list_model and len(params) == 2:
         a, b = params
 
         def _bound(p):
@@ -3680,13 +3751,171 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             "        return True",
         ]
 
+    # ---- 8.12 cross-entity routing (child / owner-ref JOIN / m2m JOIN) ------
+    # Repo customs that operate on ANOTHER designed entity (not the owner):
+    #   child : get_customer_orders_with_pagination (customer repo) -> query
+    #           orders via orders.customer_id FK (discriminator param)
+    #   ref   : get_order_items_by_product_and_date_range (order_item repo) ->
+    #           orderitems JOIN products via orderitems.product_id FK
+    #   m2m   : get_posts_by_tag / search_posts -> posts JOIN posttags JOIN
+    #           tags via a junction PostTag(post_id, tag_id)
+    # Each emits a real deterministic SELECT. Shapes the engine cannot pin
+    # fall through to the honest-empty/LLM-fill path — never a silent [].
+    if entities_by_class and (is_list_model or "dict" in ret_l):
+        ents = entities_by_class
+        other_cls = None
+        o_snake = None
+        best = None
+        for cls2, e2 in ents.items():
+            if cls2 == model:
+                continue
+            sn2 = _camel_to_snake(cls2)
+            f2 = {f.get("name") for f in (e2.get("fields") or [])
+                  if isinstance(f, dict) and f.get("name")}
+            is_child = (ent_snake + "_id") in f2
+            is_ref = (sn2 + "_id") in fields
+            has_junction = any(
+                (ent_snake + "_id") in {
+                    f.get("name") for f in (e3.get("fields") or [])
+                    if isinstance(f, dict) and f.get("name")
+                }
+                and (sn2 + "_id") in {
+                    f.get("name") for f in (e3.get("fields") or [])
+                    if isinstance(f, dict) and f.get("name")
+                }
+                for e3 in ents.values()
+                if e3 is not e2
+            )
+            if not (is_child or is_ref or has_junction):
+                continue
+            referenced = any(
+                _entity_token(p, ents) == cls2 for p in params
+            ) or any(
+                t in (sn2, sn2 + "s", cls2.lower(), cls2.lower() + "s")
+                for t in re.split(r"_+", name)
+            )
+            if not referenced:
+                continue
+            rank = 2 if any(_entity_token(p, ents) == cls2 for p in params) else 1
+            if best is None or rank > best[0]:
+                best = (rank, cls2, sn2)
+        if best:
+            other_cls, o_snake = best[1], best[2]
+        if other_cls:
+            o_ent = ents[other_cls]
+            o_tbl = _entity_table_name(o_ent)
+            o_fields = {
+                f.get("name"): f for f in (o_ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            child_fk = ent_snake + "_id"
+            ref_fk = o_snake + "_id"
+            junction = None
+            for cls3, e3 in ents.items():
+                if cls3 in (model, other_cls):
+                    continue
+                f3 = {f.get("name") for f in (e3.get("fields") or [])
+                      if isinstance(f, dict) and f.get("name")}
+                if child_fk in f3 and ref_fk in f3:
+                    junction = (cls3, e3, _entity_table_name(e3))
+                    break
+            fk_param = next((p for p in params if p in (child_fk, ref_fk)), None)
+            name_param = next((
+                p for p in params if _entity_token(p, ents) == other_cls
+            ), None)
+
+            # ---- 8.12a child direction (owner repo -> child table) ----------
+            if child_fk in o_fields and fk_param is not None:
+                page_num = next((p for p in params if page_roles.get(p) == "num"), None)
+                page_size = next((p for p in params if page_roles.get(p) == "size"), None)
+                others = [p for p in params if p != fk_param and p not in page_roles]
+                if page_num and page_size and not others:
+                    cmodel = _camel(other_cls)
+                    lines = [
+                        "        with self.db.connect() as conn:",
+                        "            offset = (%s - 1) * %s" % (page_num, page_size),
+                        "            rows = conn.execute(",
+                        '                "SELECT * FROM %s WHERE %s = ? ORDER BY id LIMIT ? OFFSET ?",'
+                        % (o_tbl, child_fk),
+                        "                %s" % _tup([fk_param, page_size, "offset"]),
+                        "            ).fetchall()",
+                    ]
+                    if "dict" in ret_l:
+                        lines.append("            return {'items': [%s(**dict(r)) for r in rows]}" % cmodel)
+                    else:
+                        lines.append("            return [%s(**dict(r)) for r in rows]" % cmodel)
+                    return lines
+
+            # ---- 8.12b owner-ref JOIN (owner -> other via owner FK) ---------
+            if ref_fk in fields and name_param is not None:
+                starts = [p for p in params if re.match(r"^(start|from|begin|min)", p) or p.endswith("_start")]
+                ends = [p for p in params if re.match(r"^(end|to|max)", p) or p.endswith("_end")]
+                if starts and ends and date_cols:
+                    dc = date_cols[0]
+                    conds = ["o.name = ?", "r.%s >= ?" % dc, "r.%s <= ?" % dc]
+                    binds = [name_param, starts[0], ends[0]]
+                    return [
+                        "        with self.db.connect() as conn:",
+                        "            rows = conn.execute(",
+                        '                "SELECT r.* FROM %s r JOIN %s o ON r.%s = o.id WHERE %s",'
+                        % (table, o_tbl, ref_fk, " AND ".join(conds)),
+                        "                %s" % _tup(binds),
+                        "            ).fetchall()",
+                        "            return [%s(**dict(r)) for r in rows]" % model,
+                    ]
+
+            # ---- 8.12c many-to-many junction JOIN --------------------------
+            if junction is not None and name_param is not None:
+                j_cls, j_ent, j_tbl = junction
+                conds = ["o.name = ?"]
+                binds = [name_param]
+                rest = [p for p in params if p != name_param and p not in page_roles]
+                ok = True
+                for p in rest:
+                    if p in fields:
+                        conds.append("r.%s = ?" % p)
+                        binds.append(p)
+                        continue
+                    matched = False
+                    for suf in ("_contains", "_prefix", "_pattern", "_substring"):
+                        if p.endswith(suf) and p[: -len(suf)] in fields:
+                            conds.append("r.%s LIKE ?" % p[: -len(suf)])
+                            binds.append('"%%" + %s + "%%"' % p)
+                            matched = True
+                            break
+                    if matched:
+                        continue
+                    ok = False
+                    break
+                if ok:
+                    return [
+                        "        with self.db.connect() as conn:",
+                        "            rows = conn.execute(",
+                        '                "SELECT r.* FROM %s r JOIN %s j ON r.id = j.%s_id JOIN %s o ON j.%s_id = o.id WHERE %s",'
+                        % (table, j_tbl, ent_snake, o_tbl, o_snake, " AND ".join(conds)),
+                        "                %s" % _tup(binds),
+                        "            ).fetchall()",
+                        "            return [%s(**dict(r)) for r in rows]" % model,
+                    ]
+
     # ---- 8.11 unsatisfiable discriminator -> honest empty set ---------------
-    # A required param matches no designed field/entity/FK: no row can ever
-    # satisfy it, deterministically. Returning [] is the truthful result;
-    # leaving a stub would fail the build gate and an invented WHERE would
-    # reference a column the schema does not model.
+    # A required param matches no designed field/entity/FK and there is no
+    # cross-entity/aggregate resolution path: no row can ever satisfy it, so
+    # [] is the truthful result. Params that name another entity (tag_name ->
+    # Tag), are a child FK (customer_id), or are an aggregate boundary
+    # (min_total_value / threshold) are NOT honest-empty — they fall through
+    # to the LLM fill, which can build the JOIN/aggregate.
     if is_list_model and params:
         classes = set((entities_by_class or {}).keys())
+        any_cross = any(
+            _entity_token(p, entities_by_class) is not None
+            or _is_aggregate_bound(p)
+            or _param_is_child_fk(p, ent_snake, entities_by_class)
+            or _param_is_other_entity_field(p, model, entities_by_class)
+            for p in params
+        )
+        if any_cross:
+            return None  # fall through to the LLM fill
         unresolved = [
             p for p in params
             if p not in lfmap and p not in page_roles
@@ -6465,48 +6694,141 @@ def _missing_repo_calls(filled, repo_interface):
 
 
 _FINDER_NAME_RE = re.compile(
-    r"^(?:get|find)_([a-z][a-z0-9]*)_by_([a-z][a-z0-9]*)$"
+    r"^(?:get|find|list|fetch)_(.+)_by_(.+)$"
 )
 
 
+def _feas_entity_date_cols(ent):
+    return [
+        f.get("name") for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("type") in ("date", "datetime")
+    ]
+
+
 def _simple_finder_spec(attr, meth, entities_by_class):
-    """Spec for a DETERMINISTIC single-column lookup when <meth> matches
-    get_/find_<entity>_by_<column>, <attr> is that entity's repo, and
-    <column> is a real scalar field of it. None otherwise — never guesses."""
+    """Broadened DETERMINISTIC lookup spec. Matches
+    get/find/list/fetch_<entity(s)>_by_<column> (or _<col>_range) on that
+    entity's OWN repo. Returns a dict with `kind` ('single'|'list'|'range')
+    plus render/interface details, or None — never guesses."""
     match = _FINDER_NAME_RE.match(meth or "")
     if not match:
         return None
     ent_snake, col = match.group(1), match.group(2)
-    if attr != ent_snake + "_repo":
+    is_plural = ent_snake.endswith("s") and len(ent_snake) > 3
+    ent_sing = ent_snake[:-1] if is_plural else ent_snake
+    if attr != ent_sing + "_repo":
         return None
-    cls = _camel(ent_snake)
+    cls = _camel(ent_sing)
     ent = entities_by_class.get(cls) or {}
+    table = (
+        _entity_table_name(ent) if ent else _pluralize_table_name(ent_sing)
+    )
+    # ---- date-range finder: get_<entity>s_by_<date>_range ------------------
+    if col.endswith("_range"):
+        base = col[: -len("_range")]
+        dcols = _feas_entity_date_cols(ent)
+        dcol = None
+        if base in dcols:
+            dcol = base
+        elif len(dcols) == 1:
+            dcol = dcols[0]
+        if dcol is None:
+            return None
+        return {
+            "kind": "range",
+            "meth": meth,
+            "date_col": dcol,
+            "cls": cls,
+            "table": table,
+            "params": [("start_date", True), ("end_date", True)],
+            "ret": "List[%s]" % cls,
+        }
+    # ---- scalar single / plural list lookup --------------------------------
     ftypes = _feas_entity_fields(ent)
     py = ftypes.get(col) or ("int" if col == "id" else "")
     if col != "id" and py not in ("str", "int", "float", "bool"):
         return None
+    kind = "list" if is_plural else "single"
+    ret = "List[%s]" % cls if kind == "list" else "Optional[%s]" % cls
     return {
+        "kind": kind,
         "meth": meth,
         "col": col,
         "cls": cls,
-        "table": (
-            _entity_table_name(ent) if ent else _pluralize_table_name(ent_snake)
-        ),
+        "table": table,
         "py": "int" if col == "id" else py,
+        "params": [(col, True)],
+        "ret": ret,
     }
 
 
 def _render_simple_finder(spec):
-    """Deterministic Optional[Entity] single-column lookup, indented for the
-    repository class body."""
+    """Deterministic repo method body for the broadened finder spec."""
+    kind = spec.get("kind", "single")
+    if kind == "range":
+        return (
+            "    def %(meth)s(self, start_date: str, end_date: str) -> List[%(cls)s]:\n"
+            "        with self.db.connect() as conn:\n"
+            "            rows = conn.execute(\n"
+            '                "SELECT * FROM %(table)s WHERE %(date_col)s BETWEEN ? AND ?",'
+            "                (start_date, end_date)\n"
+            "            ).fetchall()\n"
+            "            return [%(cls)s(**dict(r)) for r in rows]" % spec
+        )
+    if kind == "list":
+        return (
+            "    def %(meth)s(self, %(col)s: %(py)s) -> List[%(cls)s]:\n"
+            "        with self.db.connect() as conn:\n"
+            "            rows = conn.execute(\n"
+            '                "SELECT * FROM %(table)s WHERE %(col)s = ?", (%(col)s,)\n'
+            "            ).fetchall()\n"
+            "            return [%(cls)s(**dict(r)) for r in rows]" % spec
+        )
     return (
         "    def %(meth)s(self, %(col)s: %(py)s) -> Optional[%(cls)s]:\n"
         "        with self.db.connect() as conn:\n"
         "            row = conn.execute(\n"
         '                "SELECT * FROM %(table)s WHERE %(col)s = ?", (%(col)s,)\n'
         "            ).fetchone()\n"
-        "            return %(cls)s(**dict(row)) if row else None"
-        % spec
+        "            return %(cls)s(**dict(row)) if row else None" % spec
+    )
+
+
+def _method_name_variant(a, b):
+    """True when two repo-method names differ only by a verb prefix
+    (get_/find_/list_/fetch_/count_/top_/all_) or an entity-suffix, e.g.
+    `top_products_by_total_quantity_sold` vs `get_top_products_by_total_quantity_sold`
+    or `get_all_orders` vs `get_all`."""
+    def norm(s):
+        # Strip only CRUD verb prefixes — NOT semantic prefixes like top_/
+        # latest_/all_ which are part of the method's meaning (so
+        # get_top_products_... and top_products_... normalize identically).
+        for pre in ("get_", "find_", "list_", "fetch_", "count_"):
+            if s.startswith(pre):
+                s = s[len(pre):]
+                break
+        return s
+    na, nb = norm(a), norm(b)
+    if na == nb:
+        return True
+    return na.startswith(nb + "_") or nb.startswith(na + "_")
+
+
+def _existing_variant_alias(attr, meth, repo_interface):
+    """Return an EXISTING repo method name that `meth` is a name-variant of,
+    or None. Used to synthesize a delegating alias instead of a stub."""
+    sig = repo_interface.get(attr) or {}
+    for m in sig:
+        if m != meth and _method_name_variant(m, meth):
+            return m
+    return None
+
+
+def _render_variant_alias(meth, existing):
+    """Delegating alias body: `def <meth>(...): return self.<existing>(...)`."""
+    return (
+        "    def %s(self, *args, **kwargs):\n"
+        "        return self.%s(*args, **kwargs)\n" % (meth, existing)
     )
 
 
@@ -6677,6 +6999,51 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         for attr, meth in _missing_repo_calls(filled_text, repo_interface):
             spec = _simple_finder_spec(attr, meth, entities_by_class)
             if spec is None:
+                # Name-variant alias: the fill references a method that is a
+                # verb-prefix/entity-suffix variant of an EXISTING repo method
+                # (top_products_by_total_quantity_sold -> get_top_products...).
+                # Synthesize a delegator so the retry can legally call it.
+                alias_of = _existing_variant_alias(
+                    attr, meth, repo_interface
+                )
+                if alias_of is None:
+                    continue
+                ent_stem = attr[: -len("_repo")]
+                target_path = next(
+                    (
+                        rp for rp in repo_sources
+                        if Path(rp).stem in (ent_stem + "_repository", ent_stem)
+                    ),
+                    None,
+                )
+                if target_path is None:
+                    continue
+                src = repo_sources[target_path]
+                if not re.search(
+                    r"^\s*def %s\s*\(" % re.escape(meth), src, re.MULTILINE
+                ):
+                    repo_sources[target_path] = (
+                        src.rstrip()
+                        + "\n\n\n"
+                        + _render_variant_alias(meth, alias_of)
+                        + "\n"
+                    )
+                repo_interface.setdefault(attr, {})[meth] = []
+                type_ctx.setdefault("repo_returns_raw", {})[(attr, meth)] = (
+                    (type_ctx.get("repo_returns_raw") or {}).get(
+                        (attr, alias_of), "Any"
+                    )
+                )
+                fill_hint += (
+                    "\n  self.%s.%s() -> Any" % (attr, meth)
+                )
+                synthesized_count += 1
+                repaired = True
+                if verbose:
+                    print(
+                        "    [fill] service: alias %s.%s -> %s "
+                        "(bounded inter-file repair)" % (attr, meth, alias_of)
+                    )
                 continue
             ent_stem = attr[: -len("_repo")]
             target_path = next(
@@ -6700,14 +7067,20 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                     + "\n"
                 )
             repo_interface.setdefault(attr, {})[meth] = [
-                (spec["col"], True)
+                tuple(p) if isinstance(p, tuple) else (p, True)
+                for p in spec["params"]
             ]
             type_ctx.setdefault("repo_returns_raw", {})[(attr, meth)] = (
-                "Optional[%s]" % spec["cls"]
+                spec["ret"]
             )
             fill_hint += (
-                "\n  self.%s.%s(%s: %s) -> Optional[%s]"
-                % (attr, meth, spec["col"], spec["py"], spec["cls"])
+                "\n  self.%s.%s(%s) -> %s"
+                % (
+                    attr,
+                    meth,
+                    ", ".join(p[0] for p in spec["params"]),
+                    spec["ret"],
+                )
             )
             synthesized_count += 1
             repaired = True
