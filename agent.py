@@ -1443,6 +1443,228 @@ def _v_methods(d, label):
     return errs
 
 
+# --- design-time inter-file feasibility (#1, the missing _sanitize_impls) --
+#
+# _v_methods above validates only SHAPE. Nothing cross-checked a designed
+# repository custom method against the DESIGNED entities, so methods whose
+# implied data cannot exist in the schema (a predicate over an `active`
+# column the entity lacks, an FK param to an entity that was never
+# designed, a month-bucket with no date-like column) sailed into the
+# skeleton as locked stubs; the fill-time schema gate could only revert
+# them — producing exactly the benchmark not_implemented failures on runs
+# 10/16/19. This gate asks the question the fill gate cannot: is this
+# DESIGNED METHOD implementable against the DESIGNED SCHEMA at all?
+#
+# Conservative by construction: a token resolves when it matches a designed
+# field exactly, its <stem>_id FK form, or via stem-prefix/suffix sharing
+# (created_date ~ created_at, copies ~ available_copies, year ~
+# published_year); recognized feature-class tokens (month/overdue/recent ->
+# date-ish, active/status -> state-ish) require that class to exist;
+# everything else falls back to a small aggregate/shape allowlist. Only
+# provably-unsatisfiable references are dropped — never SQL-quality calls.
+
+_FEAS_VERB_TOKENS = {
+    "get", "find", "list", "fetch", "all", "search", "count", "total",
+    "sum", "avg", "average", "min", "max", "top", "latest", "oldest",
+    "newest", "first", "last", "distinct", "grouped", "sorted", "by",
+    "with", "for", "in", "and", "or", "of", "the", "low", "high",
+    "lowest", "highest", "below", "above", "between", "range", "filtered",
+    "matching", "like", "contains", "paginated", "pagination", "paging",
+    "page", "pages", "per", "size", "number",
+}
+
+_FEAS_AGGREGATE_TOKENS = {
+    "history", "summary", "stats", "statistics", "distribution", "report",
+    "export", "import", "json", "csv", "value", "values", "amount",
+    "amounts", "copies", "quantity", "quantities", "balance", "totals",
+    "breakdown",
+}
+
+_FEAS_GENERIC_PARAMS = {
+    "page", "pages", "page_size", "page_number", "per_page", "limit",
+    "size", "offset", "query", "q", "search", "term", "keyword",
+    "keywords", "prefix", "pattern", "domain", "json_data", "data",
+    "file_path", "path", "content", "low", "high", "threshold",
+    "min_value", "max_value", "start_date", "end_date", "from_date",
+    "to_date", "start", "end", "value", "new_value",
+}
+
+_FEAS_DATE_CLASS_TOKENS = {
+    "date", "day", "week", "month", "year", "quarter", "time", "recent",
+    "recently", "overdue", "expired", "expiry", "upcoming", "activity",
+    "aging",
+}
+
+_FEAS_STATE_CLASS_TOKENS = {
+    "status", "state", "stage", "active", "inactive", "enabled",
+    "disabled", "archived", "published", "draft", "completed", "done",
+}
+
+
+def _feas_entity_fields(ent):
+    """{field_name: declared type} for one entity design."""
+    return {
+        f.get("name"): (f.get("type") or "")
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+
+
+def _feas_token_resolves(tok, own_fields, all_classes):
+    """True when `tok` can denote real data somewhere in the design:
+    exact field, its <tok>_id FK form, stem-prefix/suffix field sharing,
+    or a designed entity name (singular/plural)."""
+    if tok in own_fields or (tok + "_id") in own_fields:
+        return True
+    for f in own_fields:
+        if f.startswith(tok + "_") or f.endswith("_" + tok):
+            return True
+    # <tok>_id names an FK column whose target is the <tok> entity
+    # (author_id -> Author) — resolve through the stripped stem too.
+    base = tok[:-3] if tok.endswith("_id") else tok
+    sing = base[:-1] if base.endswith("s") and len(base) > 3 else base
+    return any(c.lower() in (sing, base) for c in all_classes)
+
+
+def _repo_method_feasibility_errors(m, ent_snake, entities_by_class):
+    """[] when the designed repo custom method is implementable against the
+    DESIGNED schema; else human-readable reasons (for the drop log)."""
+    name = m.get("name") or ""
+    ent_cls = _camel(ent_snake)
+    own_ent = entities_by_class.get(ent_cls) or {}
+    fields = _feas_entity_fields(own_ent)
+    # Cross-entity customs (get_books_by_author_and_year_range on the
+    # author repository) reference the REFERENCED entity's columns in their
+    # name, not the owner's. When the name itself names another designed
+    # entity, its fields join the resolvable set for NAME tokens — params
+    # stay owner-scoped.
+    name_tokens = {
+        t[:-1] if t.endswith("s") and len(t) > 3 else t
+        for t in re.split(r"_+", name)
+    }
+    ref_fields = dict(fields)
+    for cls2, e2 in entities_by_class.items():
+        if isinstance(e2, dict) and cls2.lower() in name_tokens:
+            ref_fields.update(_feas_entity_fields(e2))
+    types = set(fields.values())
+    has_date = bool(types & {"date", "datetime"})
+    has_state = (
+        "bool" in types
+        or any(k in n for n in fields for k in ("status", "state"))
+    )
+    has_text = "str" in types
+    all_classes = set(entities_by_class)
+    errs = []
+
+    def _need(cond, msg):
+        if not cond:
+            errs.append("%s: %s" % (name, msg))
+
+    # Params: every non-generic param must resolve to owned data, a designed
+    # entity/FK, or a bound-companion shape.
+    for p in (m.get("params") or []):
+        if not isinstance(p, dict):
+            continue
+        pn = p.get("name") or ""
+        if not pn or pn in _FEAS_GENERIC_PARAMS:
+            continue
+        if pn.startswith("new_"):
+            continue  # write-target of an update-style method
+        if re.match(r"^(start|end|from|to|min|max|begin)_?", pn) or pn.endswith(
+            ("_start", "_end", "_from", "_to", "_after", "_before")
+        ):
+            continue
+        if pn.endswith(("_ago", "_days", "_months", "_years")):
+            _need(
+                has_date,
+                "duration param %r needs a date/datetime column but %s has "
+                "none" % (pn, ent_cls),
+            )
+            continue
+        if not _feas_token_resolves(pn, fields, all_classes):
+            errs.append(
+                "%s: param %r matches no designed field/entity (%s has: %s)"
+                % (name, pn, ent_cls, ", ".join(sorted(fields)) or "(none)")
+            )
+
+    # Name tokens: skip verbs/aggregates; feature-class tokens require their
+    # class; everything else must resolve like params.
+    for tok in re.split(r"_+", name):
+        if not tok or tok in _FEAS_VERB_TOKENS or tok in _FEAS_AGGREGATE_TOKENS:
+            continue
+        if tok in _FEAS_DATE_CLASS_TOKENS:
+            # Satisfied by ANY date/datetime column of the owner — or by the
+            # token resolving to a concrete field anywhere in scope (a
+            # year_range over an integer published_year column is real data,
+            # not a missing timestamp).
+            _need(
+                has_date
+                or _feas_token_resolves(tok, fields, all_classes)
+                or _feas_token_resolves(tok, ref_fields, all_classes),
+                "'%s' requires a date/datetime column but %s has none"
+                % (tok, ent_cls),
+            )
+            continue
+        if tok in _FEAS_STATE_CLASS_TOKENS:
+            _need(
+                has_state,
+                "'%s' requires a bool/status column but %s has none"
+                % (tok, ent_cls),
+            )
+            continue
+        if tok in ("query", "search", "term", "keyword", "pattern", "domain",
+                   "prefix", "text"):
+            _need(has_text, "search token '%s' needs a text column" % tok)
+            continue
+        if len(tok) >= 4 and tok.isalpha():
+            _need(
+                (
+                    _feas_token_resolves(tok, ref_fields, all_classes)
+                    or _feas_token_resolves(tok, fields, all_classes)
+                ),
+                "name token '%s' matches no designed field/entity"
+                % tok,
+            )
+    return errs
+
+
+def _strip_infeasible_repo_methods(designs, entities_by_class, verbose=False):
+    """(#1) Drop designed repository customs whose implied data dependencies
+    cannot exist in the DESIGNED schema, before any skeleton locks them as
+    stubs. Mutates the repository designs in place; returns count dropped."""
+    dropped = 0
+    for idx, (path, kind, data) in enumerate(designs):
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        methods = data.get("methods")
+        if not isinstance(methods, list):
+            continue
+        kept = []
+        for m in methods:
+            if not isinstance(m, dict) or not m.get("name"):
+                kept.append(m)
+                continue
+            errs = _repo_method_feasibility_errors(
+                m, ent_snake, entities_by_class
+            )
+            if errs:
+                dropped += 1
+                if verbose:
+                    print(
+                        "    [design] %s: dropped infeasible custom %s "
+                        "(inter-file: %s)" % (path, m.get("name"), errs[0])
+                    )
+                continue
+            kept.append(m)
+        data["methods"] = kept
+        designs[idx] = (path, kind, data)
+    return dropped
+
+
 _DESIGN_SYSTEMS = {
     "exceptions": (
         "You are an expert Python architect. Design the exceptions module of a "
@@ -3313,6 +3535,10 @@ def _repo_sql_context_hint(schema_ctx, stub_names):
         "ISO-8601 TEXT: compare them as plain strings (WHERE expense_date "
         "BETWEEN '2024-01-01' AND '2024-12-31') and derive year/month with "
         "substr(col,1,4)/substr(col,1,7).",
+        "Open connections EXACTLY like the existing methods do: "
+        "'with self.db.connect() as conn:' then conn.execute(...). The "
+        "Database class has NO get_connection/get_db/connection methods — "
+        "self.db.get_connection(...) does not exist.",
         "Each method reads ONLY its own table: 'SELECT * FROM <table> ...' "
         "then 'return [Model(**dict(r)) for r in rows]'. NEVER join other "
         "tables, NEVER select columns from them, NEVER pass extra keyword "
@@ -5235,6 +5461,22 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
         violations.append(
             "dropped designed method(s): %s" % ", ".join(sorted(missing))
         )
+    # Stub-fill gate (#2): a designed method returned as `raise
+    # NotImplementedError(...)` is a refusal, not an implementation. It
+    # passes every name/schema check (a stub references nothing), so it
+    # used to ship verbatim — the benchmark not_implemented failures.
+    # Rejecting it feeds the corrective retry instead of locking the stub.
+    stubbed = sorted(
+        n.name for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name in required
+        and _fn_has_stub_raise(n)
+    )
+    if stubbed:
+        violations.append(
+            "stub fill(s) returned raise NotImplementedError instead of an "
+            "implementation: %s" % ", ".join(stubbed)
+        )
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -5663,8 +5905,35 @@ def _fn_undefined_names(fn, module_names):
     return sorted(undefined)
 
 
+def _fn_has_stub_raise(fn):
+    """True when the function body raises NotImplementedError anywhere.
+
+    A refusal is never an implementation: a fill whose body IS (or contains)
+    `raise NotImplementedError(...)` used to pass every schema/name gate
+    (a stub references nothing) and shipped verbatim — the benchmark
+    `not_implemented` failures on runs 10/13/16/19 all shipped this way,
+    some carrying the kernel's own justification string ("the 'active'
+    column does not exist ..."). Rejecting the fill feeds it back into the
+    corrective retry instead of silently locking the refusal in place.
+    """
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Raise) or node.exc is None:
+            continue
+        exc = node.exc
+        if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+            exc = exc.func
+        if isinstance(exc, ast.Name) and exc.id == "NotImplementedError":
+            return True
+        if (
+            isinstance(exc, ast.Attribute)
+            and exc.attr == "NotImplementedError"
+        ):
+            return True
+    return False
+
+
 def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
-                     model_fields=None, own_table=None):
+model_fields=None, own_table=None):
     """Per-method splice of an LLM repository fill into the deterministic
     file: a method body is kept ONLY when its SQL stays inside the DESIGNED
     schema AND every name it references resolves (module imports/defs,
@@ -5710,6 +5979,12 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
     }
     for name, fn in found.items():
         violations = _repo_fill_schema_violations(ast.unparse(fn), schema_ctx)
+        if _fn_has_stub_raise(fn):
+            violations.append(
+                "fill body is raise NotImplementedError(...) — a stub is "
+                "never an implementation; write the full body using ONLY "
+                "the DESIGNED tables/columns listed above"
+            )
         undef = _fn_undefined_names(fn, module_names)
         if undef:
             violations.append(
@@ -5842,6 +6117,84 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
     if not needed.issubset(defined):
         return None, sorted(rejected), rejected
     return merged, sorted(rejected), rejected
+
+
+def _missing_repo_calls(filled, repo_interface):
+    """(repo_attr, method) pairs a fill CALLS on self.<attr> that are absent
+    from the deterministic repository interface."""
+    try:
+        tree = ast.parse(filled)
+    except SyntaxError:
+        return []
+    missing = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ):
+            continue
+        func = node.func
+        value = func.value
+        if not (
+            isinstance(value, ast.Attribute)
+            and isinstance(value.value, ast.Name)
+            and value.value.id == "self"
+        ):
+            continue
+        attr = value.attr
+        if not attr.endswith("_repo"):
+            continue
+        sig = repo_interface.get(attr)
+        if sig is not None and func.attr not in sig:
+            pair = (attr, func.attr)
+            if pair not in missing:
+                missing.append(pair)
+    return missing
+
+
+_FINDER_NAME_RE = re.compile(
+    r"^(?:get|find)_([a-z][a-z0-9]*)_by_([a-z][a-z0-9]*)$"
+)
+
+
+def _simple_finder_spec(attr, meth, entities_by_class):
+    """Spec for a DETERMINISTIC single-column lookup when <meth> matches
+    get_/find_<entity>_by_<column>, <attr> is that entity's repo, and
+    <column> is a real scalar field of it. None otherwise — never guesses."""
+    match = _FINDER_NAME_RE.match(meth or "")
+    if not match:
+        return None
+    ent_snake, col = match.group(1), match.group(2)
+    if attr != ent_snake + "_repo":
+        return None
+    cls = _camel(ent_snake)
+    ent = entities_by_class.get(cls) or {}
+    ftypes = _feas_entity_fields(ent)
+    py = ftypes.get(col) or ("int" if col == "id" else "")
+    if col != "id" and py not in ("str", "int", "float", "bool"):
+        return None
+    return {
+        "meth": meth,
+        "col": col,
+        "cls": cls,
+        "table": (
+            _entity_table_name(ent) if ent else _pluralize_table_name(ent_snake)
+        ),
+        "py": "int" if col == "id" else py,
+    }
+
+
+def _render_simple_finder(spec):
+    """Deterministic Optional[Entity] single-column lookup, indented for the
+    repository class body."""
+    return (
+        "    def %(meth)s(self, %(col)s: %(py)s) -> Optional[%(cls)s]:\n"
+        "        with self.db.connect() as conn:\n"
+        "            row = conn.execute(\n"
+        '                "SELECT * FROM %(table)s WHERE %(col)s = ?", (%(col)s,)\n'
+        "            ).fetchone()\n"
+        "            return %(cls)s(**dict(row)) if row else None"
+        % spec
+    )
 
 
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
@@ -5992,6 +6345,67 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             return None
         return _merge_stub_bodies(deterministic, candidate, stub_names)
 
+    # (#3) Bounded inter-file repair: when a fill calls a simple repository
+    # lookup that was never designed (get_/find_<entity>_by_<scalar_field>),
+    # synthesize it DETERMINISTICALLY into the repository source and
+    # register it on the local interface so the retry can legally call it —
+    # instead of rejecting four times and shipping a stub (run 13's
+    # update_product_stock calling get_product_by_sku). Hard cap 3 per
+    # service; only scalar single-column lookups over the repo's OWN entity
+    # qualify — everything else keeps failing the contract gate as before.
+    synthesized_count = 0
+
+    def _repair_missing(filled_text):
+        """True when at least one missing simple finder was synthesized."""
+        nonlocal synthesized_count, fill_hint
+        if not filled_text or synthesized_count >= 3 or not repo_sources:
+            return False
+        repaired = False
+        for attr, meth in _missing_repo_calls(filled_text, repo_interface):
+            spec = _simple_finder_spec(attr, meth, entities_by_class)
+            if spec is None:
+                continue
+            ent_stem = attr[: -len("_repo")]
+            target_path = next(
+                (
+                    rp for rp in repo_sources
+                    if Path(rp).stem in (ent_stem + "_repository", ent_stem)
+                ),
+                None,
+            )
+            if target_path is None:
+                continue
+            src = repo_sources[target_path]
+            already_there = re.search(
+                r"^\s*def %s\s*\(" % re.escape(meth), src, re.MULTILINE
+            )
+            if not already_there:
+                repo_sources[target_path] = (
+                    src.rstrip()
+                    + "\n\n\n"
+                    + _render_simple_finder(spec)
+                    + "\n"
+                )
+            repo_interface.setdefault(attr, {})[meth] = [
+                (spec["col"], True)
+            ]
+            type_ctx.setdefault("repo_returns_raw", {})[(attr, meth)] = (
+                "Optional[%s]" % spec["cls"]
+            )
+            fill_hint += (
+                "\n  self.%s.%s(%s: %s) -> Optional[%s]"
+                % (attr, meth, spec["col"], spec["py"], spec["cls"])
+            )
+            synthesized_count += 1
+            repaired = True
+            if verbose:
+                print(
+                    "    [fill] service: synthesized %s.%s(%s) -> "
+                    "Optional[%s] (bounded inter-file repair)"
+                    % (attr, meth, spec["col"], spec["cls"])
+                )
+        return repaired
+
     instruction = fill_hint
     for attempt in range(4):
         filled = _llm_fill(
@@ -6006,6 +6420,16 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             )
             if filled else ["empty output"]
         )
+        if filled and _repair_missing(filled):
+            # The interface just grew: re-evaluate against it before
+            # burning a retry — the same fill may now be fully valid.
+            violations = _service_fill_violations(
+                filled, repo_interface, stub_design, type_ctx
+            )
+            if not violations:
+                merged = _merge_stub_bodies(deterministic, filled, stub_names)
+                if merged is not None:
+                    return merged
         if filled and verbose:
             print(
                 "    [fill] service: rejected (attempt %d: %s)"
@@ -6047,6 +6471,10 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 )
                 if cand else ["empty output"]
             )
+            if cand and _repair_missing(cand):
+                viol = _service_fill_violations(
+                    cand, repo_interface, one_design, type_ctx
+                )
             if not viol:
                 # A merge can legitimately fail (fill missing a method);
                 # assigning its None result here used to crash the NEXT
@@ -6634,13 +7062,20 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # 5.2 service file: deterministic contract bodies; LLM fills only extras
     for sp in svc_paths:
         svc_design = next((d for p, k, d in designs if p == sp), {})
+        repo_srcs = {p: files[p] for p in repo_paths}
         body = _render_service_file(
             svc_design, svc_class, designs, entities_by_class,
             prompt_text, exception_names, verbose,
-            repo_sources={p: files[p] for p in repo_paths},
+            repo_sources=repo_srcs,
             models_module=models_module,
         )
         files[sp] = body
+        # (#3) adopt bounded repository repairs made while filling this
+        # service: the shipped repository file and the service contract
+        # must stay consistent (the fill legally calls what was added).
+        for p in repo_paths:
+            if repo_srcs.get(p) != files.get(p):
+                files[p] = repo_srcs[p]
 
     # 5.3 CLI fallback: when the CLI design failed, keep the deterministic
     # pipeline and generate cli.py via the per-file path instead of
