@@ -3530,7 +3530,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         for p, cols in groups:
             frag = " OR ".join("%s LIKE ?" % c for c in cols)
             conds.append("(%s)" % frag if len(cols) > 1 else frag)
-            binds.append('"%%" + %s + "%%"' % p)
+            binds.extend(['"%%" + %s + "%%"' % p] * len(cols))
         if filt:
             ffrag, fbinds = _where(filt)
             if ffrag is None:
@@ -3668,6 +3668,16 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                 col = donly[0]
             elif len(date_cols) == 1:
                 col = date_cols[0]
+            if col is None:
+                # Year-range shape: bound params over an int year column
+                # (start_year/end_year -> published_year). A clear single
+                # year column makes this real data, not honest-empty.
+                year_cols = [
+                    n for n in num_cols
+                    if n.endswith("_year") or n == "year"
+                ]
+                if len(year_cols) == 1:
+                    col = year_cols[0]
             if col is not None:
                 return [
                     "        with self.db.connect() as conn:",
