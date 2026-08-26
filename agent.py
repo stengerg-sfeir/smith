@@ -397,14 +397,18 @@ def _check_structural(files, design_ctx):
     all_code = "\n".join(files.values())
 
     # 1. Designed exception classes
-    exc_fps = [fp for fp in files if "exception" in fp.lower()]
+    exc_fps = [
+        fp for fp in (design_ctx.get("exception_files") or []) if fp in files
+    ] or [fp for fp in files if "exception" in fp.lower()]
     exc_hint = exc_fps[0] if exc_fps else next(iter(files), "exceptions.py")
     for exc in design_ctx.get("exceptions") or []:
         if "class %s" % exc not in all_code:
             errors.append("%s: missing required exception '%s'" % (exc_hint, exc))
 
     # 2. Designed entity classes + fields
-    model_fps = [fp for fp in files if "model" in fp.lower()]
+    model_fps = [
+        fp for fp in (design_ctx.get("model_files") or []) if fp in files
+    ] or [fp for fp in files if "model" in fp.lower()]
     model_hint = model_fps[0] if model_fps else next(iter(files), "models.py")
     model_content = "\n".join(files[fp] for fp in model_fps)
     for cls, fields in (design_ctx.get("entities") or {}).items():
@@ -430,7 +434,7 @@ def _check_structural(files, design_ctx):
 # DDL generation from models (deterministic, no LLM)
 # ---------------------------------------------------------------------------
 
-def _extract_model_ast(files):
+def _extract_model_ast(files, paths=None):
     """Extract model class definitions from model files.
 
     Returns dict of class_name -> list of (field_name, python_type_hint).
@@ -440,7 +444,13 @@ def _extract_model_ast(files):
     TABLE_NAMES constant into result["__table_names__"] when present.
     """
     result = {}
-    model_files = [fp for fp in files if "model" in fp.lower()]
+    # Explicit model paths (from the layout design) win over filename
+    # sniffing: a models module named task.py must never be invisible to
+    # DDL generation just because its name lacks "model".
+    if paths is not None:
+        model_files = [p for p in paths if p in files]
+    else:
+        model_files = [fp for fp in files if "model" in fp.lower()]
 
     for fp in model_files:
         try:
@@ -3058,7 +3068,7 @@ def _repo_fill_schema_violations(source, schema):
 
 
 def _render_repository_file(ent_snake, design, entities_by_class, exception_names=None,
-                            prompt_text="", verbose=False):
+prompt_text="", verbose=False, models_module="models"):
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
 
     - create/get_by_id/get_all/update/delete are rendered with real bodies.
@@ -3126,7 +3136,8 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     # never survive. A complete models import makes the merged namespace
     # self-consistent; _merge_repo_fill's undefined-name gate then rejects
     # any residual hallucinated name instead of shipping a NameError.
-    L.append("from models import %s" % ", ".join(sorted(entities_by_class)))
+    L.append("from %s import %s"
+             % (models_module, ", ".join(sorted(entities_by_class))))
     if raise_missing:
         L.append("from exceptions import %s" % not_found_exc)
     L.append("")
@@ -4886,7 +4897,7 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
 
 
 def _service_header_lines(svc_class, entities, entities_by_class,
-                          exception_names):
+                          exception_names, models_module="models"):
     """Imports + class shell + repo wiring shared by the deterministic
     service and the stub-only mini-skeleton sent to the LLM fill."""
     exception_names = exception_names or []
@@ -4914,7 +4925,7 @@ def _service_header_lines(svc_class, entities, entities_by_class,
     lines += [
         "",
         "from database import Database",
-        "from models import %s" % ", ".join(entities),
+        "from %s import %s" % (models_module, ", ".join(entities)),
     ]
     for rcls in repo_class_names:
         lines.append("from %s import %s" % (_snake(rcls), rcls))
@@ -5315,7 +5326,7 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
 
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                          prompt_text, exception_names=None, verbose=False,
-                         repo_sources=None):
+                         repo_sources=None, models_module="models"):
     """Deterministic service: real contract bodies + stubs for extras.
 
     Contract methods (the tested surface) get real bodies rendered here with
@@ -5329,7 +5340,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     entities = sorted(entities_by_class)
 
     lines = _service_header_lines(
-        svc_class, entities, entities_by_class, exception_names
+        svc_class, entities, entities_by_class, exception_names,
+        models_module=models_module,
     )
 
     repo_customs = _zero_param_dict_repo_customs(designs, entities_by_class)
@@ -5443,7 +5455,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     stub_names = [m["name"] for m in stubs]
     mini = "\n".join(
         _service_header_lines(
-            svc_class, entities, entities_by_class, exception_names
+            svc_class, entities, entities_by_class, exception_names,
+            models_module=models_module,
         )
         + [_method_stub_code(m, 1) for m in stubs]
     ).rstrip() + "\n"
@@ -5495,7 +5508,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         one_mini = (
             "\n".join(
                 _service_header_lines(
-                    svc_class, entities, entities_by_class, exception_names
+                    svc_class, entities, entities_by_class, exception_names,
+                    models_module=models_module,
                 )
                 + [_method_stub_code(m, 1)]
             ).rstrip()
@@ -5917,25 +5931,68 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         # single-pass generation rather than failing outright.
         raise _NoEntityScript()
 
-    # 2.5 Generic repository/service stems are renamed to per-entity files
-    # using the DECLARED entity metadata of the layout design (falling back
-    # to the first designed entity) — no regex sniffing of the spec text.
-    first_entity = _snake(sorted(entities_by_class)[0])
-    for spec in manifest:
-        stem = Path(spec["file"]).stem
-        if stem not in ("repository", "repositories", "service", "services"):
-            continue
-        kind_word = "repository" if "repositor" in stem else "service"
-        target = "%s_%s.py" % (spec.get("entity") or first_entity, kind_word)
-        if spec["file"] == target:
-            continue
-        old_stem = stem
-        spec["file"] = target
+    # The models module stem drives every "from <models_module> import"
+    # emitted downstream (repositories, service) — never hardcode
+    # "models": a layout may name its entity file task.py.
+    models_module = Path(model_paths[0]).stem if model_paths else "models"
+
+    # 2.5 Canonicalize repository/service module names around their ENTITY.
+    # Every downstream consumer binds these modules as
+    # "<entity>_repository.py" / "<entity>_service.py" (repository class
+    # names, the service header's imports, _repo_dict_keys, CLI wiring), so
+    # ANY deviating declared filename — an invented interface/implementation
+    # split like "sqlite_task_repository.py", or a bare "repository.py" —
+    # would be rendered against a filename-derived entity that may not
+    # exist, historically producing a silently EMPTY file that no syntax
+    # or import gate could catch. Rename each repository/service file to
+    # its resolved entity's canonical name; drop specs whose canonical
+    # target is already claimed (duplicate classes across files break
+    # sibling imports). Resolution order: declared entity -> filename-
+    # derived entity -> first designed entity.
+    def _rewrite_import_stems(old_stem, new_name):
         for s in manifest:
             s["imports_from"] = [
-                (target[:-3] if Path(f).stem == old_stem else f)
+                (new_name[:-3] if Path(f).stem == old_stem else f)
                 for f in s.get("imports_from", [])
             ]
+
+    first_entity = _snake(sorted(entities_by_class)[0])
+    claimed = set()  # filenames bound so far (any kind)
+    kept = []
+    for spec in manifest:
+        if spec["kind"] not in ("repository", "service"):
+            claimed.add(spec["file"])
+            kept.append(spec)
+            continue
+        stem = Path(spec["file"]).stem
+        kind_word = (
+            "repository" if spec["kind"] == "repository" else "service"
+        )
+        suffix = "_%s" % kind_word
+        declared = _snake(spec.get("entity") or "")
+        derived = stem[: -len(suffix)] if stem.endswith(suffix) else ""
+        entity = (
+            declared if declared in entities_by_class
+            else derived if derived in entities_by_class
+            else declared or derived or first_entity
+        )
+        target = "%s%s.py" % (entity, suffix)
+        if target in claimed:
+            print(
+                "    dropped %s (canonical %s already owns entity '%s')"
+                % (spec["file"], target, entity),
+                file=sys.stderr,
+            )
+            _rewrite_import_stems(stem, target)
+            continue
+        claimed.add(target)
+        if spec["file"] != target:
+            old_stem = stem
+            spec["file"] = target
+            spec["entity"] = entity
+            _rewrite_import_stems(old_stem, target)
+        kept.append(spec)
+    manifest[:] = kept
 
     # 3. repositories (custom methods only; CRUD is generated)
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
@@ -6012,6 +6069,10 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             if isinstance(m, dict) and m.get("name")
         ],
         "db_file": db_file,
+        "model_files": list(model_paths),
+        "exception_files": sorted(
+            {p for p, k, d in designs if k == "exceptions"}
+        ),
     }
 
     # ---- Render phase (deterministic) ----
@@ -6047,6 +6108,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         files[rp] = _render_repository_file(
             ent_snake, repo_design, entities_by_class, exception_names,
             prompt_text=prompt_text, verbose=verbose,
+            models_module=models_module,
         )
 
     # 5.2 service file: deterministic contract bodies; LLM fills only extras
@@ -6056,6 +6118,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             svc_design, svc_class, designs, entities_by_class,
             prompt_text, exception_names, verbose,
             repo_sources={p: files[p] for p in repo_paths},
+            models_module=models_module,
         )
         files[sp] = body
 
@@ -6076,13 +6139,31 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 else:
                     print("    %s: %s" % (spec["file"], status), file=sys.stderr)
 
+    # Inter-file invariant: a DESIGNED module must never ship blank or
+    # class-less. A blank file parses as valid Python with no imports and no
+    # definitions, which is exactly how an empty repository used to slip
+    # past every downstream gate. Fail loudly instead of writing corruption.
+    for path, kind, data in designs:
+        content = files.get(path)
+        if content is None or not content.strip():
+            raise RuntimeError(
+                "designed module %s rendered empty — refusing to write "
+                "(inter-file consistency failure)" % path
+            )
+        if kind in ("repositories", "services") and "class " not in content:
+            raise RuntimeError(
+                "designed module %s rendered without a class "
+                "(inter-file consistency failure)" % path
+            )
+
     # Provisional database.py: repos/service import `from database import
     # Database`, but database.py is normally generated later (Phase 4) from
-    # the final models. Synthesize it now from the rendered models so this
-    # validation pass resolves the sibling import; the outer flow regenerates
-    # it from the written models afterward.
-    if "database.py" not in files and "models.py" in files:
-        model_classes = _extract_model_ast({"models.py": files["models.py"]})
+    # the final models. Synthesize it now from the DESIGNED model files (by
+    # declared kind, never by filename sniffing) so this validation pass
+    # resolves the sibling import; the outer flow regenerates it afterward.
+    model_srcs = {p: files[p] for p in model_paths if p in files}
+    if "database.py" not in files and model_srcs:
+        model_classes = _extract_model_ast(model_srcs, paths=list(model_srcs))
         if model_classes:
             files["database.py"] = _generate_database_file(model_classes, db_file)
 
@@ -6162,7 +6243,7 @@ def _multi_pass(prompt_text, verbose=False):
     # and the table-structure check passes. Prevents the LLM repair loop from
     # firing on a clean deterministic output (the 4B model would rewrite good
     # files and reintroduce hallucinated code).
-    model_classes = _extract_model_ast(files)
+    model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
         files["database.py"] = _generate_database_file(
             model_classes, design_ctx.get("db_file", "app.db")
@@ -6238,8 +6319,19 @@ def _multi_pass(prompt_text, verbose=False):
         if verbose and all_errors:
             print("    After repair: %d remaining" % len(all_errors))
 
+    # The pipeline is strict by design: import-level errors that survive
+    # three targeted repairs mean broken inter-file wiring (a nonexistent
+    # sibling module or a missing name) that no downstream gate can undo.
+    # Shipping such a tree silently is how prompt-30-style corruption used
+    # to reach disk; fail loudly instead.
+    if ast_errors:
+        raise RuntimeError(
+            "unresolved import-level errors after repair: %s"
+            % "; ".join(ast_errors[:4])
+        )
+
     # ---- Phase 4: deterministic database.py from the final model AST ----
-    model_classes = _extract_model_ast(files)
+    model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
         files["database.py"] = _generate_database_file(
             model_classes, design_ctx.get("db_file", "app.db")
@@ -6312,6 +6404,19 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
 
     project_dir = OUTPUT_DIR / _output_name_for_prompt(prompt_name)
     project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Stale artifacts from a previous run of THIS prompt must not survive:
+    # a file declared in an earlier manifest but absent from the regenerated
+    # set would otherwise linger as a dead/empty module (observed with the
+    # repository interface/implementation split for prompt 30). Remove any
+    # top-level .py file not in the new file set before writing.
+    for existing in project_dir.iterdir():
+        if (
+            existing.is_file()
+            and existing.name not in files
+            and existing.name.endswith(".py")
+        ):
+            existing.unlink()
 
     for rel_path, content in files.items():
         target = project_dir / rel_path
