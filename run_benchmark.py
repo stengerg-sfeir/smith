@@ -85,6 +85,12 @@ def run_one(agent: Path, checker: Path, prompt_file: Path,
     output_exists = expected_output.is_dir()
 
     if output_exists:
+        # Re-runs over an existing snapshot must overwrite it: copytree
+        # raises FileExistsError when the destination already exists,
+        # which would abort the refresh and freeze a STALE run (old
+        # result.json keeps failing even after the agent is fixed).
+        if captured_dir.exists():
+            shutil.rmtree(captured_dir)
         shutil.copytree(expected_output, captured_dir)
 
     checks = None
