@@ -24,11 +24,10 @@ Generating code ...
     [design] cli invalid: task/list/list: option '--status' maps to no parameter of get_tasks_with_pagination(page, page_size); task/list/list: option '--priority' maps to no parameter of get_tasks_with_pagination(page, page_size); task/list/list: option '--start-date' maps to no parameter of get_tasks_with_pagination(page, page_size)
       - cli.py [cli] commands=7
     Fill phase (service + repository custom methods)...
-    [fill] repository: kept 1/7 customs; reverted export_tasks_to_json, get_overdue_tasks, get_task_count_by_status, get_tasks_with_due_date_range, get_tasks_with_pagination, import_tasks_from_json (SQL outside designed schema)
+    [fill] repository: kept 1/6 customs; reverted export_tasks_to_json, get_overdue_tasks, get_tasks_with_due_date_range, get_tasks_with_pagination, import_tasks_from_json (SQL outside designed schema)
         - export_tasks_to_json: references undefined name json; self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_overdue_tasks: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'; calls self.get_current_date() which does not exist on this repository — never invent helper methods
-        - get_task_count_by_status: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_tasks_with_due_date_range: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
+        - get_overdue_tasks: references undefined name datetime; self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
+        - get_tasks_with_due_date_range: references undefined name date; self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
         - get_tasks_with_pagination: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
         - import_tasks_from_json: references undefined name json; self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
     Generated database.py from model AST (1 tables)

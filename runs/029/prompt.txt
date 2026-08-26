@@ -1,1 +1,0 @@
-Create a Python 3.12 application for managing customers and orders. Organize the application into separate modules for models, repositories, services and CLI. The service layer must contain the business rules and repositories must contain persistence logic.

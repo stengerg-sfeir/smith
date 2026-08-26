@@ -1,1 +1,0 @@
-Create a Python 3.12 order application. Creating an order must create the order and all its order lines atomically. If any order line is invalid, neither the order nor any of its lines should remain in the database.

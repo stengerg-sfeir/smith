@@ -99,7 +99,11 @@ class TaskRepository:
         raise NotImplementedError()
 
     def get_task_count_by_status(self) -> dict[str, int]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT status AS k, COUNT(*) AS n FROM tasks GROUP BY status"
+            ).fetchall()
+            return {r["k"]: int(r["n"]) for r in rows}
 
     def get_tasks_with_pagination(self, page: int, page_size: int) -> list[Task]:
         raise NotImplementedError()
@@ -114,5 +118,5 @@ class TaskRepository:
         raise NotImplementedError()
 
     def get_tasks_by_user(self, user_id: int) -> list[Task]:
-        return []
+        raise NotImplementedError()
 

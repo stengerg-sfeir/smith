@@ -98,5 +98,9 @@ class NoteRepository:
         raise NotImplementedError()
 
     def get_notes_with_latest_update(self) -> list[Note]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM notes ORDER BY created_at DESC"
+            ).fetchall()
+            return [Note(**dict(r)) for r in rows]
 

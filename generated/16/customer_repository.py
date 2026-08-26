@@ -96,7 +96,11 @@ class CustomerRepository:
         raise NotImplementedError()
 
     def get_customer_count(self) -> int:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM customers",
+            ).fetchone()
+            return int(row["n"])
 
     def get_customers_with_email_domain(self, domain: str, page_number: int, page_size: int) -> list[Customer] & dict[str, int]:
         raise NotImplementedError()

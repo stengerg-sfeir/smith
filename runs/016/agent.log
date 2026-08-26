@@ -19,13 +19,10 @@ Generating code ...
       - customer_service.py [services] get_customer_by_email(email:str) -> Optional[Customer]; get_customers_by_last_name_prefix(last_name_prefix:str, page_number:int, page_size:int) -> List[Customer] & Dict[str, int]; get_customers_with_active_status(page_number:int, page_size:int) -> List[Customer] & Dict[str, int]; get_customers_with_email_domain(domain:str, page_number:int, page_size:int) -> List[Customer] & Dict[str, int]; get_customers_by_phone_pattern(phone_pattern:str, page_number:int, page_size:int) -> List[Customer] & Dict[str, int]; get_customers_with_recent_activity(days_ago:int, page_number:int, page_size:int) -> List[Customer] & Dict[str, int]
       - cli.py [cli] commands=6
     Fill phase (service + repository custom methods)...
-    [fill] repository: kept 0/6 customs; reverted get_customer_count, get_customers_by_last_name_prefix, get_customers_by_phone_pattern, get_customers_with_active_status, get_customers_with_email_domain, get_customers_with_recent_activity (SQL outside designed schema)
-        - get_customer_count: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
+    [fill] repository: kept 2/5 customs; reverted get_customers_by_last_name_prefix, get_customers_by_phone_pattern, get_customers_with_email_domain (SQL outside designed schema)
         - get_customers_by_last_name_prefix: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
         - get_customers_by_phone_pattern: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_customers_with_active_status: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
         - get_customers_with_email_domain: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_customers_with_recent_activity: references undefined names datetime, timedelta; self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
     Generated database.py from model AST (1 tables)
     Generated database.py from model AST (1 tables)
   wrote generated/16/exceptions.py

@@ -1,1 +1,0 @@
-Create a Python 3.12 order management application. Customers can have multiple orders. Each order belongs to exactly one customer and has a date and status. Provide CRUD operations for customers and orders and allow users to list all orders belonging to a customer.

@@ -95,7 +95,11 @@ class ProductRepository:
     def list_products_by_name(self, sort_order: str, filter_name: str) -> list[Product]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            query = '\n                SELECT * FROM products \n                WHERE name LIKE ?\n                ORDER BY name {}\n            '.format('ASC' if sort_order == 'asc' else 'DESC')
+            query = '\n                SELECT * FROM products \n                WHERE name LIKE ?\n                ORDER BY name \n                '
+            if sort_order == 'desc':
+                query += ' DESC'
+            else:
+                query += ' ASC'
             cursor.execute(query, (f'%{filter_name}%',))
             rows = cursor.fetchall()
             return [Product(**dict(r)) for r in rows]
@@ -103,7 +107,11 @@ class ProductRepository:
     def list_products_by_price(self, sort_order: str, min_price: float, max_price: float) -> list[Product]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            query = '\n                SELECT * FROM products \n                WHERE price BETWEEN ? AND ?\n                ORDER BY price {}\n            '.format('ASC' if sort_order == 'asc' else 'DESC')
+            query = '\n                SELECT * FROM products \n                WHERE price BETWEEN ? AND ?\n                ORDER BY price \n                '
+            if sort_order == 'desc':
+                query += ' DESC'
+            else:
+                query += ' ASC'
             cursor.execute(query, (min_price, max_price))
             rows = cursor.fetchall()
             return [Product(**dict(r)) for r in rows]
@@ -111,17 +119,21 @@ class ProductRepository:
     def list_products_by_quantity(self, sort_order: str, min_quantity: int, max_quantity: int) -> list[Product]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            query = '\n                SELECT * FROM products \n                WHERE quantity BETWEEN ? AND ?\n                ORDER BY quantity {}\n            '.format('ASC' if sort_order == 'asc' else 'DESC')
+            query = '\n                SELECT * FROM products \n                WHERE quantity BETWEEN ? AND ?\n                ORDER BY quantity \n                '
+            if sort_order == 'desc':
+                query += ' DESC'
+            else:
+                query += ' ASC'
             cursor.execute(query, (min_quantity, max_quantity))
             rows = cursor.fetchall()
             return [Product(**dict(r)) for r in rows]
 
     def get_product_count(self) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM products')
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM products",
+            ).fetchone()
+            return int(row["n"])
 
     def get_product_report_by_category(self, category: str) -> dict:
         return {}
@@ -129,12 +141,21 @@ class ProductRepository:
     def list_products_with_pagination(self, page: int, page_size: int, sort_field: str, sort_order: str) -> list[Product]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            sort_field = sort_field.lower()
-            if sort_field not in ['name', 'price', 'quantity']:
-                sort_field = 'name'
-            order_clause = 'ASC' if sort_order == 'asc' else 'DESC'
-            query = '\n                SELECT * FROM products \n                ORDER BY {} {}\n                LIMIT ? OFFSET ?\n            '.format(sort_field, order_clause)
+            query = '\n                SELECT * FROM products \n                ORDER BY \n                '
+            if sort_field == 'name':
+                query += 'name'
+            elif sort_field == 'price':
+                query += 'price'
+            elif sort_field == 'quantity':
+                query += 'quantity'
+            else:
+                query += 'id'
+            if sort_order == 'desc':
+                query += ' DESC'
+            else:
+                query += ' ASC'
             offset = (page - 1) * page_size
+            query += ' LIMIT ? OFFSET ?'
             cursor.execute(query, (page_size, offset))
             rows = cursor.fetchall()
             return [Product(**dict(r)) for r in rows]

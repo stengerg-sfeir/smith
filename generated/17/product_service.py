@@ -28,15 +28,15 @@ class ProductService:
             products = self.product_repo.get_all()
         if name and category:
             products = [p for p in products if p.category == category]
-        elif name and max_price is not None:
+        elif name and max_price:
             products = [p for p in products if p.price <= max_price]
-        elif name and min_quantity is not None:
+        elif name and min_quantity:
             products = [p for p in products if p.quantity >= min_quantity]
-        elif category and max_price is not None:
+        elif category and max_price:
             products = [p for p in products if p.category == category and p.price <= max_price]
-        elif category and min_quantity is not None:
+        elif category and min_quantity:
             products = [p for p in products if p.category == category and p.quantity >= min_quantity]
-        elif max_price is not None and min_quantity is not None:
+        elif max_price and min_quantity:
             products = [p for p in products if p.price <= max_price and p.quantity >= min_quantity]
         return products
 
@@ -66,20 +66,20 @@ class ProductService:
 
     def find_duplicate_products(self) -> List[Product]:
         products = self.product_repo.get_all()
-        product_names = {}
+        seen = set()
         duplicates = []
         for product in products:
-            if product.name in product_names:
-                if product_names[product.name] != product:
-                    duplicates.append(product)
+            product_key = (product.name, product.category)
+            if product_key in seen:
+                duplicates.append(product)
             else:
-                product_names[product.name] = product
+                seen.add(product_key)
         return duplicates
 
     def get_products_below_category_threshold(self, category: str) -> List[Product]:
-        products = self.product_repo.filter_products_by_category(category)
-        if not products:
+        category_products = self.product_repo.filter_products_by_category(category)
+        if not category_products:
             return []
-        avg_quantity = sum((p.quantity for p in products)) / len(products)
-        return [p for p in products if p.quantity < avg_quantity]
+        avg_quantity = sum((p.quantity for p in category_products)) / len(category_products)
+        return [p for p in category_products if p.quantity < avg_quantity]
 

@@ -19,14 +19,6 @@ Generating code ...
       - product_service.py [services] create_product(name:str, description:Optional[str], price:float, quantity:int) -> Product; get_product_by_name(name:str) -> Optional[Product]; get_products_by_price_range(min_price:float, max_price:float) -> List[Product]; get_products_with_low_stock() -> List[Product]; get_product_count() -> int; get_total_value_of_inventory() -> float; search_products(query:str) -> List[Product]; get_products_by_category(category:str) -> List[Product]; get_product_with_highest_price() -> Optional[Product]; get_product_with_lowest_price() -> Optional[Product]
       - cli.py [cli] commands=10
     Fill phase (service + repository custom methods)...
-    [fill] repository: kept 1/8 customs; reverted get_product_count, get_product_with_highest_price, get_product_with_lowest_price, get_products_by_price_range, get_products_with_low_stock, get_total_value_of_inventory, search_products (SQL outside designed schema)
-        - get_product_count: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_product_with_highest_price: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_product_with_lowest_price: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_products_by_price_range: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_products_with_low_stock: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_total_value_of_inventory: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - search_products: self.db.connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
     Generated database.py from model AST (1 tables)
     Generated database.py from model AST (1 tables)
   wrote generated/06/exceptions.py

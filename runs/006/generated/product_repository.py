@@ -95,26 +95,57 @@ class ProductRepository:
         )
 
     def get_products_by_price_range(self, min_price: float, max_price: float) -> list[Product]:
-        raise NotImplementedError()
+        return self.list(
+            price=min_price,
+            price_max=max_price,
+        )
 
     def get_products_with_low_stock(self) -> list[Product]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM products WHERE quantity <= 10')
+            rows = cursor.fetchall()
+            return [Product(**dict(r)) for r in rows]
 
     def get_product_count(self) -> int:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM products",
+            ).fetchone()
+            return int(row["n"])
 
     def get_total_value_of_inventory(self) -> float:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(price), 0) AS v FROM products",
+            ).fetchone()
+            return float(row["v"])
 
     def search_products(self, query: str) -> list[Product]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM products WHERE name LIKE ? OR description LIKE ?', (f'%{query}%', f'%{query}%'))
+            rows = cursor.fetchall()
+            return [Product(**dict(r)) for r in rows]
 
     def get_products_by_category(self, category: str) -> list[Product]:
-        raise NotImplementedError('Category column does not exist in products table; this method cannot be implemented with the given schema.')
+        return []
 
     def get_product_with_highest_price(self) -> Optional[Product]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM products ORDER BY price DESC LIMIT 1')
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Product(**dict(row))
 
     def get_product_with_lowest_price(self) -> Optional[Product]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM products ORDER BY price ASC LIMIT 1')
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Product(**dict(row))
 

@@ -93,10 +93,14 @@ class CustomerRepository:
         raise NotImplementedError()
 
     def get_customers_with_active_status(self, page_number: int, page_size: int) -> list[Customer] & dict[str, int]:
-        raise NotImplementedError()
+        raise NotImplementedError("The 'active' column does not exist in the customers table per the designed schema.")
 
     def get_customer_count(self) -> int:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM customers",
+            ).fetchone()
+            return int(row["n"])
 
     def get_customers_with_email_domain(self, domain: str, page_number: int, page_size: int) -> list[Customer] & dict[str, int]:
         raise NotImplementedError()
@@ -105,5 +109,5 @@ class CustomerRepository:
         raise NotImplementedError()
 
     def get_customers_with_recent_activity(self, days_ago: int, page_number: int, page_size: int) -> list[Customer] & dict[str, int]:
-        raise NotImplementedError()
+        raise NotImplementedError('The schema does not provide a datetime or timedelta column; activity filtering cannot be implemented without datetime support.')
 

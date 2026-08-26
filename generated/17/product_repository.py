@@ -105,22 +105,28 @@ class ProductRepository:
 
     def get_product_count(self) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM products')
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM products",
+            ).fetchone()
+            return int(row["n"])
 
     def get_product_report_by_category(self) -> dict[str, dict]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT category, COUNT(*) as count FROM products GROUP BY category')
+            cursor.execute('SELECT category, SUM(price * quantity) AS total_value, COUNT(*) AS product_count FROM products GROUP BY category')
             rows = cursor.fetchall()
-            return {row[0]: {'count': row[1]} for row in rows}
+            result = {}
+            for row in rows:
+                category = row[0]
+                total_value = row[1]
+                product_count = row[2]
+                result[category] = {'total_value': total_value, 'product_count': product_count}
+            return result
 
     def get_product_summary(self) -> dict:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('\n                SELECT \n                    category, \n                    SUM(price * quantity) as total_value, \n                    SUM(quantity) as total_quantity \n                FROM products \n                GROUP BY category\n            ')
-            rows = cursor.fetchall()
-            return {row[0]: {'total_value': row[1], 'total_quantity': row[2]} for row in rows}
+            cursor.execute('SELECT COUNT(*) AS total_products, SUM(price * quantity) AS total_value, AVG(price) AS average_price FROM products')
+            row = cursor.fetchone()
+            return {'total_products': row[0], 'total_value': row[1], 'average_price': row[2]}
 

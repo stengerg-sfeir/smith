@@ -5,6 +5,11 @@ import csv
 from typing import Dict, List, Optional
 
 from database import Database
+from exceptions import (
+    NotFoundError,
+    OutOfStockError,
+    ValidationError,
+)
 from models import Product
 from product_repository import ProductRepository
 
@@ -20,41 +25,35 @@ class ProductService:
 
     def get_product_by_sku(self, sku: str) -> Optional[Product]:
         """Retrieve a product by its SKU."""
-        try:
-            products = self.product_repo.list(sku=sku)
-            return products[0] if products else None
-        except IndexError:
-            return None
+        products = self.product_repo.list(sku=sku)
+        return products[0] if products else None
 
     def get_products_by_category(self, category: str) -> List[Product]:
+        """Retrieve all products belonging to a specific category."""
         return self.product_repo.get_products_by_category(category)
 
     def search_products(self, query: str, category: Optional[str]=None) -> List[Product]:
-        """
-            Search products by query and optional category.
-        
-            Args:
-                query: Search term to match against product name or sku
-                category: Optional filter by category
-            
-            Returns:
-                List of matching Product objects
-            """
-        if category:
-            products = self.product_repo.get_products_by_category(category)
-        else:
-            products = self.product_repo.get_all()
-        result = []
-        for product in products:
-            if query.lower() in product.name.lower() or query.lower() in product.sku.lower():
-                result.append(product)
-        return result
+        """Search products by query string, optionally filtered by category."""
+        return self.product_repo.search_products(query, category)
 
     def get_low_stock_products(self) -> List[Product]:
+        """Retrieve products with low stock (stock quantity below threshold)."""
         return self.product_repo.get_products_low_stock()
 
     def update_product_stock(self, sku: str, new_stock: int) -> bool:
-        raise NotImplementedError()
+        """Update the stock quantity for a product by SKU."""
+        try:
+            product = self.product_repo.get_by_id(self.product_repo.get_product_by_sku(sku).id)
+            if not product:
+                raise NotFoundError(f'Product with SKU {sku} not found')
+            if new_stock < 0:
+                raise ValidationError('Stock quantity cannot be negative')
+            self.product_repo.update(product.id, {'stock_quantity': new_stock})
+            return True
+        except Exception as e:
+            if isinstance(e, (NotFoundError, ValidationError, OutOfStockError)):
+                raise e
+            raise RuntimeError(f'Failed to update product stock: {str(e)}')
 
     def delete_product(self, sku: str) -> bool:
         return self.product_repo.delete(sku)
@@ -81,5 +80,6 @@ class ProductService:
                 ])
 
     def get_products_with_price_range(self, min_price: float, max_price: float) -> List[Product]:
+        """Retrieve products within a specified price range."""
         return self.product_repo.get_products_with_price_range(min_price, max_price)
 

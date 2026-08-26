@@ -96,58 +96,57 @@ class EmployeeRepository:
         )
 
     def get_employees_by_age_range(self, min_age: int, max_age: int) -> list[Employee]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM employees WHERE age >= ? AND age <= ?', (min_age, max_age))
-            rows = cursor.fetchall()
-            return [Employee(**dict(r)) for r in rows]
+        return self.list(
+            age=min_age,
+            age_lte=max_age,
+        )
 
     def get_employees_with_salary_above(self, min_salary: float) -> list[Employee]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM employees WHERE salary > ?', (min_salary,))
-            rows = cursor.fetchall()
-            return [Employee(**dict(r)) for r in rows]
+        return self.list(
+            salary=min_salary,
+        )
 
     def count_employees_by_age_group(self) -> dict[str, int]:
+        age_groups = {'under_18': 0, '18_25': 0, '26_35': 0, '36_50': 0, 'over_50': 0}
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute("\n                SELECT \n                    CASE \n                        WHEN age <= 17 THEN '0-17'\n                        WHEN age <= 25 THEN '18-25'\n                        WHEN age <= 35 THEN '26-35'\n                        WHEN age <= 50 THEN '36-50'\n                        ELSE '51+'\n                    END AS age_group,\n                    COUNT(*) AS count\n                FROM employees\n                GROUP BY \n                    CASE \n                        WHEN age <= 17 THEN '0-17'\n                        WHEN age <= 25 THEN '18-25'\n                        WHEN age <= 35 THEN '26-35'\n                        WHEN age <= 50 THEN '36-50'\n                        ELSE '51+'\n                    END\n                ")
+            cursor.execute("\n                SELECT \n                    CASE \n                        WHEN age < 18 THEN 'under_18'\n                        WHEN age BETWEEN 18 AND 25 THEN '18_25'\n                        WHEN age BETWEEN 26 AND 35 THEN '26_35'\n                        WHEN age BETWEEN 36 AND 50 THEN '36_50'\n                        ELSE 'over_50'\n                    END AS age_group\n                FROM employees\n            ")
             rows = cursor.fetchall()
-            return {row[0]: row[1] for row in rows}
+            for row in rows:
+                age_group = row[0]
+                age_groups[age_group] += 1
+        return age_groups
 
     def get_total_salary_spent(self) -> float:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT SUM(salary) FROM employees')
-            result = cursor.fetchone()
-            return result[0] if result[0] is not None else 0.0
+            row = conn.execute(
+                "SELECT COALESCE(SUM(salary), 0) AS v FROM employees",
+            ).fetchone()
+            return float(row["v"])
 
     def get_average_salary(self) -> float:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT AVG(salary) FROM employees')
-            result = cursor.fetchone()
-            return result[0] if result[0] is not None else 0.0
+            row = conn.execute(
+                "SELECT COALESCE(SUM(salary), 0) AS v FROM employees",
+            ).fetchone()
+            return float(row["v"])
 
     def get_employees_with_higher_salary_than_average(self) -> list[Employee]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('\n                SELECT * FROM employees \n                WHERE salary > (SELECT AVG(salary) FROM employees)\n                ')
+            cursor.execute('\n                SELECT * FROM employees\n                WHERE salary > (\n                    SELECT AVG(salary) FROM employees\n                )\n            ')
             rows = cursor.fetchall()
             return [Employee(**dict(r)) for r in rows]
 
     def get_employees_with_valid_email_and_age_range(self, min_age: int, max_age: int) -> list[Employee]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute("\n                SELECT * FROM employees \n                WHERE age >= ? AND age <= ? \n                AND email LIKE '%@%'\n                ", (min_age, max_age))
-            rows = cursor.fetchall()
-            return [Employee(**dict(r)) for r in rows]
+        return self.list(
+            age=min_age,
+            age_lte=max_age,
+        )
 
     def get_employees_with_salary_in_range(self, min_salary: float, max_salary: float) -> list[Employee]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM employees WHERE salary >= ? AND salary <= ?', (min_salary, max_salary))
-            rows = cursor.fetchall()
-            return [Employee(**dict(r)) for r in rows]
+        return self.list(
+            salary=min_salary,
+            salary_lte=max_salary,
+        )
 

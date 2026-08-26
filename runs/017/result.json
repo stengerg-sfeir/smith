@@ -1,8 +1,8 @@
 {
   "prompt": "17",
   "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_17.txt",
-  "started_at": "2026-08-25T17:58:29.794201+00:00",
-  "duration_seconds": 84.939,
+  "started_at": "2026-08-26T10:55:25.925429+00:00",
+  "duration_seconds": 179.271,
   "agent": {
     "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 17",
     "exit_code": 0,
@@ -23,7 +23,8 @@
       },
       "not_implemented": {
         "status": "pass",
-        "files": []
+        "count": 0,
+        "matches": []
       },
       "empty_python_files": {
         "status": "pass",
@@ -32,6 +33,20 @@
       "compile": {
         "status": "pass",
         "errors": []
+      },
+      "internal_imports": {
+        "status": "pass",
+        "errors": []
+      },
+      "runtime_imports": {
+        "status": "pass",
+        "modules": 7,
+        "errors": []
+      },
+      "main_exec": {
+        "status": "pass",
+        "entry": "/Users/gillesstenger/Documents/neurosymbolic/runs/017/generated/main.py",
+        "exit_code": 0
       }
     }
   },

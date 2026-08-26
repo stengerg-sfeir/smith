@@ -38,7 +38,7 @@ class BookRepository:
             ).fetchall()
             return [Book(**dict(r)) for r in rows]
 
-    def list(self, title: Optional[Any] = None, author: Optional[Any] = None, publication_year: Optional[Any] = None, publication_year_end: Optional[Any] = None, genre: Optional[Any] = None, isbn: Optional[Any] = None, pages: Optional[Any] = None) -> List[Book]:
+    def list(self, title: Optional[Any] = None, author: Optional[Any] = None, publication_year: Optional[Any] = None, publication_year_end: Optional[Any] = None, genre: Optional[Any] = None, isbn: Optional[Any] = None, pages: Optional[Any] = None, max_pages: Optional[Any] = None, min_pages: Optional[Any] = None) -> List[Book]:
         with self.db.connect() as conn:
             query = "SELECT * FROM books WHERE 1=1"
             params: List[Any] = []
@@ -63,6 +63,12 @@ class BookRepository:
             if pages is not None:
                 query += ' AND pages = ?'
                 params.append(pages)
+            if max_pages is not None:
+                query += ' AND pages <= ?'
+                params.append(max_pages)
+            if min_pages is not None:
+                query += ' AND pages >= ?'
+                params.append(min_pages)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Book(**dict(r)) for r in rows]
 
@@ -100,10 +106,10 @@ class BookRepository:
 
     def get_total_books_count(self) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM books')
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM books",
+            ).fetchone()
+            return int(row["n"])
 
     def get_books_by_genre(self, genre: str) -> list[Book]:
         return self.list(
@@ -123,11 +129,10 @@ class BookRepository:
             return [Book(**dict(r)) for r in rows]
 
     def get_books_with_page_count_range(self, min_pages: int, max_pages: int) -> list[Book]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM books WHERE pages BETWEEN ? AND ?', (min_pages, max_pages))
-            rows = cursor.fetchall()
-            return [Book(**dict(r)) for r in rows]
+        return self.list(
+            min_pages=min_pages,
+            max_pages=max_pages,
+        )
 
     def generate_genre_distribution_report(self) -> dict[str, int]:
         with self.db.connect() as conn:
@@ -141,12 +146,13 @@ class BookRepository:
             cursor = conn.cursor()
             cursor.execute('SELECT author FROM books GROUP BY author ORDER BY COUNT(*) DESC LIMIT 1')
             row = cursor.fetchone()
-            return row[0] if row else None
+            return row[0] if row else ''
 
     def get_books_with_isbn_prefix(self, isbn_prefix: str) -> list[Book]:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM books WHERE isbn LIKE ?', (f'{isbn_prefix}%',))
-            rows = cursor.fetchall()
+            rows = conn.execute(
+                "SELECT * FROM books WHERE isbn LIKE ?",
+                ("%" + isbn_prefix + "%",)
+            ).fetchall()
             return [Book(**dict(r)) for r in rows]
 

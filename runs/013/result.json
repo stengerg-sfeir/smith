@@ -1,8 +1,8 @@
 {
   "prompt": "13",
   "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_13.txt",
-  "started_at": "2026-08-25T17:47:47.557718+00:00",
-  "duration_seconds": 188.16,
+  "started_at": "2026-08-26T10:13:23.843549+00:00",
+  "duration_seconds": 169.012,
   "agent": {
     "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 13",
     "exit_code": 0,
@@ -14,7 +14,7 @@
     "captured": true
   },
   "checks": {
-    "overall": "pass",
+    "overall": "fail",
     "checks": {
       "syntax": {
         "status": "pass",
@@ -23,8 +23,13 @@
       },
       "not_implemented": {
         "status": "fail",
-        "files": [
-          "/Users/gillesstenger/Documents/neurosymbolic/runs/013/generated/product_service.py"
+        "count": 1,
+        "matches": [
+          {
+            "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/013/generated/product_service.py",
+            "line": 57,
+            "text": "raise NotImplementedError()"
+          }
         ]
       },
       "empty_python_files": {
@@ -34,9 +39,23 @@
       "compile": {
         "status": "pass",
         "errors": []
+      },
+      "internal_imports": {
+        "status": "pass",
+        "errors": []
+      },
+      "runtime_imports": {
+        "status": "pass",
+        "modules": 7,
+        "errors": []
+      },
+      "main_exec": {
+        "status": "pass",
+        "entry": "/Users/gillesstenger/Documents/neurosymbolic/runs/013/generated/main.py",
+        "exit_code": 0
       }
     }
   },
-  "checks_exit_code": 0,
+  "checks_exit_code": 1,
   "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/013/agent.log"
 }

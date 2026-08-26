@@ -1,1 +1,0 @@
-Create a Python 3.12 application managing products and categories. Every product must belong to an existing category. A category cannot be deleted while products still belong to it.

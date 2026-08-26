@@ -1,8 +1,8 @@
 {
   "prompt": "01",
   "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_01.txt",
-  "started_at": "2026-08-25T17:20:19.902278+00:00",
-  "duration_seconds": 5.19,
+  "started_at": "2026-08-26T09:58:52.452153+00:00",
+  "duration_seconds": 6.68,
   "agent": {
     "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 01",
     "exit_code": 0,
@@ -23,7 +23,8 @@
       },
       "not_implemented": {
         "status": "pass",
-        "files": []
+        "count": 0,
+        "matches": []
       },
       "empty_python_files": {
         "status": "pass",
@@ -32,6 +33,20 @@
       "compile": {
         "status": "pass",
         "errors": []
+      },
+      "internal_imports": {
+        "status": "pass",
+        "errors": []
+      },
+      "runtime_imports": {
+        "status": "pass",
+        "modules": 2,
+        "errors": []
+      },
+      "main_exec": {
+        "status": "pass",
+        "entry": null,
+        "reason": "no_unambiguous_entry_point"
       }
     }
   },

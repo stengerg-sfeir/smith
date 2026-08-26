@@ -99,10 +99,10 @@ class ProjectRepository:
 
     def get_project_count(self) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM projects')
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM projects",
+            ).fetchone()
+            return int(row["n"])
 
     def list_active_projects(self) -> list[Project]:
         with self.db.connect() as conn:
@@ -122,28 +122,21 @@ class ProjectRepository:
     def get_project_stats(self) -> dict:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('\n                SELECT \n                    status,\n                    COUNT(*) as count\n                FROM projects \n                WHERE deleted_at IS NULL \n                GROUP BY status\n            ')
-            rows = cursor.fetchall()
-            return {row[0]: row[1] for row in rows}
+            cursor.execute("\n                SELECT \n                    COUNT(*) AS total_projects,\n                    COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_projects,\n                    COUNT(CASE WHEN status = 'inactive' THEN 1 END) AS inactive_projects\n                FROM projects \n                WHERE deleted_at IS NULL\n            ")
+            row = cursor.fetchone()
+            return {'total_projects': row[0], 'active_projects': row[1], 'inactive_projects': row[2]}
 
     def search_projects(self, query: str, status_filter: Optional[str]=None) -> list[Project]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            base_query = 'SELECT * FROM projects WHERE deleted_at IS NULL'
-            conditions = []
-            if query:
-                conditions.append('name LIKE ? OR description LIKE ?')
+            query = f'%{query}%'
+            conditions = ['description LIKE ?']
+            params = [query]
             if status_filter:
                 conditions.append('status = ?')
-            where_clause = ' AND '.join(conditions) if conditions else ''
-            if where_clause:
-                base_query += ' AND ' + where_clause
-            params = []
-            if query:
-                params.extend([f'%{query}%', f'%{query}%'])
-            if status_filter:
                 params.append(status_filter)
-            cursor.execute(base_query, params)
+            query_parts = ' AND '.join(conditions)
+            cursor.execute(f'SELECT * FROM projects WHERE deleted_at IS NULL AND {query_parts}', params)
             rows = cursor.fetchall()
             return [Project(**dict(r)) for r in rows]
 

@@ -95,7 +95,7 @@ class BookRepository:
     def get_books_by_publication_year_range(self, start_year: int, end_year: int) -> list[Book]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM books WHERE publication_year BETWEEN ? AND ?', (start_year, end_year))
+            cursor.execute('SELECT * FROM books WHERE publication_year BETWEEN ? AND ?', (str(start_year), str(end_year)))
             rows = cursor.fetchall()
             return [Book(**dict(r)) for r in rows]
 
@@ -108,22 +108,22 @@ class BookRepository:
 
     def get_total_books_count(self) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM books')
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM books",
+            ).fetchone()
+            return int(row["n"])
 
     def get_books_with_most_popular_authors(self, top_n: int) -> list[tuple[str, int]]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT author, COUNT(*) as count \n                   FROM books \n                   GROUP BY author \n                   ORDER BY count DESC \n                   LIMIT ?', (top_n,))
+            cursor.execute('\n                SELECT author, COUNT(*) as book_count\n                FROM books\n                GROUP BY author\n                ORDER BY book_count DESC\n                LIMIT ?\n                ', (top_n,))
             rows = cursor.fetchall()
-            return [(row[0], row[1]) for row in rows]
+            return rows
 
     def search_books_by_isbn_or_title(self, search_term: str) -> list[Book]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM books WHERE isbn LIKE ? OR title LIKE ?', (f'%{search_term}%', f'%{search_term}%'))
+            cursor.execute('\n                SELECT * FROM books \n                WHERE isbn LIKE ? OR title LIKE ?\n                ', (f'%{search_term}%', f'%{search_term}%'))
             rows = cursor.fetchall()
             return [Book(**dict(r)) for r in rows]
 

@@ -19,10 +19,9 @@ Generating code ...
       - note_service.py [services] create_note(title:str, content:str) -> Optional[Note]; list_notes(title_filter:Optional[str], created_after:Optional[datetime], created_before:Optional[datetime]) -> List[Note]; update_note(note_id:int, title:Optional[str], content:Optional[str]) -> Optional[Note]; delete_note(note_id:int) -> bool; search_notes(query:str) -> List[Note]; get_notes_by_month(year_month:str) -> List[Note]
       - cli.py [cli] commands=6
     Fill phase (service + repository custom methods)...
-    [fill] repository: kept 0/4 customs; reverted get_note_count_by_month, get_notes_by_created_date_range, get_notes_with_latest_update, search_notes (SQL outside designed schema)
+    [fill] repository: kept 0/3 customs; reverted get_note_count_by_month, get_notes_by_created_date_range, search_notes (SQL outside designed schema)
         - get_note_count_by_month: ORDER BY uses unknown column 'month' (table notes); self.db.get_connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
         - get_notes_by_created_date_range: self.db.get_connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
-        - get_notes_with_latest_update: self.db.get_connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
         - search_notes: self.db.get_connection does not exist on Database — open connections with 'with self.db.connect() as conn:'
     Generated database.py from model AST (1 tables)
     Generated database.py from model AST (1 tables)

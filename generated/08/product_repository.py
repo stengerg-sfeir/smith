@@ -37,7 +37,7 @@ class ProductRepository:
             ).fetchall()
             return [Product(**dict(r)) for r in rows]
 
-    def list(self, category: Optional[Any] = None, threshold: Optional[Any] = None, name: Optional[Any] = None, price: Optional[Any] = None, quantity: Optional[Any] = None) -> List[Product]:
+    def list(self, category: Optional[Any] = None, threshold: Optional[Any] = None, name: Optional[Any] = None, price: Optional[Any] = None, quantity: Optional[Any] = None, max_price: Optional[Any] = None, min_price: Optional[Any] = None) -> List[Product]:
         with self.db.connect() as conn:
             query = "SELECT * FROM products WHERE 1=1"
             params: List[Any] = []
@@ -56,6 +56,12 @@ class ProductRepository:
             if quantity is not None:
                 query += ' AND quantity = ?'
                 params.append(quantity)
+            if max_price is not None:
+                query += ' AND price <= ?'
+                params.append(max_price)
+            if min_price is not None:
+                query += ' AND price >= ?'
+                params.append(min_price)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Product(**dict(r)) for r in rows]
 
@@ -94,10 +100,11 @@ class ProductRepository:
 
     def get_product_count_by_category(self, category: str) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM products WHERE category = ?', (category,))
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            row = conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) AS v FROM products WHERE category = ?",
+                (category,)
+            ).fetchone()
+            return int(row["v"])
 
     def get_low_stock_products(self) -> list[Product]:
         with self.db.connect() as conn:
@@ -107,9 +114,8 @@ class ProductRepository:
             return [Product(**dict(r)) for r in rows]
 
     def get_products_with_price_range(self, min_price: float, max_price: float) -> list[Product]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM products WHERE price BETWEEN ? AND ?', (min_price, max_price))
-            rows = cursor.fetchall()
-            return [Product(**dict(r)) for r in rows]
+        return self.list(
+            min_price=min_price,
+            max_price=max_price,
+        )
 

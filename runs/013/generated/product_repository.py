@@ -111,23 +111,26 @@ class ProductRepository:
             return [Product(**dict(r)) for r in rows]
 
     def search_products(self, query: str, category: str) -> list[Product]:
-        return self.list(
-            category=category,
-        )
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            query_condition = 'WHERE name LIKE ? AND category = ?'
+            cursor.execute(f'SELECT * FROM products {query_condition}', (f'%{query}%', category))
+            rows = cursor.fetchall()
+            return [Product(**dict(r)) for r in rows]
 
     def get_product_count_by_category(self) -> dict[str, int]:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT category, COUNT(*) as count FROM products GROUP BY category')
-            rows = cursor.fetchall()
-            return {row[0]: row[1] for row in rows}
+            rows = conn.execute(
+                "SELECT category AS k, COUNT(*) AS n FROM products GROUP BY category"
+            ).fetchall()
+            return {r["k"]: int(r["n"]) for r in rows}
 
     def get_total_stock_value(self) -> float:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT SUM(stock_quantity * price) FROM products')
-            row = cursor.fetchone()
-            return row[0] if row[0] is not None else 0.0
+            row = conn.execute(
+                "SELECT COALESCE(SUM(price), 0) AS v FROM products",
+            ).fetchone()
+            return float(row["v"])
 
     def get_products_with_price_range(self, min_price: float, max_price: float) -> list[Product]:
         return self.list(

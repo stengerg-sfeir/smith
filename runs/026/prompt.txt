@@ -1,1 +1,0 @@
-Create a Python 3.12 library application managing books, members and loans. A member can borrow multiple books, but a book can have at most one active loan. Users must be able to create and close loans and determine which books are currently available.
