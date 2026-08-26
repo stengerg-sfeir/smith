@@ -1,1 +1,0 @@
-Create a Python 3.12 command-line todo application. Users can add tasks, list tasks, mark a task as completed and delete a task. Store the tasks in memory.

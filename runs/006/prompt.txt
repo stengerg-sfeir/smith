@@ -1,1 +1,0 @@
-Create a Python 3.12 application for managing products. Each product has a name, description, price and quantity. Provide CRUD operations and persist the data in SQLite.

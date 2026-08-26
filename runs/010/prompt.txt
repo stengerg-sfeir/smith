@@ -1,1 +1,0 @@
-Create a Python 3.12 CLI application for managing notes. Organize the code into separate modules for the data model, persistence, business logic and CLI. Notes have a title, content and creation date. Provide create, list, update and delete operations using SQLite.

@@ -1,1 +1,0 @@
-Create a Python 3.12 library management application. The application manages books with title, author, ISBN and publication year. Users can create, list, update, search and delete books. The ISBN must be unique. Persist the data in SQLite.
