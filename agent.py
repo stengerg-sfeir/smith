@@ -2754,33 +2754,479 @@ def _repo_columns(ent_design, table_names=None):
     return cols
 
 
-def _repo_method_body(m, ent, ent_snake, model):
+def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
     """Deterministic body lines for a designed custom repository method, or
     None (=> stub, then LLM fill).
 
-    Fully declarative: a method carrying impl {"kind": "list_filtered"}
-    delegates to the deterministic self.list(...) restricted to the
-    entity's DECLARED list_filters. Methods without a resolvable impl stay
-    locked stubs for _llm_fill. There are NO method-name patterns here —
-    filter_by_date(), search_period(), find_X_by_Y all resolve through the
-    same declaration.
+    Declarative-first, then signature-shape recipes bounded by the DESIGNED
+    schema (every column reference must resolve to a real designed field):
+
+      impl {"kind": "list_filtered"}          -> delegate to self.list(...)
+      CRUD shadow  create_<e>/get_<e>_by_id/
+                   delete_<e>/update_<e>      -> alias the canonical CRUD body
+      params subset of declared filters       -> delegate to self.list(...)
+      *_count[_by_<col>]                      -> COUNT(*) [GROUP BY col]
+      unique numeric col, scalar total        -> SUM(col)
+      _by_<col> over unique numeric col       -> SUM(col) GROUP BY col
+      _highest_<col>/_lowest_<col>/latest...  -> ORDER BY col LIMIT 1
+      LIKE params (<field>_prefix/_contains,
+                   lone term over unique str) -> WHERE col LIKE ?
+      pagination (limit[/offset] + filters)   -> LIMIT/OFFSET query
+      tuple[<Ent>, int]-shaped child count    -> JOIN + COUNT top-N
+      dict[..., int]-shaped fk counts         -> GROUP BY fk counts
+      dict[<Ent>, <Other>]                    -> per-row joined lookup
+
+    Anything unmatched stays a locked stub for _llm_fill. No domain
+    vocabulary: every recipe keys on signatures, return annotations, and
+    the designed fields/filters of THIS entity.
     """
-    impl = m.get("impl")
-    if not isinstance(impl, dict) or impl.get("kind") != "list_filtered" or not ent:
+    if not ent:
         return None
+    name = m.get("name") or ""
     params = [
         p.get("name") for p in (m.get("params") or [])
         if isinstance(p, dict)
     ]
-    # The deterministic list() accepts these DECLARED keyword filters only.
-    valid = _filter_params(ent)
-    args = [p for p in params if p in valid]
-    if not args:
+    ret = (m.get("returns") or "").strip()
+    ret_l = ret.lower()
+    fields = {
+        f.get("name"): f
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+    table = _entity_table_name(ent)
+    lfmap = {
+        s.get("param"): s
+        for s in (ent.get("list_filters") or [])
+        if isinstance(s, dict) and s.get("param")
+    }
+    num_cols = [
+        n for n, f in fields.items()
+        if f.get("type") in ("int", "float")
+        and n != "id" and not n.endswith("_id")
+    ]
+    str_cols = [n for n, f in fields.items() if f.get("type") == "str"]
+    date_cols = [
+        n for n, f in fields.items()
+        if f.get("type") in ("date", "datetime")
+    ]
+
+    # ---- declared-filter WHERE builder ------------------------------------
+    def _where(ps):
+        conds, binds = [], []
+        for p in ps:
+            spec = lfmap.get(p)
+            if not spec:
+                return None, None
+            col, op = spec.get("column"), spec.get("op")
+            if op == "eq":
+                conds.append("%s = ?" % col)
+                binds.append(p)
+            elif op == "gte":
+                conds.append("%s >= ?" % col)
+                binds.append(p)
+            elif op == "lte":
+                conds.append("%s <= ?" % col)
+                binds.append(p)
+            elif op == "eq_true":
+                conds.append("%s = 1" % col)
+            elif op == "gt_zero":
+                conds.append("%s > 0" % col)
+            else:
+                return None, None
+        frag = (" WHERE " + " AND ".join(conds)) if conds else ""
+        return frag, binds
+
+    def _exec_scalar(sql, binds):
+        lines = [
+            "        with self.db.connect() as conn:",
+            "            row = conn.execute(",
+            '                "%s",' % sql,
+        ]
+        if binds:
+            lines.append(
+                "                (%s)," % ", ".join(binds)
+            )
+        lines += [
+            "            ).fetchone()",
+            '            return int(row["n"])',
+        ]
+        return lines
+
+    # ---- 1. declared impl: list_filtered -----------------------------------
+    # Delegate when the method's params map onto declared filters; when they
+    # do NOT, fall through to the shape recipes below instead of bailing —
+    # a stale/defaulted stamp must never shadow count/sum/top/join bodies.
+    impl = m.get("impl")
+    if isinstance(impl, dict) and impl.get("kind") == "list_filtered":
+        valid = _filter_params(ent)
+        args = [p for p in params if p in valid]
+        if args and len(args) == len(params):
+            lines = ["        return self.list("]
+            lines += ["            %s=%s," % (p, p) for p in args]
+            lines += ["        )"]
+            return lines
+
+    esnake = re.escape(ent_snake)
+
+    # ---- 2. CRUD shadows ---------------------------------------------------
+    if re.fullmatch(r"create_%s" % esnake, name):
+        cols = [p for p in params if p in fields and p != "id"]
+        if cols and len(cols) == len(params):
+            kw = ", ".join("%s=%s" % (c, c) for c in cols)
+            return [
+                "        obj = %s(%s)" % (model, kw),
+                "        self.create(obj)",
+                "        return obj",
+            ]
         return None
-    lines = ["        return self.list("]
-    lines += ["            %s=%s," % (p, p) for p in args]
-    lines += ["        )"]
-    return lines
+    if re.fullmatch(r"get_%s_by_id" % esnake, name) and params == ["id"]:
+        return ["        return self.get_by_id(id)"]
+    if (
+        re.fullmatch(r"(?:delete|remove)_%s" % esnake, name)
+        and params == ["id"]
+    ):
+        return ["        return self.delete(id)"]
+    if re.fullmatch(r"update_%s" % esnake, name) and params:
+        if params[0] != "id":
+            return None
+        upd_cols = [p for p in params[1:] if p in fields]
+        if not upd_cols or len(upd_cols) != len(params) - 1:
+            return None
+        items = ", ".join('"%s": %s' % (c, c) for c in upd_cols)
+        lines = [
+            "        data = {%s}" % items,
+            "        updated = self.update(id, data)",
+        ]
+        if "bool" in ret_l:
+            lines.append("        return updated")
+            return lines
+        lines += [
+            "        if not updated:",
+            "            return None",
+            "        return self.get_by_id(id)",
+        ]
+        return lines
+
+    is_list_model = (
+        model in ret and ("List[" in ret or "list[" in ret)
+    )
+    is_opt_model = model in ret and "Optional[" in ret
+
+    # ---- 3. filtered-list delegation (declared or aliasable params) --------
+    # Exact filter-param match first; then bound aliases: min_<x>/max_<x>
+    # may bind to ANY declared gte/lte filter over the resolved column
+    # (the LLM often declares the same bound under a different name, e.g.
+    # method min_price vs declared filter "price" op=gte).
+    if params and is_list_model:
+        kwargs = []
+        resolvable = True
+        for p in params:
+            if p in lfmap:
+                kwargs.append((p, p))
+                continue
+            alias = None
+            bm = re.fullmatch(r"(min|max)_(.+)", p)
+            if bm:
+                pre, suf = bm.group(1), bm.group(2)
+                want_op = "gte" if pre == "min" else "lte"
+                comparable = [
+                    n for n, f in fields.items()
+                    if f.get("type")
+                    in ("int", "float", "date", "datetime")
+                ]
+                col = None
+                if suf in comparable:
+                    col = suf
+                else:
+                    suffixed = [
+                        c for c in comparable if c.endswith("_" + suf)
+                    ]
+                    if len(suffixed) == 1:
+                        col = suffixed[0]
+                    elif len(comparable) == 1:
+                        col = comparable[0]
+                if col is not None:
+                    spec = next(
+                        (
+                            s for s in (ent.get("list_filters") or [])
+                            if isinstance(s, dict)
+                            and s.get("column") == col
+                            and s.get("op") == want_op
+                        ),
+                        None,
+                    )
+                    if spec:
+                        alias = spec.get("param")
+            if alias is None:
+                resolvable = False
+                break
+            kwargs.append((alias, p))
+        if resolvable:
+            lines = ["        return self.list("]
+            lines += ["            %s=%s," % (a, p) for a, p in kwargs]
+            lines += ["        )"]
+            return lines
+
+    # ---- 4. counts ----------------------------------------------------------
+    cm = re.search(r"_count(?:_by_([a-z][a-z0-9_]*))?$", name)
+    if cm:
+        bycol = cm.group(1)
+        frag, binds = _where(params)
+        if frag is not None:
+            if bycol is None and "int" in ret_l and "dict" not in ret_l:
+                return _exec_scalar(
+                    "SELECT COUNT(*) AS n FROM %s%s" % (table, frag), binds
+                )
+            if (
+                bycol is not None
+                and bycol in fields
+                and "dict" in ret_l
+                and not binds
+            ):
+                # Grouped + bound filters would need an ordering contract;
+                # leave those to the fill rather than guess semantics.
+                return [
+                    "        with self.db.connect() as conn:",
+                    "            rows = conn.execute(",
+                    '                "SELECT %s AS k, COUNT(*) AS n FROM %s'
+                    ' GROUP BY %s"' % (bycol, table, bycol),
+                    "            ).fetchall()",
+                    '            return {r["k"]: int(r["n"]) for r in rows}',
+                ]
+
+    # ---- 5. sums over the unique numeric column ----------------------------
+    # Column resolution: prefer the unique numeric whose declared type
+    # matches the annotated return type (float total over money columns,
+    # int total over counters); fall back to overall uniqueness.
+    if (
+        ret_l in ("float", "int")
+        and not name.endswith("_count")
+        and (not params or set(params) <= set(lfmap))
+    ):
+        typed = [
+            n for n in num_cols if fields[n].get("type") == ret_l
+        ]
+        ncol = None
+        if len(typed) == 1:
+            ncol = typed[0]
+        elif len(num_cols) == 1:
+            ncol = num_cols[0]
+        frag, binds = _where(params)
+        if ncol is not None and frag is not None:
+            lines = [
+                "        with self.db.connect() as conn:",
+                "            row = conn.execute(",
+                '                "SELECT COALESCE(SUM(%s), 0) AS v'
+                ' FROM %s%s",' % (ncol, table, frag),
+            ]
+            if binds:
+                lines.append(
+                    "                (%s)," % ", ".join(binds)
+                )
+            lines += [
+                "            ).fetchone()",
+                '            return float(row["v"])'
+                if ret_l == "float"
+                else '            return int(row["v"])',
+            ]
+            return lines
+    sm = re.search(r"_by_([a-z][a-z0-9_]*)$", name)
+    if (
+        sm
+        and "dict" in ret_l
+        and sm.group(1) in fields
+        and len(num_cols) == 1
+        and not params
+    ):
+        gb, ncol = sm.group(1), num_cols[0]
+        return [
+            "        with self.db.connect() as conn:",
+            "            rows = conn.execute(",
+            '                "SELECT %s AS k, SUM(%s) AS v FROM %s'
+            ' GROUP BY %s"' % (gb, ncol, table, gb),
+            "            ).fetchall()",
+            '            return {r["k"]: float(r["v"] or 0)'
+            ' for r in rows}',
+        ]
+
+    # ---- 6. top-1 by designed column ---------------------------------------
+    tm = re.search(
+        r"_(highest|lowest|max|min|latest|newest|earliest|oldest)_"
+        r"([a-z][a-z0-9_]*)$",
+        name,
+    )
+    if tm and is_opt_model:
+        word, col = tm.group(1), tm.group(2)
+        if col in fields:
+            desc = word in ("highest", "max", "latest", "newest")
+            return [
+                "        with self.db.connect() as conn:",
+                "            row = conn.execute(",
+                '                "SELECT * FROM %s ORDER BY %s %s'
+                ' LIMIT 1"' % (table, col, "DESC" if desc else "ASC"),
+                "            ).fetchone()",
+                '            return %s(**dict(row)) if row else None'
+                % model,
+            ]
+        return None
+    if tm and is_list_model and not params:
+        word, col = tm.group(1), tm.group(2)
+        if word in ("latest", "newest") and len(date_cols) == 1:
+            dcol = date_cols[0]
+            return [
+                "        with self.db.connect() as conn:",
+                "            rows = conn.execute(",
+                '                "SELECT * FROM %s ORDER BY %s DESC"'
+                % (table, dcol),
+                "            ).fetchall()",
+                '            return [%s(**dict(r)) for r in rows]' % model,
+            ]
+        return None
+
+    # ---- 7. LIKE searches ---------------------------------------------------
+    like_pairs = []
+    for p in params:
+        for suf in ("_prefix", "_contains", "_pattern", "_substring"):
+            if p.endswith(suf) and p[: -len(suf)] in str_cols:
+                like_pairs.append((p, p[: -len(suf)]))
+                break
+    if (
+        not like_pairs
+        and len(params) == 1
+        and params[0] in ("term", "query", "keyword")
+        and len(str_cols) == 1
+    ):
+        like_pairs.append((params[0], str_cols[0]))
+    if like_pairs and is_list_model and set(params) == {
+        p for p, _ in like_pairs
+    }:
+        conds = ["%s LIKE ?" % c for _, c in like_pairs]
+        binds = ['"%%" + %s + "%%"' % p for p, _ in like_pairs]
+        return [
+            "        with self.db.connect() as conn:",
+            "            rows = conn.execute(",
+            '                "SELECT * FROM %s WHERE %s",' % (table, " AND ".join(conds)),
+            "                (%s)," % ", ".join(binds),
+            "            ).fetchall()",
+            '            return [%s(**dict(r)) for r in rows]' % model,
+        ]
+
+    # ---- 8. pagination -------------------------------------------------------
+    if is_list_model and "limit" in params:
+        extra = [p for p in params if p not in ("limit", "offset")]
+        if set(extra) <= set(lfmap):
+            frag, binds = _where(extra)
+            if frag is not None:
+                order = binds + (["limit"] + (["offset"] if "offset" in params else []))
+                lim = " LIMIT ? OFFSET ?" if "offset" in params else " LIMIT ?"
+                lines = [
+                    "        with self.db.connect() as conn:",
+                    "            rows = conn.execute(",
+                    '                "SELECT * FROM %s%s%s",' % (table, frag, lim),
+                ]
+                if order:
+                    lines.append(
+                        "                (%s)," % ", ".join(order)
+                    )
+                lines += [
+                    "            ).fetchall()",
+                    '            return [%s(**dict(r)) for r in rows]'
+                    % model,
+                ]
+                return lines
+
+    # ---- 9. child-count joins (tuple[X, int] / dict[..., int]) --------------
+    ents = entities_by_class or {}
+    children = []
+    for cls_o, e_o in ents.items():
+        if cls_o == model:
+            continue
+        fks = [
+            f.get("name")
+            for f in (e_o.get("fields") or [])
+            if isinstance(f, dict)
+            and (f.get("name") or "").endswith("_id")
+            and _camel((f.get("name"))[:-3]) == model
+        ]
+        if len(fks) == 1:
+            children.append((cls_o, e_o, fks[0]))
+    if len(children) == 1 and not params:
+        c_cls, c_ent, fk = children[0]
+        c_tbl = _entity_table_name(c_ent)
+        c_model = _camel(c_cls)
+        if "tuple" in ret_l and model in ret and "int" in ret_l:
+            allowed = "{%s}" % ", ".join(
+                sorted(set(fields) | {"id"})
+            )
+            return [
+                "        with self.db.connect() as conn:",
+                "            rows = conn.execute(",
+                '                "SELECT p.*, COUNT(*) AS n FROM %s p'
+                ' JOIN %s c ON c.%s = p.id'
+                ' GROUP BY p.id ORDER BY n DESC LIMIT 5"' % (table, c_tbl, fk),
+                "            ).fetchall()",
+                "            return [",
+                "                (%s({k: v for k, v in dict(r).items()"
+                " if k in %s}), int(r[\"n\"]))" % (model, allowed),
+                "                for r in rows",
+                "            ]",
+            ]
+        if ret_l.startswith(("dict", "Dict")) and "int" in ret_l:
+            return [
+                "        with self.db.connect() as conn:",
+                "            rows = conn.execute(",
+                '                "SELECT %s AS k, COUNT(*) AS n FROM %s'
+                ' GROUP BY %s ORDER BY n DESC"' % (fk, c_tbl, fk),
+                "            ).fetchall()",
+                '            return {r["k"]: int(r["n"]) for r in rows}',
+            ]
+
+    # ---- 10. joined pair lookup: dict[<This>, <Other>] ----------------------
+    jm = re.match(
+        r"[Dd]ict\[\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\]$", ret
+    )
+    if jm and jm.group(1) == model and entities_by_class:
+        o_cls = jm.group(2)
+        o_ent = entities_by_class.get(o_cls)
+        fks = [
+            f.get("name")
+            for f in (ent.get("fields") or [])
+            if isinstance(f, dict)
+            and (f.get("name") or "").endswith("_id")
+            and _camel((f.get("name"))[:-3]) == o_cls
+        ]
+        if o_ent and len(fks) == 1:
+            fk = fks[0]
+            o_tbl = _entity_table_name(o_ent)
+            o_model = _camel(o_cls)
+            ours = "{%s}" % ", ".join(sorted(set(fields) | {"id"}))
+            theirs = "{%s}" % ", ".join(
+                sorted(
+                    {f.get("name") for f in (o_ent.get("fields") or [])
+                     if isinstance(f, dict) and f.get("name")}
+                    | {"id"}
+                )
+            )
+            return [
+                "        with self.db.connect() as conn:",
+                '            rows = conn.execute("SELECT * FROM %s").fetchall()'
+                % table,
+                "            out = {}",
+                "            for r in rows:",
+                "                obj = %s({k: v for k, v in dict(r).items()"
+                " if k in %s})" % (model, ours),
+                "                rel = conn.execute(",
+                '                    "SELECT * FROM %s WHERE id = ?", (%s(obj).%s,)'
+                % (o_tbl, "", fk),
+                "                ).fetchone()",
+                "                if rel:",
+                "                    out[obj] = %s({k: v for k, v in"
+                " dict(rel).items() if k in %s})" % (o_model, theirs),
+                "            return out",
+            ]
+
+    return None
 
 
 def _repo_fill_ok(filled, design):
@@ -3258,7 +3704,9 @@ prompt_text="", verbose=False, models_module="models"):
     for m in design.get("methods") or []:
         if not isinstance(m, dict) or not m.get("name"):
             continue
-        body = _repo_method_body(m, ent, ent_snake, model)
+        body = _repo_method_body(
+            m, ent, ent_snake, model, entities_by_class=entities_by_class
+        )
         if body is not None:
             def_line = _method_stub_code(m, 1).split("\n")[0]
             L.append(def_line)
@@ -4168,6 +4616,44 @@ def _apply_filter_floors(entities_by_class, designs):
             lf.append({"param": pa, "column": col, "op": "gte"})
             lf.append({"param": pb, "column": col, "op": "lte"})
             declared.update((pa, pb))
+
+        # min_<x>/max_<x> bounds over ANY typed column (numeric or date):
+        # resolution mirrors _resolve_range_col — exact field name first,
+        # then a unique '<col>_<x>' suffix match, else the unique
+        # numeric-or-date column. These let the deterministic list() serve
+        # price_range-style designed queries without name heuristics.
+        def _resolve_bound_col(suf):
+            comparable = [
+                n for n in sorted(fields)
+                if fields[n].get("type") in ("int", "float", "date", "datetime")
+            ]
+            exact = [c for c in comparable if c == suf]
+            if len(exact) == 1:
+                return exact[0]
+            suffixed = [c for c in comparable if c.endswith("_" + suf)]
+            if len(suffixed) == 1:
+                return suffixed[0]
+            if len(comparable) == 1:
+                return comparable[0]
+            return None
+
+        bounds_seen = set()
+        for pre in ("min_", "max_"):
+            for p in uniq:
+                if p.startswith(pre) and len(p) > len(pre):
+                    bounds_seen.add((pre, p[len(pre):]))
+        for pre, suf in sorted(bounds_seen):
+            pa = pre + suf
+            if pa in declared:
+                continue
+            col = _resolve_bound_col(suf)
+            if col is None:
+                continue
+            op = "gte" if pre == "min_" else "lte"
+            if (col, op) in covered_ops:
+                continue
+            lf.append({"param": pa, "column": col, "op": op})
+            declared.add(pa)
         ent["list_filters"] = lf
 
     # Flag filters from bounded CLI propagation: a synthesized

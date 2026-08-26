@@ -94,16 +94,41 @@ class TaskRepository:
             return cur.rowcount > 0
 
     def create_task(self, project_id: int, title: str, description: Optional[str] = None, status: str = None, priority: int = None, due_date: Optional[date] = None) -> Task:
-        raise NotImplementedError()
+        obj = Task(project_id=project_id, title=title, description=description, status=status, priority=priority, due_date=due_date)
+        self.create(obj)
+        return obj
 
-    def update_task(self, task_id: int, title: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, priority: Optional[int] = None, due_date: Optional[date] = None) -> Task:
-        raise NotImplementedError()
+    def update_task(self, task_id: int, title: Optional[str]=None, description: Optional[str]=None, status: Optional[str]=None, priority: Optional[int]=None, due_date: Optional[str]=None) -> Task:
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            query = '\n                UPDATE tasks \n                SET title = ?, description = ?, status = ?, priority = ?, due_date = ? \n                WHERE id = ?\n            '
+            cursor.execute(query, (title, description, status, priority, due_date, task_id))
+            conn.commit()
+            if cursor.rowcount == 0:
+                raise TaskNotFoundError(f'Task with id {task_id} not found')
+            cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise TaskNotFoundError(f'Task with id {task_id} not found')
+            return Task(**dict(row))
 
     def delete_task(self, task_id: int) -> bool:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            query = 'DELETE FROM tasks WHERE id = ?'
+            cursor.execute(query, (task_id,))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_task_by_id(self, task_id: int) -> Task:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            query = 'SELECT * FROM tasks WHERE id = ?'
+            cursor.execute(query, (task_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise TaskNotFoundError(f'Task with id {task_id} not found')
+            return Task(**dict(row))
 
     def list_tasks_by_project(self, project_id: int, status_filter: Optional[str] = None, priority_filter: Optional[int] = None, due_date_range: Optional[tuple[datetime, datetime]] = None) -> list[Task]:
         return self.list(
@@ -111,13 +136,27 @@ class TaskRepository:
         )
 
     def get_task_stats_by_status(self) -> dict[str, int]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT status AS k, SUM(priority) AS v FROM tasks GROUP BY status"
+            ).fetchall()
+            return {r["k"]: float(r["v"] or 0) for r in rows}
 
     def get_task_completion_rate(self, project_id: int) -> float:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(priority), 0) AS v FROM tasks WHERE project_id = ?",
+                (project_id),
+            ).fetchone()
+            return float(row["v"])
 
     def get_tasks_with_overdue_due_dates(self) -> list[Task]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            query = 'SELECT * FROM tasks WHERE due_date < ?'
+            cursor.execute(query, ('now',))
+            rows = cursor.fetchall()
+            return [Task(**dict(r)) for r in rows]
 
     def get_tasks_by_priority_and_status(self, status: str, priority: int) -> list[Task]:
         return self.list(
@@ -126,8 +165,19 @@ class TaskRepository:
         )
 
     def get_project_task_count(self, project_id: int) -> int:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM tasks WHERE project_id = ?",
+                (project_id),
+            ).fetchone()
+            return int(row["n"])
 
     def search_tasks_by_title(self, query: str, limit: int) -> list[Task]:
-        raise NotImplementedError()
+        with self.db.connect() as conn:
+            cursor = conn.cursor()
+            query_param = f'%{query}%'
+            query = 'SELECT * FROM tasks WHERE title LIKE ? LIMIT ?'
+            cursor.execute(query, (query_param, limit))
+            rows = cursor.fetchall()
+            return [Task(**dict(r)) for r in rows]
 
