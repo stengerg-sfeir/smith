@@ -118,7 +118,7 @@ class ExpenseRepository:
         with self.db.connect() as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM expenses WHERE category_id = ? AND expense_date >= ? AND expense_date <= ?",
-                (category_id, start_date, end_date),
+                (category_id, start_date, end_date)
             ).fetchone()
             return int(row["v"])
 
