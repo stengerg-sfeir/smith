@@ -1,0 +1,1 @@
+Create a Python 3.12 application managing users, products and orders. Administrators can manage products and users. Normal users can create orders and view their own orders but cannot modify products or other users.

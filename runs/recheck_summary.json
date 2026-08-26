@@ -1,0 +1,1990 @@
+{
+  "started_at": "2026-08-26T05:59:03.964983+00:00",
+  "checker": "/Users/gillesstenger/Documents/neurosymbolic/checks/generic_checks.py",
+  "total": 40,
+  "checks": {
+    "pass": 21,
+    "fail": 19,
+    "not_run": 0
+  },
+  "results": [
+    {
+      "prompt": "001",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 2,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 2,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "002",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 1,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 1,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "003",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 1,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 1,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "004",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 1,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 1,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "005",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "006",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 8,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 98,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 101,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 104,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 107,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 110,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 113,
+                "text": "raise NotImplementedError('Category column does not exist in products table; this method cannot be implemented with the given schema.')"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 116,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/006/generated/product_repository.py",
+                "line": 119,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "007",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "008",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "009",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 6,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 6,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "010",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 4,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/010/generated/note_repository.py",
+                "line": 92,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/010/generated/note_repository.py",
+                "line": 95,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/010/generated/note_repository.py",
+                "line": 98,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/010/generated/note_repository.py",
+                "line": 101,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "011",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 6,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 6,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "012",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "013",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 1,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/013/generated/product_service.py",
+                "line": 57,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "014",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "015",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "016",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 6,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py",
+                "line": 93,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py",
+                "line": 96,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py",
+                "line": 99,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py",
+                "line": 102,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py",
+                "line": 105,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/016/generated/customer_repository.py",
+                "line": 108,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "017",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "018",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "019",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 6,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py",
+                "line": 99,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py",
+                "line": 102,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py",
+                "line": 105,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py",
+                "line": 108,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py",
+                "line": 111,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/019/generated/task_repository.py",
+                "line": 114,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "020",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 8,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "021",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 8,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "022",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 10,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 6,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/022/generated/product_repository.py",
+                "line": 88,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/022/generated/product_repository.py",
+                "line": 91,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/022/generated/product_repository.py",
+                "line": 94,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/022/generated/product_repository.py",
+                "line": 97,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/022/generated/product_repository.py",
+                "line": 100,
+                "text": "raise NotImplementedError(\"The 'products' table does not have a 'quantity' column. This method cannot be implemented as per the designed schema.\")"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/022/generated/product_repository.py",
+                "line": 109,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 10,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "023",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 9,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 9,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "024",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 9,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 3,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/024/generated/project_service.py",
+                "line": 68,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/024/generated/project_service.py",
+                "line": 93,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/024/generated/task_service.py",
+                "line": 44,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 9,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "025",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 9,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 2,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/025/generated/department_repository.py",
+                "line": 86,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/025/generated/department_repository.py",
+                "line": 108,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 9,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "026",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 9,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 100,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 103,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 106,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 109,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 117,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 120,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/loan_repository.py",
+                "line": 123,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/member_repository.py",
+                "line": 120,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/026/generated/book_repository.py",
+                "line": 113,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 8,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "027",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "028",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "029",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 9,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 3,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/029/generated/order_service.py",
+                "line": 72,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/029/generated/order_service.py",
+                "line": 75,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/029/generated/order_repository.py",
+                "line": 122,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 9,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "030",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "fail",
+            "files": [
+              "/Users/gillesstenger/Documents/neurosymbolic/runs/030/generated/sqlite_task_repository.py"
+            ]
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "fail",
+            "modules": 7,
+            "errors": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/030/generated/task_service.py",
+                "module": "task_service",
+                "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import sys, importlib; importlib.import_module(sys.argv[1])\n                           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1406, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1371, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1342, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 938, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 759, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 491, in _call_with_frames_removed\n  File \"/Users/gillesstenger/Documents/neurosymbolic/runs/030/generated/task_service.py\", line 9, in <module>\n    from models import Task\nModuleNotFoundError: No module named 'models'\n"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/030/generated/task_repository.py",
+                "module": "task_repository",
+                "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import sys, importlib; importlib.import_module(sys.argv[1])\n                           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1406, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1371, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1342, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 938, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 759, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 491, in _call_with_frames_removed\n  File \"/Users/gillesstenger/Documents/neurosymbolic/runs/030/generated/task_repository.py\", line 7, in <module>\n    from models import Task\nModuleNotFoundError: No module named 'models'\n"
+              }
+            ]
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "031",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 5,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/031/generated/account_repository.py",
+                "line": 84,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/031/generated/account_repository.py",
+                "line": 92,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/031/generated/account_repository.py",
+                "line": 95,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/031/generated/account_repository.py",
+                "line": 98,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/031/generated/account_repository.py",
+                "line": 101,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 8,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "032",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 6,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 6,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "033",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 6,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/customer_repository.py",
+                "line": 98,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/customer_repository.py",
+                "line": 101,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/customer_repository.py",
+                "line": 104,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/customer_repository.py",
+                "line": 107,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/customer_repository.py",
+                "line": 110,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/customer_repository.py",
+                "line": 113,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "fail",
+            "modules": 8,
+            "errors": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/audit.py",
+                "module": "audit",
+                "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import sys, importlib; importlib.import_module(sys.argv[1])\n                           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1406, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1371, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1342, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 938, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 759, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 491, in _call_with_frames_removed\n  File \"/Users/gillesstenger/Documents/neurosymbolic/runs/033/generated/audit.py\", line 7, in <module>\n    from auditrecord_repository import AuditrecordRepository\nModuleNotFoundError: No module named 'auditrecord_repository'\n"
+              }
+            ]
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "034",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 1,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/034/generated/order_line_repository.py",
+                "line": 95,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "035",
+      "exit_code": 0,
+      "checks": {
+        "overall": "pass",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 7,
+            "errors": []
+          }
+        }
+      },
+      "overall": "pass"
+    },
+    {
+      "prompt": "036",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 8,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 8,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/category_repository.py",
+                "line": 72,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/category_repository.py",
+                "line": 75,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/category_repository.py",
+                "line": 78,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/category_repository.py",
+                "line": 81,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/category_repository.py",
+                "line": 84,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/category_repository.py",
+                "line": 87,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/product_service.py",
+                "line": 39,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/036/generated/product_service.py",
+                "line": 53,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 8,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "037",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 9,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 15,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+                "line": 82,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+                "line": 85,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+                "line": 93,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+                "line": 96,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+                "line": 104,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+                "line": 117,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 97,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 100,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 103,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 106,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 114,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 117,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 120,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 129,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py",
+                "line": 132,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 9,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "038",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 9,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 1,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/038/generated/auth_service.py",
+                "line": 30,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 9,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "039",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 10,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "fail",
+            "count": 6,
+            "matches": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/039/generated/product_repository.py",
+                "line": 96,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/039/generated/product_repository.py",
+                "line": 99,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/039/generated/product_repository.py",
+                "line": 102,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/039/generated/product_repository.py",
+                "line": 105,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/039/generated/product_repository.py",
+                "line": 108,
+                "text": "raise NotImplementedError()"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/039/generated/product_repository.py",
+                "line": 111,
+                "text": "raise NotImplementedError()"
+              }
+            ]
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "pass",
+            "modules": 10,
+            "errors": []
+          }
+        }
+      },
+      "overall": "fail"
+    },
+    {
+      "prompt": "040",
+      "exit_code": 1,
+      "checks": {
+        "overall": "fail",
+        "checks": {
+          "syntax": {
+            "status": "pass",
+            "python_files": 7,
+            "errors": []
+          },
+          "not_implemented": {
+            "status": "pass",
+            "count": 0,
+            "matches": []
+          },
+          "empty_python_files": {
+            "status": "pass",
+            "files": []
+          },
+          "compile": {
+            "status": "pass",
+            "errors": []
+          },
+          "internal_imports": {
+            "status": "pass",
+            "errors": []
+          },
+          "runtime_imports": {
+            "status": "fail",
+            "modules": 7,
+            "errors": [
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/040/generated/notification_service.py",
+                "module": "notification_service",
+                "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import sys, importlib; importlib.import_module(sys.argv[1])\n                           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1406, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1371, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1342, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 938, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 759, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 491, in _call_with_frames_removed\n  File \"/Users/gillesstenger/Documents/neurosymbolic/runs/040/generated/notification_service.py\", line 9, in <module>\n    from notification_repository import NotificationRepository\nModuleNotFoundError: No module named 'notification_repository'\n"
+              },
+              {
+                "file": "/Users/gillesstenger/Documents/neurosymbolic/runs/040/generated/main.py",
+                "module": "main",
+                "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import sys, importlib; importlib.import_module(sys.argv[1])\n                           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1406, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1371, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1342, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 938, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 759, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 491, in _call_with_frames_removed\n  File \"/Users/gillesstenger/Documents/neurosymbolic/runs/040/generated/main.py\", line 5, in <module>\n    from notification_service import NotificationService\n  File \"/Users/gillesstenger/Documents/neurosymbolic/runs/040/generated/notification_service.py\", line 9, in <module>\n    from notification_repository import NotificationRepository\nModuleNotFoundError: No module named 'notification_repository'\n"
+              }
+            ]
+          }
+        }
+      },
+      "overall": "fail"
+    }
+  ],
+  "finished_at": "2026-08-26T05:59:31.701373+00:00"
+}

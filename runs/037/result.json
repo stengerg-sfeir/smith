@@ -1,0 +1,43 @@
+{
+  "prompt": "37",
+  "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_37.txt",
+  "started_at": "2026-08-25T22:11:00.857567+00:00",
+  "duration_seconds": 1103.676,
+  "agent": {
+    "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /Users/gillesstenger/Documents/neurosymbolic/agent.py --prompt 37",
+    "exit_code": 0,
+    "generation_status": "success"
+  },
+  "output": {
+    "expected": "/Users/gillesstenger/Documents/neurosymbolic/generated/37",
+    "exists": true,
+    "captured": true
+  },
+  "checks": {
+    "overall": "pass",
+    "checks": {
+      "syntax": {
+        "status": "pass",
+        "python_files": 9,
+        "errors": []
+      },
+      "not_implemented": {
+        "status": "fail",
+        "files": [
+          "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/project_repository.py",
+          "/Users/gillesstenger/Documents/neurosymbolic/runs/037/generated/task_repository.py"
+        ]
+      },
+      "empty_python_files": {
+        "status": "pass",
+        "files": []
+      },
+      "compile": {
+        "status": "pass",
+        "errors": []
+      }
+    }
+  },
+  "checks_exit_code": 0,
+  "log": "/Users/gillesstenger/Documents/neurosymbolic/runs/037/agent.log"
+}
