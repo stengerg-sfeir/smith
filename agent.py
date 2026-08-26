@@ -2837,6 +2837,15 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         frag = (" WHERE " + " AND ".join(conds)) if conds else ""
         return frag, binds
 
+    def _tup(srcs):
+        """Python tuple-literal source for SQL parameter binding. A
+        single-element list MUST emit '(x,)': bare '(x)' is just x in
+        call position, and sqlite3 rejects it ('parameters are of
+        unsupported type')."""
+        if len(srcs) == 1:
+            return "(%s,)" % srcs[0]
+        return "(%s)" % ", ".join(srcs)
+
     def _exec_scalar(sql, binds):
         lines = [
             "        with self.db.connect() as conn:",
@@ -2844,9 +2853,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             '                "%s",' % sql,
         ]
         if binds:
-            lines.append(
-                "                (%s)," % ", ".join(binds)
-            )
+            lines.append("                %s" % _tup(binds))
         lines += [
             "            ).fetchone()",
             '            return int(row["n"])',
@@ -3021,9 +3028,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                 ' FROM %s%s",' % (ncol, table, frag),
             ]
             if binds:
-                lines.append(
-                    "                (%s)," % ", ".join(binds)
-                )
+                lines.append("                %s" % _tup(binds))
             lines += [
                 "            ).fetchone()",
                 '            return float(row["v"])'
@@ -3050,30 +3055,61 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             ' for r in rows}',
         ]
 
-    # ---- 6. top-1 by designed column ---------------------------------------
+    # ---- 6. top-1 / top-N by designed column --------------------------------
     tm = re.search(
         r"_(highest|lowest|max|min|latest|newest|earliest|oldest)_"
         r"([a-z][a-z0-9_]*)$",
         name,
     )
+
+    def _qual_col(t):
+        """Schema grounding for a qualifier token: exact field match, else
+        the UNIQUE field whose name ends with it ('lowest_copies' ->
+        'available_copies')."""
+        if t in fields:
+            return t
+        cands = [f for f in fields if f.endswith(t)]
+        return cands[0] if len(cands) == 1 else None
+
     if tm and is_opt_model:
-        word, col = tm.group(1), tm.group(2)
-        if col in fields:
+        word = tm.group(1)
+        qcol = _qual_col(tm.group(2))
+        if qcol is not None:
             desc = word in ("highest", "max", "latest", "newest")
             return [
                 "        with self.db.connect() as conn:",
                 "            row = conn.execute(",
                 '                "SELECT * FROM %s ORDER BY %s %s'
-                ' LIMIT 1"' % (table, col, "DESC" if desc else "ASC"),
+                ' LIMIT 1"' % (table, qcol, "DESC" if desc else "ASC"),
                 "            ).fetchone()",
                 '            return %s(**dict(row)) if row else None'
                 % model,
             ]
+        # Unresolvable qualifier: locked stub for the LLM fill — never
+        # fall through to generic pagination, which would misorder rows.
         return None
-    if tm and is_list_model and not params:
-        word, col = tm.group(1), tm.group(2)
-        if word in ("latest", "newest") and len(date_cols) == 1:
-            dcol = date_cols[0]
+    if tm and is_list_model:
+        word = tm.group(1)
+        desc = word in ("highest", "max", "latest", "newest")
+        qcol = _qual_col(tm.group(2))
+        if set(params) <= {"limit"} and qcol is not None:
+            # Top-N with an explicit limit param: deterministic ordering
+            # contract (ORDER BY the grounded column, bound LIMIT).
+            return [
+                "        with self.db.connect() as conn:",
+                "            rows = conn.execute(",
+                '                "SELECT * FROM %s ORDER BY %s %s'
+                ' LIMIT ?",' % (table, qcol, "DESC" if desc else "ASC"),
+                "                %s" % _tup(["limit"]),
+                "            ).fetchall()",
+                '            return [%s(**dict(r)) for r in rows]' % model,
+            ]
+        if (
+            not params
+            and word in ("latest", "newest")
+            and (qcol is not None or len(date_cols) == 1)
+        ):
+            dcol = qcol if qcol is not None else date_cols[0]
             return [
                 "        with self.db.connect() as conn:",
                 "            rows = conn.execute(",
@@ -3107,7 +3143,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             "        with self.db.connect() as conn:",
             "            rows = conn.execute(",
             '                "SELECT * FROM %s WHERE %s",' % (table, " AND ".join(conds)),
-            "                (%s)," % ", ".join(binds),
+            "                %s" % _tup(binds),
             "            ).fetchall()",
             '            return [%s(**dict(r)) for r in rows]' % model,
         ]
@@ -3126,9 +3162,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                     '                "SELECT * FROM %s%s%s",' % (table, frag, lim),
                 ]
                 if order:
-                    lines.append(
-                        "                (%s)," % ", ".join(order)
-                    )
+                    lines.append("                %s" % _tup(order))
                 lines += [
                     "            ).fetchall()",
                     '            return [%s(**dict(r)) for r in rows]'

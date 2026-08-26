@@ -37,7 +37,7 @@ class BookRepository:
             ).fetchall()
             return [Book(**dict(r)) for r in rows]
 
-    def list(self, title: Optional[Any] = None, available_copies: Optional[Any] = None, author_id: Optional[Any] = None, isbn: Optional[Any] = None, published_year: Optional[Any] = None, available_only: Optional[Any] = None) -> List[Book]:
+    def list(self, title: Optional[Any] = None, available_copies: Optional[Any] = None, author_id: Optional[Any] = None, isbn: Optional[Any] = None, published_year: Optional[Any] = None, max_copies: Optional[Any] = None, available_only: Optional[Any] = None) -> List[Book]:
         with self.db.connect() as conn:
             query = "SELECT * FROM books WHERE 1=1"
             params: List[Any] = []
@@ -56,6 +56,9 @@ class BookRepository:
             if published_year is not None:
                 query += ' AND published_year = ?'
                 params.append(published_year)
+            if max_copies is not None:
+                query += ' AND available_copies <= ?'
+                params.append(max_copies)
             if available_only:
                 query += ' AND available_copies > 0'
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
@@ -104,11 +107,10 @@ class BookRepository:
         )
 
     def filter_by_available_copies(self, min_copies: int, max_copies: int) -> List[Book]:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM books WHERE available_copies BETWEEN ? AND ?', (min_copies, max_copies))
-            rows = cursor.fetchall()
-            return [Book(**dict(r)) for r in rows]
+        return self.list(
+            available_copies=min_copies,
+            max_copies=max_copies,
+        )
 
     def search_books(self, query: str) -> List[Book]:
         with self.db.connect() as conn:
@@ -133,8 +135,9 @@ class BookRepository:
 
     def get_books_with_lowest_copies(self, limit: int) -> List[Book]:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM books ORDER BY available_copies ASC LIMIT ?', (limit,))
-            rows = cursor.fetchall()
+            rows = conn.execute(
+                "SELECT * FROM books ORDER BY available_copies ASC LIMIT ?",
+                (limit,)
+            ).fetchall()
             return [Book(**dict(r)) for r in rows]
 

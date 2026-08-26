@@ -103,52 +103,51 @@ class ExpenseRepository:
     def get_monthly_spending_summary(self, month: str) -> Dict[str, Any]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT c.name, SUM(e.amount_cents) AS total_spending FROM expenses e JOIN categories c ON e.category_id = c.id WHERE substr(e.expense_date, 1, 7) = ? GROUP BY c.name', (month,))
+            cursor.execute('SELECT c.name, SUM(e.amount_cents) AS total_spent FROM expenses e JOIN categories c ON e.category_id = c.id WHERE e.expense_date BETWEEN ? AND ? GROUP BY c.name', (month + '-01', month + '-31'))
             rows = cursor.fetchall()
-            return [dict(name=row[0], total_spending=row[1]) for row in rows]
+            return [dict(name=row[0], total_spent=row[1]) for row in rows]
 
     def get_yearly_summary(self, year: int) -> Dict[str, Any]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT c.name, SUM(e.amount_cents) AS total_spending FROM expenses e JOIN categories c ON e.category_id = c.id WHERE substr(e.expense_date, 1, 4) = ? GROUP BY c.name', (str(year),))
+            cursor.execute('SELECT c.name, SUM(e.amount_cents) AS total_spent FROM expenses e JOIN categories c ON e.category_id = c.id WHERE e.expense_date BETWEEN ? AND ? GROUP BY c.name', (f'{year}-01-01', f'{year}-12-31'))
             rows = cursor.fetchall()
-            return [dict(name=row[0], total_spending=row[1]) for row in rows]
+            return [dict(name=row[0], total_spent=row[1]) for row in rows]
 
-    def get_category_spending_range(self, category_id: int, start_date: str, end_date: str) -> int:
+    def get_category_spending_range(self, category_id: int, start_date: date, end_date: date) -> int:
         with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT SUM(e.amount_cents) FROM expenses e WHERE e.category_id = ? AND e.expense_date BETWEEN ? AND ?', (category_id, start_date, end_date))
-            row = cursor.fetchone()
-            return row[0] if row[0] is not None else 0
+            row = conn.execute(
+                "SELECT COALESCE(SUM(amount_cents), 0) AS v FROM expenses WHERE category_id = ? AND expense_date >= ? AND expense_date <= ?",
+                (category_id, start_date, end_date),
+            ).fetchone()
+            return int(row["v"])
 
     def check_budget_exceeded(self, category_id: int, month: str) -> bool:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT b.amount_limit_cents FROM budgets b WHERE b.category_id = ? AND substr(b.month, 1, 7) = ?', (category_id, month))
+            cursor.execute('SELECT b.amount_limit_cents FROM budgets b WHERE b.category_id = ? AND b.month = ?', (category_id, month))
             row = cursor.fetchone()
             if not row:
                 return False
             limit_cents = row[0]
-            cursor.execute('SELECT SUM(e.amount_cents) FROM expenses e WHERE e.category_id = ? AND substr(e.expense_date, 1, 7) = ?', (category_id, month))
-            total_cents = cursor.fetchone()[0] if cursor.fetchone()[0] is not None else 0
-            return total_cents > limit_cents
+            cursor.execute('SELECT SUM(e.amount_cents) AS total_spent FROM expenses e WHERE e.category_id = ? AND e.expense_date BETWEEN ? AND ?', (category_id, month + '-01', month + '-31'))
+            spent_row = cursor.fetchone()
+            total_spent = spent_row[0] if spent_row[0] is not None else 0
+            return total_spent > limit_cents
 
     def get_budget_status_for_month(self, category_id: int, month: str) -> Dict[str, Any]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT b.amount_limit_cents, SUM(e.amount_cents) AS total_spending FROM budgets b LEFT JOIN expenses e ON b.category_id = e.category_id AND substr(e.expense_date, 1, 7) = ? WHERE b.category_id = ? AND substr(b.month, 1, 7) = ?', (month, category_id, month))
+            cursor.execute('SELECT b.amount_limit_cents, SUM(e.amount_cents) AS total_spent FROM budgets b LEFT JOIN expenses e ON e.category_id = b.category_id AND e.expense_date BETWEEN ? AND ? WHERE b.category_id = ? AND b.month = ? GROUP BY b.amount_limit_cents', (month + '-01', month + '-31', category_id, month))
             row = cursor.fetchone()
             if not row:
-                return {'amount_limit_cents': 0, 'total_spending': 0, 'is_over_budget': False}
-            limit_cents = row[0]
-            total_spending = row[1] if row[1] is not None else 0
-            is_over_budget = total_spending > limit_cents
-            return {'amount_limit_cents': limit_cents, 'total_spending': total_spending, 'is_over_budget': is_over_budget}
+                return {'amount_limit_cents': 0, 'total_spent': 0}
+            return {'amount_limit_cents': row[0], 'total_spent': row[1] if row[1] is not None else 0}
 
     def get_recurring_expense_patterns(self) -> List[Dict[str, Any]]:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT e.description, e.category_id, e.payment_method, e.is_recurring, COUNT(*) AS frequency, MIN(e.expense_date) AS first_date, MAX(e.expense_date) AS last_date FROM expenses e WHERE e.is_recurring = 1 GROUP BY e.description, e.category_id, e.payment_method, e.is_recurring ORDER BY frequency DESC')
+            cursor.execute('SELECT e.description, e.category_id, e.payment_method, e.is_recurring, COUNT(*) AS frequency FROM expenses e WHERE e.is_recurring = 1 GROUP BY e.description, e.category_id, e.payment_method, e.is_recurring ORDER BY frequency DESC')
             rows = cursor.fetchall()
-            return [dict(description=row[0], category_id=row[1], payment_method=row[2], is_recurring=row[3], frequency=row[4], first_date=row[5], last_date=row[6]) for row in rows]
+            return [dict(description=row[0], category_id=row[1], payment_method=row[2], is_recurring=row[3], frequency=row[4]) for row in rows]
 
