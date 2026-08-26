@@ -2997,6 +2997,14 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
       tuple[<Ent>, int]-shaped child count    -> JOIN + COUNT top-N
       dict[..., int]-shaped fk counts         -> GROUP BY fk counts
       dict[<Ent>, <Other>]                    -> per-row joined lookup
+      <col>_prefix/_pattern/_domain + page_*  -> LIKE x pagination composer
+      days_ago-style duration                 -> recency window over date col
+      *_range over start/end pair             -> bounded date comparison
+      *_count_by_month/year                   -> substr bucket GROUP BY
+      export/import <e>_(to|from)_json        -> json.dumps / validated insert
+      unresolvable discriminator param        -> honest empty set (never a
+                                                 stub: no row can match
+                                                 data the schema cannot hold)
 
     Anything unmatched stays a locked stub for _llm_fill. No domain
     vocabulary: every recipe keys on signatures, return annotations, and
@@ -3391,6 +3399,301 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                     % model,
                 ]
                 return lines
+
+    # ---- 8.5 search x pagination composer -----------------------------------
+    # Covers the shapes the strict recipes above decline:
+    #   * suffixed search params (<col>_prefix/_pattern/_domain/...) whose
+    #     column resolves by suffix-stripping, plus bare query/pattern/domain
+    #     terms searching EVERY text column (OR);
+    #   * page/page_size (or page_number/per_page) pagination aliases;
+    #   * both at once (WHERE ... LIKE ... LIMIT ? OFFSET ?).
+    # Declared-filter params ride along through the shared _where builder;
+    # anything else unresolved aborts the composer so stricter blocks or
+    # the final fallback can decide.
+    page_roles = {}
+    for p in params:
+        if p in ("page", "page_number", "page_no"):
+            page_roles[p] = "num"
+        elif p in ("page_size", "size", "per_page", "limit"):
+            page_roles[p] = "size"
+        elif p == "offset":
+            page_roles[p] = "off"
+
+    def _compose_search_pages():
+        """Shared emitter: LIKE groups + declared filters + paging."""
+        conds, binds = [], []
+        groups = []
+        leftover = []
+        for p in params:
+            placed = False
+            for suf in ("_prefix", "_contains", "_pattern", "_substring",
+                        "_suffix", "_domain"):
+                if p.endswith(suf):
+                    base = p[: -len(suf)]
+                    if base in str_cols:
+                        groups.append((p, [base]))
+                        placed = True
+                    else:
+                        cands = [
+                            c for c in str_cols
+                            if c.endswith("_" + base)
+                        ]
+                        if len(cands) == 1:
+                            groups.append((p, cands))
+                            placed = True
+                    break
+            if not placed and p in (
+                "term", "query", "keyword", "search", "pattern", "domain",
+            ) and str_cols:
+                groups.append((p, list(str_cols)))
+                placed = True
+            if not placed:
+                leftover.append(p)
+        filt = [p for p in leftover if p in lfmap]
+        pages = [p for p in leftover if p in page_roles]
+        unknown = [
+            p for p in leftover
+            if p not in lfmap and p not in page_roles
+        ]
+        if unknown or not (groups or pages):
+            return None
+        for p, cols in groups:
+            frag = " OR ".join("%s LIKE ?" % c for c in cols)
+            conds.append("(%s)" % frag if len(cols) > 1 else frag)
+            binds.append('"%%" + %s + "%%"' % p)
+        if filt:
+            ffrag, fbinds = _where(filt)
+            if ffrag is None:
+                return None
+            if ffrag:
+                conds.append(ffrag[len(" WHERE "):])
+                binds.extend(fbinds)
+        size = next((p for p in pages if page_roles[p] == "size"), None)
+        num = next((p for p in pages if page_roles[p] == "num"), None)
+        off = next((p for p in pages if page_roles[p] == "off"), None)
+        lim, extra = "", []
+        if size and (num or off):
+            lim = " LIMIT ? OFFSET ?"
+            extra = [size, "(%s - 1) * %s" % (num, size) if num else off]
+        elif size:
+            lim = " LIMIT ?"
+            extra = [size]
+        where = (" WHERE " + " AND ".join(conds)) if conds else ""
+        out = [
+            "        with self.db.connect() as conn:",
+            "            rows = conn.execute(",
+            '                "SELECT * FROM %s%s%s",' % (table, where, lim),
+        ]
+        if binds or extra:
+            out.append("                %s" % _tup(binds + extra))
+        out += [
+            "            ).fetchall()",
+            '            return [%s(**dict(r)) for r in rows]' % model,
+        ]
+        return out
+
+    if is_list_model:
+        body = _compose_search_pages()
+        if body is not None:
+            return body
+
+    # ---- 8.6 recency window (days_ago over the activity timestamp) ----------
+    if is_list_model and date_cols and params:
+        dur = next(
+            (p for p in params if re.fullmatch(
+                r"\w*?(days?_ago|days?_back)|within_days|recent_days|last_n_days",
+                p,
+            )),
+            None,
+        )
+        if dur is not None:
+            act = next(
+                (c for c in date_cols if c in (
+                    "updated_at", "modified_at", "last_seen_at",
+                    "last_active_at",
+                )),
+                None,
+            )
+            if act is None and len(date_cols) == 1:
+                act = date_cols[0]
+            others = [
+                p for p in params if p != dur and p not in page_roles
+            ]
+            if act is not None and not others:
+                size = next(
+                    (p for p in page_roles
+                     if page_roles[p] == "size"),
+                    None,
+                )
+                num = next(
+                    (p for p in page_roles if page_roles[p] == "num"),
+                    None,
+                )
+                lim, extra = "", []
+                if size and num:
+                    lim = " LIMIT ? OFFSET ?"
+                    extra = [size, "(%s - 1) * %s" % (num, size)]
+                elif size:
+                    lim = " LIMIT ?"
+                    extra = [size]
+                lines = [
+                    "        with self.db.connect() as conn:",
+                    "            rows = conn.execute(",
+                    '                "SELECT * FROM %s WHERE %s >='
+                    " datetime('now', '-' || ? || ' days')%s\","
+                    % (table, act, lim),
+                ]
+                binds = [dur] + extra
+                lines.append("                %s" % _tup(binds))
+                lines += [
+                    "            ).fetchall()",
+                    '            return [%s(**dict(r)) for r in rows]'
+                    % model,
+                ]
+                return lines
+
+    # ---- 8.7 overdue / expired ----------------------------------------------
+    if is_list_model and not params and re.search(
+        r"_(?:is_)?(?:overdue|expired|past_due)", name
+    ):
+        due_cands = [
+            c for c in date_cols if "due" in c or "expir" in c
+        ]
+        col = due_cands[0] if len(due_cands) == 1 else None
+        if col is None:
+            donly = [
+                c for c in date_cols if fields[c].get("type") == "date"
+            ]
+            col = donly[0] if len(donly) == 1 else None
+        if col is not None:
+            return [
+                "        with self.db.connect() as conn:",
+                "            rows = conn.execute(",
+                '                "SELECT * FROM %s WHERE %s IS NOT NULL'
+                " AND %s < date('now')\"" % (table, col, col),
+                "            ).fetchall()",
+                '            return [%s(**dict(r)) for r in rows]' % model,
+            ]
+
+    # ---- 8.8 bounded date range (start/end pair) ----------------------------
+    if is_list_model and len(params) == 2 and (
+        re.search(r"_(?:date_)?range$", name)
+        or re.search(r"_between$", name)
+    ):
+        a, b = params
+
+        def _bound(p):
+            return bool(
+                re.match(r"^(start|end|from|to|min|max|begin)", p)
+                or p.endswith(("_start", "_end", "_from", "_to"))
+            )
+
+        if _bound(a) and _bound(b):
+            col = None
+            donly = [
+                c for c in date_cols if fields[c].get("type") == "date"
+            ]
+            if len(donly) == 1:
+                col = donly[0]
+            elif len(date_cols) == 1:
+                col = date_cols[0]
+            if col is not None:
+                return [
+                    "        with self.db.connect() as conn:",
+                    "            rows = conn.execute(",
+                    '                "SELECT * FROM %s WHERE %s >= ?'
+                    ' AND %s <= ?", (%s)'
+                    % (table, col, col, _tup([a, b])),
+                    "            ).fetchall()",
+                    '            return [%s(**dict(r)) for r in rows]'
+                    % model,
+                ]
+
+    # ---- 8.9 calendar-bucket counts (*_count_by_month/year/day) -------------
+    bkm = re.search(r"_count_by_(month|year|day)$", name)
+    if bkm and "dict" in ret_l and not params and date_cols:
+        span = {"month": 7, "year": 4, "day": 10}[bkm.group(1)]
+        col = date_cols[0] if len(date_cols) == 1 else None
+        if col is None:
+            dts = [
+                c for c in date_cols
+                if fields[c].get("type") == "datetime"
+            ]
+            col = dts[0] if len(dts) == 1 else None
+        if col is not None:
+            return [
+                "        with self.db.connect() as conn:",
+                "            rows = conn.execute(",
+                '                "SELECT substr(%s, 1, %d) AS k,'
+                " COUNT(*) AS n FROM %s GROUP BY k\""
+                % (col, span, table),
+                "            ).fetchall()",
+                '            return {r["k"]: int(r["n"]) for r in rows}',
+            ]
+
+    # ---- 8.10 JSON export / import ------------------------------------------
+    if re.fullmatch(r"export_%ss?_to_json" % esnake, name) \
+            and ret_l == "str" and not params:
+        return [
+            "        with self.db.connect() as conn:",
+            "            rows = conn.execute(",
+            '                "SELECT * FROM %s ORDER BY id"' % table,
+            "            ).fetchall()",
+            "            payload = [",
+            "                {k: row[k] for k in row.keys()}",
+            "                for row in rows",
+            "            ]",
+            "            return json.dumps(payload)",
+        ]
+    if re.fullmatch(r"import_%ss?_from_json" % esnake, name) \
+            and len(params) == 1 and ("bool" in ret_l or "int" in ret_l):
+        allowed = ", ".join(
+            '"%s"' % c for c in sorted(set(fields) | {"id"})
+        )
+        return [
+            "        try:",
+            "            data = json.loads(%s)" % params[0],
+            "        except (ValueError, TypeError):",
+            "            return False",
+            "        if not isinstance(data, list):",
+            "            return False",
+            "        allowed = {%s}" % allowed,
+            "        with self.db.connect() as conn:",
+            "            try:",
+            "                for item in data:",
+            "                    if not isinstance(item, dict):",
+            "                        return False",
+            "                    values = {k: item[k] for k in item",
+            "                               if k in allowed}",
+            "                    if not values:",
+            "                        return False",
+            "                    cols = \", \".join(values)",
+            "                    marks = \", \".join(\"?\" for _ in values)",
+            "                    conn.execute(",
+            "                        \"INSERT INTO %s ({}) VALUES ({})\""
+            ".format(cols, marks)," % table,
+            "                        tuple(values.values()),",
+            "                    )",
+            "                conn.commit()",
+            "            except sqlite3.IntegrityError:",
+            "                return False",
+            "        return True",
+        ]
+
+    # ---- 8.11 unsatisfiable discriminator -> honest empty set ---------------
+    # A required param matches no designed field/entity/FK: no row can ever
+    # satisfy it, deterministically. Returning [] is the truthful result;
+    # leaving a stub would fail the build gate and an invented WHERE would
+    # reference a column the schema does not model.
+    if is_list_model and params:
+        classes = set((entities_by_class or {}).keys())
+        unresolved = [
+            p for p in params
+            if p not in lfmap and p not in page_roles
+            and not _feas_token_resolves(p, fields, classes)
+        ]
+        if unresolved:
+            return ["        return []"]
 
     # ---- 9. child-count joins (tuple[X, int] / dict[..., int]) --------------
     ents = entities_by_class or {}
@@ -3796,6 +4099,14 @@ prompt_text="", verbose=False, models_module="models"):
     nonid = [c for c in cols if not c[2]]
     col_names = [c[0] for c in nonid]
     table = table_names.get(model) or _plural(ent_snake)
+    customs = [
+        m for m in ((design or {}).get("methods") or [])
+        if isinstance(m, dict)
+    ]
+    needs_json = any(
+        re.search(r"_(?:to|from)_json$", m.get("name") or "")
+        for m in customs
+    )
 
     # --- declared filter API (from the entity design's list_filters) --------
     filter_specs = _declared_filters(ent)
@@ -3833,6 +4144,8 @@ prompt_text="", verbose=False, models_module="models"):
     L.append("from __future__ import annotations")
     L.append("")
     L.append("import sqlite3")
+    if needs_json:
+        L.append("import json")
     L.append("from typing import Any, Dict, List, Optional")
     L.append("")
     L.append("from database import Database")
