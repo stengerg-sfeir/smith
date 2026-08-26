@@ -210,6 +210,95 @@ def runtime_import_check(root: Path) -> dict:
     }
 
 
+def _find_entry_point(root: Path) -> Path | None:
+    """Locate the project's runnable entry point.
+
+    Prefer ``main.py`` (the manifest-declared entry); otherwise fall back
+    to a single root-level module that is not a support module
+    (models/exceptions/database/cli or a *_repository/*_service). Returns
+    ``None`` when no unambiguous entry exists.
+    """
+    main_py = root / "main.py"
+    if main_py.exists():
+        return main_py
+
+    candidates = [
+        p
+        for p in root.glob("*.py")
+        if p.name
+        not in {
+            "models.py",
+            "exceptions.py",
+            "database.py",
+            "cli.py",
+        }
+        and not p.name.endswith("_repository.py")
+        and not p.name.endswith("_service.py")
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def main_exec_check(root: Path) -> dict:
+    """Smoke-test the generated entry point without semantic judgment.
+
+    Runs ``<python> <entry> --help`` as a subprocess under the project
+    root. The check asserts nothing about output content — only that the
+    entry point does not crash. A zero exit, or a nonzero exit with a
+    clean (non-traceback) message such as argparse usage, is a pass. A
+    Python traceback, a signal termination, or a timeout is a fail.
+    """
+    entry = _find_entry_point(root)
+    if entry is None:
+        return {
+            "status": "pass",
+            "entry": None,
+            "reason": "no_unambiguous_entry_point",
+        }
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(entry), "--help"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "fail",
+            "entry": str(entry),
+            "error": "timeout",
+        }
+
+    rc = proc.returncode
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+
+    if rc < 0:
+        return {
+            "status": "fail",
+            "entry": str(entry),
+            "error": "killed by signal %d" % (-rc),
+            "stderr": (proc.stderr or "")[-1000:],
+        }
+
+    if "Traceback (most recent call last)" in combined:
+        return {
+            "status": "fail",
+            "entry": str(entry),
+            "error": "unhandled traceback",
+            "exit_code": rc,
+            "stderr": (proc.stderr or "")[-1500:],
+        }
+
+    return {
+        "status": "pass",
+        "entry": str(entry),
+        "exit_code": rc,
+    }
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Usage: generic_checks.py GENERATED_DIR", file=sys.stderr)
@@ -231,6 +320,7 @@ def main() -> int:
         "compile": compile_check(root),
         "internal_imports": internal_import_check(root),
         "runtime_imports": runtime_import_check(root),
+        "main_exec": main_exec_check(root),
     }
 
     # All generic integrity/completeness checks are hard gates.
