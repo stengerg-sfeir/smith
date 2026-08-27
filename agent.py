@@ -5263,7 +5263,44 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
         if name in ("add_" + var, "create_" + var):
             kwargs = ["%s=%s" % (p, p) for p in param_names if p in fields]
             if not kwargs:
-                return None
+                # Data-dict add (add_<entity>(data: Dict[str, Any])): build
+                # the entity from a single dict parameter, validating FK keys
+                # that reference a designed entity with a designed NotFound
+                # exception. Deterministic: never .strftime() on a str-typed
+                # ISO date (add_expense crash), never guesses at business logic.
+                data_param = next(
+                    (p for p in param_names if p in ("data", "payload", "record")),
+                    None,
+                )
+                if data_param is None:
+                    return None
+                lines = []
+                for fk in sorted(
+                    f for f in fields if f.endswith("_id") and f != "id"
+                ):
+                    ref_cls = _camel(fk[: -len("_id")])
+                    not_found = "%sNotFoundError" % ref_cls
+                    if (
+                        ref_cls in entities_by_class
+                        and not_found in exception_names
+                        and "%s_repo" % _snake(ref_cls) != "%s_repo" % var
+                    ):
+                        lines.append("        if %s.get(%r) is not None:" % (data_param, fk))
+                        lines.append(
+                            "            if self.%s_repo.get_by_id(%s.get(%r)) is None:"
+                            % (_snake(ref_cls), data_param, fk)
+                        )
+                        lines.append(
+                            "                raise %s(%s.get(%r))"
+                            % (not_found, data_param, fk)
+                        )
+                field_names = ", ".join(repr(f) for f in sorted(fields))
+                lines.append(
+                    "        %s = %s(**{k: v for k, v in %s.items() if k in {%s}})"
+                    % (var, ent_name, data_param, field_names)
+                )
+                lines.append("        return self.%s_repo.create(%s)" % (var, var))
+                return lines
             # Required (non-nullable, non-id) fields not covered by params:
             # only fields DECLARED auto:"now" are stamped deterministically;
             # anything else means real business logic -> leave a stub.
