@@ -3908,6 +3908,67 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                         "            return [%s(**dict(r)) for r in rows]" % model,
                     ]
 
+    # ---- 8.12d zero-param dict[int] aggregate over a JOINed entity name ----
+    # Repo custom like aggregate_stock_value_by_category() -> dict[str, int]:
+    # the owner entity has an FK to another designed entity, the method takes
+    # no params and returns a dict whose value is int/float, and its name ends
+    # with _by_<fk_base>. Emit
+    #   SELECT o.<label> AS k, SUM(<value_expr>) AS v
+    #   FROM <owner> e JOIN <other> o ON e.<fk> = o.id GROUP BY o.<label>
+    # Deterministic from the FK + entity schema + zero-param dict shape;
+    # <value_expr> = the unique numeric column, or the product of the two
+    # numeric columns when grouping across a join (price x qty). This is the
+    # inter-file counterpart of the intra-file GROUP BY sum recipes above.
+    if entities_by_class and not params and "dict" in ret_l:
+        vm = re.search(
+            r"dict\s*\[\s*[^,]+,\s*([^\]]+)\]", ret, re.IGNORECASE
+        )
+        val_type = (vm.group(1).strip().lower() if vm else "")
+        if val_type in ("int", "integer", "float"):
+            fk_matches = []
+            for n in fields:
+                if not n.endswith("_id") or n == "id":
+                    continue
+                base = n[: -len("_id")]
+                cls = _camel(base)
+                if cls in entities_by_class:
+                    fk_matches.append((n, base, cls, entities_by_class[cls]))
+            for fk, base, cls, o_ent in fk_matches:
+                if not re.search(r"_by_%s$" % re.escape(base), name):
+                    continue
+                o_tbl = _entity_table_name(o_ent)
+                o_fields = {
+                    f.get("name"): f
+                    for f in (o_ent.get("fields") or [])
+                    if isinstance(f, dict) and f.get("name")
+                }
+                label = (
+                    "name" if "name" in o_fields else next(
+                        (n for n in o_fields if n != "id"), None
+                    )
+                )
+                if label is None:
+                    continue
+                expr = None
+                if len(num_cols) == 1:
+                    expr = "e.%s" % num_cols[0]
+                elif len(num_cols) == 2:
+                    expr = "e.%s * e.%s" % (num_cols[0], num_cols[1])
+                if expr is None:
+                    continue
+                cast = "float" if val_type == "float" else "int"
+                return [
+                    "        with self.db.connect() as conn:",
+                    "            rows = conn.execute(",
+                    '                "SELECT o.%s AS k, SUM(%s) AS v'
+                    ' FROM %s e JOIN %s o ON e.%s = o.id'
+                    ' GROUP BY o.%s",'
+                    % (label, expr, table, o_tbl, fk, label),
+                    "            ).fetchall()",
+                    '            return {r["k"]: %s(r["v"] or 0)'
+                    ' for r in rows}' % cast,
+                ]
+
     # ---- 8.11 unsatisfiable discriminator -> honest empty set ---------------
     # A required param matches no designed field/entity/FK and there is no
     # cross-entity/aggregate resolution path: no row can ever satisfy it, so
