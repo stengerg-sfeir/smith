@@ -4139,8 +4139,12 @@ def _repo_sql_context_hint(schema_ctx, stub_names):
         "BETWEEN '2024-01-01' AND '2024-12-31') and derive year/month with "
         "substr(col,1,4)/substr(col,1,7).",
         "Open connections EXACTLY like the existing methods do: "
-        "'with self.db.connect() as conn:' then conn.execute(...). The "
-        "Database class has NO get_connection/get_db/connection methods — "
+        "'with self.db.connect() as conn:' then fetch rows DIRECTLY on "
+        "the result of conn.execute(...): 'rows = conn.execute(...).fetchall()' "
+        "or 'row = conn.execute(...).fetchone()'. NEVER call conn.fetchall() "
+        "or conn.fetchone() — conn is a sqlite3.Connection and has NO "
+        "fetchall/fetchone; only the Cursor returned by conn.execute(...) does. "
+        "The Database class has NO get_connection/get_db/connection methods — "
         "self.db.get_connection(...) does not exist.",
         "Each method reads ONLY its own table: 'SELECT * FROM <table> ...' "
         "then 'return [Model(**dict(r)) for r in rows]'. NEVER join other "
