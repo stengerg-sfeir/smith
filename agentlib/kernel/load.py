@@ -21,9 +21,12 @@ def load_recipes_for(package) -> List[Recipe]:
     """Return all Recipe objects declared by modules under `package`.
 
     `package` may be a module or subpackage that has a `__path__` (i.e. an
-    importable subpackage). Modules are imported so their `RECIPES` binding
-    executes. Ordering is by `priority`.
+    importable subpackage), or the dotted import path of such a subpackage
+    (a string, e.g. `__package__`). Modules are imported so their `RECIPES`
+    binding executes. Ordering is by `priority`.
     """
+    if isinstance(package, str):
+        package = importlib.import_module(package)
     if not hasattr(package, "__path__"):
         return []
     out = []
