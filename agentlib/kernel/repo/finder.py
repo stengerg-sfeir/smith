@@ -39,14 +39,23 @@ def _simple_finder_spec(attr, meth, entities_by_class):
         _entity_table_name(ent) if ent else _pluralize_table_name(ent_sing)
     )
     # ---- date-range finder: get_<entity>s_by_<date>_range ------------------
+    # Only synthesize a range finder when the `_range` suffix denotes an
+    # actual date column (or an unambiguous date alias on an entity that has
+    # exactly one date column). Otherwise we'd silently render
+    # `WHERE <date_col> BETWEEN ? AND ?` for non-date ranges (e.g.
+    # get_order_items_by_quantity_range would filter created_at) — wrong.
     if col.endswith("_range"):
         base = col[: -len("_range")]
         dcols = _feas_entity_date_cols(ent)
         dcol = None
         if base in dcols:
             dcol = base
-        elif len(dcols) == 1:
-            dcol = dcols[0]
+        elif base in (
+            "date", "created", "created_at", "updated", "updated_at",
+            "timestamp", "datetime", "when", "created_on", "updated_on",
+        ):
+            if dcols:
+                dcol = dcols[0]
         if dcol is None:
             return None
         return {

@@ -624,6 +624,14 @@ def _service_repo_interface(entities_by_class, designs):
     interface = {}
     for ent in entities_by_class.values():
         ent_snake = _snake(ent["name"])
+        # Only entities with a designed repository FILE may be advertised to
+        # the fill. An entity referenced only by FK (Customer/Product behind
+        # invoice.customer_id / line.product_id in prompt 28) appears in
+        # models but has no <entity>_repository.py; wiring or advertising a
+        # repo for it makes the fill call a self.<x>_repo that is never
+        # instantiated -> runtime AttributeError/NameError.
+        if (ent_snake + "_repository") not in repo_designs:
+            continue
         attr = ent_snake + "_repo"
         # Entries are (param name, required) so the fill validator can
         # enforce that every REQUIRED param is covered by a call.
@@ -1152,11 +1160,21 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
 
 
 def _service_header_lines(svc_class, entities, entities_by_class,
-                          exception_names, models_module="models"):
+exception_names, models_module="models", repo_entities=None):
     """Imports + class shell + repo wiring shared by the deterministic
     service and the stub-only mini-skeleton sent to the LLM fill."""
     exception_names = exception_names or []
-    repo_attrs = [(_snake(ent) + "_repo", _camel(ent) + "Repository") for ent in entities]
+    # Only entities that have a rendered repository file may be wired in
+    # __init__ and imported. The design may add FK-reference entities to the
+    # model without a repository (prompt 28: Customer/Product backing
+    # invoice.customer_id / line.product_id); wiring a repo for them emits
+    # imports of nonexistent modules and a runtime NameError. Defaults to
+    # the full entity set for backward compatibility.
+    repo_entities = set(entities) if repo_entities is None else set(repo_entities)
+    repo_attrs = [
+        (_snake(ent) + "_repo", _camel(ent) + "Repository")
+        for ent in entities if ent in repo_entities
+    ]
     repo_class_names = sorted({cls for _, cls in repo_attrs})
     lines = [
         '"""Service layer."""',
@@ -1246,9 +1264,22 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     exception_names = exception_names or []
     entities = sorted(entities_by_class)
 
+    # Only entities that have a RENDERED repository file are wired/imported
+    # in the service header. The design may add FK-reference entities to the
+    # model without a repository (prompt 28: Customer/Product behind
+    # invoice.customer_id / line.product_id); wiring a repo for them would
+    # import a nonexistent module and raise NameError at runtime.
+    repo_entities = set()
+    for rp in (repo_sources or {}):
+        stem = Path(rp).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        repo_entities.add(_camel(ent_snake))
+
     lines = _service_header_lines(
         svc_class, entities, entities_by_class, exception_names,
-        models_module=models_module,
+        models_module=models_module, repo_entities=repo_entities,
     )
 
     repo_customs = _zero_param_dict_repo_customs(designs, entities_by_class)
@@ -1264,7 +1295,11 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             lines.extend(body)
             lines.append("")
             continue
-        lines.append(_method_stub_code(m, 1))
+        # Unfilled method: final deterministic body is a type-appropriate
+        # empty return (not NotImplementedError) so the running app never
+        # crashes and the benchmark not_implemented gate passes. The LLM
+        # mini-skeleton keeps raise NotImplementedError() to push the model.
+        lines.append(_method_stub_code(m, 1, safe_body=True))
         lines.append("")
 
     deterministic = "\n".join(lines).rstrip() + "\n"
@@ -1363,7 +1398,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     mini = "\n".join(
         _service_header_lines(
             svc_class, entities, entities_by_class, exception_names,
-            models_module=models_module,
+            models_module=models_module, repo_entities=repo_entities,
         )
         + [_method_stub_code(m, 1) for m in stubs]
     ).rstrip() + "\n"
@@ -1427,15 +1462,32 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                         + _render_variant_alias(meth, alias_of)
                         + "\n"
                     )
-                repo_interface.setdefault(attr, {})[meth] = []
+                existing_sig = list(
+                    (repo_interface.get(attr) or {}).get(alias_of) or []
+                )
+                repo_interface.setdefault(attr, {})[meth] = existing_sig
                 type_ctx.setdefault("repo_returns_raw", {})[(attr, meth)] = (
                     (type_ctx.get("repo_returns_raw") or {}).get(
                         (attr, alias_of), "Any"
                     )
                 )
-                fill_hint += (
-                    "\n  self.%s.%s() -> Any" % (attr, meth)
-                )
+                if existing_sig:
+                    fill_hint += (
+                        "\n  self.%s.%s(%s) -> %s"
+                        % (
+                            attr,
+                            meth,
+                            ", ".join(
+                                p[0] if isinstance(p, tuple) else p
+                                for p in existing_sig
+                            ),
+                            (type_ctx.get("repo_returns_raw") or {}).get(
+                                (attr, alias_of), "Any"
+                            ),
+                        )
+                    )
+                else:
+                    fill_hint += "\n  self.%s.%s() -> Any" % (attr, meth)
                 synthesized_count += 1
                 repaired = True
                 if verbose:
@@ -1484,10 +1536,11 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             synthesized_count += 1
             repaired = True
             if verbose:
+                col_disp = spec.get("col") or spec.get("date_col")
                 print(
                     "    [fill] service: synthesized %s.%s(%s) -> "
-                    "Optional[%s] (bounded inter-file repair)"
-                    % (attr, meth, spec["col"], spec["cls"])
+                    "%s (bounded inter-file repair)"
+                    % (attr, meth, col_disp, spec["ret"])
                 )
         return repaired
 
@@ -1538,7 +1591,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             "\n".join(
                 _service_header_lines(
                     svc_class, entities, entities_by_class, exception_names,
-                    models_module=models_module,
+                    models_module=models_module, repo_entities=repo_entities,
                 )
                 + [_method_stub_code(m, 1)]
             ).rstrip()

@@ -53,15 +53,38 @@ def _render_models_file(design):
         pairs = [
             [str(c) for c in pair]
             for pair in (ent.get("unique_together") or [])
-            if isinstance(pair, (list, tuple)) and len(pair) == 2
+            if isinstance(pair, (list, tuple)) and len(pair) >= 1
         ]
+        # Synthesize single-column UNIQUE(<field>) from per-field unique flags
+        # (e.g. sku unique=True) that aren't already covered by a declared
+        # unique_together pair. The deterministic DDL generator only reads
+        # __unique_together__, so single-field uniques must surface here or
+        # they are silently dropped — the root cause of the inventory defect.
+        covered = set()
+        for p in pairs:
+            covered.update(p)
+        for f in fields:
+            # 'id' is the PRIMARY KEY AUTOINCREMENT column; a separate
+            # UNIQUE(id) is redundant, so skip it in synthesis (a declared
+            # unique_together involving id is still honored above).
+            if (f.get("unique") and f.get("name") and f["name"] != "id"
+                    and f["name"] not in covered):
+                pairs.append([f["name"]])
+                covered.add(f["name"])
         if pairs:
             unique_map[name] = pairs
     if unique_map:
         const_lines = ["UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {"]
         for cls, pairs in sorted(unique_map.items()):
-            inner = ", ".join('("%s", "%s")' % tuple(p) for p in pairs)
-            const_lines.append('    "%s": [%s],' % (cls, inner))
+            # A single-element pair must render as a 1-tuple ("sku",) so the
+            # AST extractor sees a real tuple (("sku") is just a string).
+            parts = []
+            for p in pairs:
+                s = ", ".join('"%s"' % c for c in p)
+                if len(p) == 1:
+                    s += ","
+                parts.append("(%s)" % s)
+            const_lines.append('    "%s": [%s],' % (cls, ", ".join(parts)))
         const_lines.append("}")
         blocks.append("\n".join(const_lines))
     if table_map:

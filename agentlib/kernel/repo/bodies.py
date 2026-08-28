@@ -848,6 +848,38 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                         "            ).fetchall()",
                         "            return [%s(**dict(r)) for r in rows]" % model,
                     ]
+                # Cross-entity equality filter (no date bounds): the method
+                # filters owner rows by a column of the OTHER entity, e.g.
+                # get_orders_with_customer_name_filter -> o.name. The filter
+                # column is the <entity>_<col> suffix of the name param
+                # (customer_name -> name on Customer), else the other
+                # entity's unique str field. SELECT r.* keeps the row shape
+                # on the OWNER model so the repo-body guard accepts it.
+                prefix = o_snake + "_"
+                filt_col = None
+                if name_param.startswith(prefix):
+                    cand = name_param[len(prefix):]
+                    if cand in o_fields:
+                        filt_col = cand
+                if filt_col is None:
+                    str_cols_other = [
+                        n for n, f in o_fields.items()
+                        if f.get("type") == "str"
+                    ]
+                    if len(str_cols_other) == 1:
+                        filt_col = str_cols_other[0]
+                if filt_col is not None:
+                    return [
+                        "        with self.db.connect() as conn:",
+                        "            rows = conn.execute(",
+                        '                "SELECT r.* FROM %s r JOIN %s o'
+                        ' ON r.%s = o.id WHERE o.%s = ?",'
+                        % (table, o_tbl, ref_fk, filt_col),
+                        "                %s" % _tup([name_param]),
+                        "            ).fetchall()",
+                        "            return [%s(**dict(r)) for r in rows]"
+                        % model,
+                    ]
 
             # ---- 8.12c many-to-many junction JOIN --------------------------
             if junction is not None and name_param is not None:

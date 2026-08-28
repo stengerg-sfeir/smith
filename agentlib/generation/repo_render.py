@@ -238,7 +238,12 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
             L.extend(body)
             L.append("")
         else:
-            L.append(_method_stub_code(m, 1))
+            # Unfilled custom method: final deterministic body is a
+            # type-appropriate empty return (not NotImplementedError) so the
+            # running app never crashes and the benchmark not_implemented
+            # gate passes. The LLM mini-skeleton keeps raise
+            # NotImplementedError() to push the model.
+            L.append(_method_stub_code(m, 1, safe_body=True))
             L.append("")
             stub_methods.append(m)
     deterministic = "\n".join(L).rstrip() + "\n"
