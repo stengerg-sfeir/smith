@@ -44,11 +44,7 @@ RULE_KINDS: list[RuleKind] = [
         },
         description=(
             "overlap_conflict: no two intervals of an entity may overlap within "
-            "the same scope. entity = the entity whose rows must not overlap; "
-            "start_field/end_field = the two interval-bounding fields; "
-            "scope_field = the field that must match for two intervals to "
-            "conflict. Use the entity/field names verbatim from the "
-            "specification."
+            "the same scope. Fields: entity, start_field, end_field, scope_field."
         ),
         executor="_test_overlap",
     ),
@@ -64,11 +60,8 @@ RULE_KINDS: list[RuleKind] = [
         description=(
             "sum_equals: parent_total_field on parent_entity must equal the sum "
             "of the products of child_amount_fields across child_entity rows "
-            "joined via fk_field. parent_entity/child_entity = the two entities "
-            "the specification relates; fk_field = the foreign key linking child "
-            "to parent; child_amount_fields = the numeric fields multiplied per "
-            "child row. Use the entity/field names verbatim from the "
-            "specification."
+            "joined via fk_field. Fields: parent_entity, parent_total_field, "
+            "child_entity, child_amount_fields (list), fk_field."
         ),
         executor="_test_sum_equals",
     ),
@@ -76,10 +69,9 @@ RULE_KINDS: list[RuleKind] = [
         name="unique_pair",
         fields={"entity": str, "fields": list},
         description=(
-            "unique_pair: the given fields on entity must be unique together. "
-            "entity = the entity; fields = the list of field names the "
-            "specification declares unique together. Use the field names "
-            "verbatim from the specification."
+            "unique_pair: composite multi-column uniqueness constraint (the given fields on entity "
+            "must be unique together; do NOT use for a single field already marked unique: true). "
+            "Fields: entity, fields (list)."
         ),
         executor="_test_unique_pair",
     ),
@@ -87,11 +79,8 @@ RULE_KINDS: list[RuleKind] = [
         name="no_stub",
         fields={"class": str, "methods": list},
         description=(
-            "no_stub: the given methods on class must be implemented, not a "
-            "stub. class = the repository/service class named in the "
-            "specification; methods = the method names it requires to be "
-            "implemented (NOT an entity field default). Use the class/method "
-            "names verbatim from the specification."
+            "no_stub: the given service/repository methods on class must be implemented, not a "
+            "stub (NEVER use for model attributes/fields). Fields: class, methods (list)."
         ),
         executor="_test_no_stub",
     ),
@@ -106,14 +95,9 @@ RULE_KINDS: list[RuleKind] = [
             "fk": str,
         },
         description=(
-            "filter_lt: a method must return only rows where field is strictly "
-            "less than ref_entity.ref_field, joined via fk. method = the EXACT "
-            "method the specification names for this filtering (a dedicated "
-            "report/filter method, NOT a generic list method); field = the entity "
-            "field compared against the threshold; ref_entity/ref_field = the "
-            "entity + field carrying the threshold; fk = the foreign-key field "
-            "linking the rows to that entity. Use the method/field names verbatim "
-            "from the specification."
+            "filter_lt: the dedicated zero-argument filter method on entity/service (e.g. low_stock_report) "
+            "must return only rows where field is strictly less than ref_entity.ref_field, related through "
+            "fk. Fields: entity, method, field, ref_entity, ref_field, fk."
         ),
         executor="_test_filter_lt",
     ),
@@ -127,12 +111,9 @@ RULE_KINDS: list[RuleKind] = [
             "b": str,
         },
         description=(
-            "aggregate_mul_sum: a method must return, grouped by fk, the sum of "
-            "(a * b) over entity rows. method = the EXACT method the "
-            "specification names for this aggregate; fk = the grouping "
-            "foreign-key field; a = the first numeric field in the product; b = "
-            "the second numeric field. Use the method/field names verbatim from "
-            "the specification."
+            "aggregate_mul_sum: the method on the service must return, grouped "
+            "by fk, the sum of (a * b) over entity rows. Fields: entity, method, "
+            "fk, a, b."
         ),
         executor="_test_aggregate_mul_sum",
     ),
@@ -146,15 +127,10 @@ RULE_KINDS: list[RuleKind] = [
             "unique_field": str,
         },
         description=(
-            "ensure_raise: a method must raise when a referenced entity does not "
-            "exist and/or when a unique value is duplicated. method = the EXACT "
-            "method the specification names that performs this validation; "
-            "ref_entity = the referenced entity; ref_field = the parameter the "
-            "method actually validates (the foreign-key/id parameter passed INTO "
-            "it, NOT the entity's primary key field unless that is literally the "
-            "parameter); unique_field = the field whose duplicate triggers a "
-            "raise. Use the method/parameter names verbatim from the "
-            "specification."
+            "ensure_raise: the method must raise when a referenced "
+            "ref_entity.ref_field does not exist, and/or raise when "
+            "unique_field is duplicated. Fields: method, entity, ref_entity, "
+            "ref_field, unique_field."
         ),
         executor="_test_ensure_raise",
     ),
@@ -175,18 +151,9 @@ def kind_by_name(name: str) -> RuleKind | None:
     return _KIND_BY_NAME.get(name)
 
 
-def rule_kind_descriptions(kinds=None) -> str:
-    """Concatenated kind descriptions for the oracle's business_rules prompt.
-
-    ``kinds`` (optional) limits the output to a subset of kind names, used by
-    the split detection passes so each call only advertises its own kinds.
-    """
-    if kinds is None:
-        selected = RULE_KINDS
-    else:
-        kinds_set = set(kinds)
-        selected = [k for k in RULE_KINDS if k.name in kinds_set]
-    return "\n".join("- " + k.description for k in selected)
+def rule_kind_descriptions() -> str:
+    """Concatenated kind descriptions for the oracle's business_rules prompt."""
+    return "\n".join("- " + k.description for k in RULE_KINDS)
 
 
 def executor_for(kind: str) -> str | None:

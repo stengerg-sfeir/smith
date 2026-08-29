@@ -18,7 +18,7 @@ import re
 
 from agentlib.naming import _camel, _snake
 
-from .rule_kinds import kind_by_name, kind_names
+from .rule_kinds import kind_names
 
 _NAME_SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
 _NAME_CLASS = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
@@ -48,102 +48,61 @@ def _field_schema():
     }
 
 
-_LIST_RULE_FIELDS = {"child_amount_fields", "fields", "methods"}
-
-
-def _rule_field_schema(name):
-    if name in _LIST_RULE_FIELDS:
-        return {"type": "array", "items": {"type": "string"}}
-    return {"type": "string"}
-
-
-def _kind_rule_schema(kind_name: str, required_fields: tuple[str, ...],
-                      one_of_required: tuple[tuple[str, ...], ...] = ()) -> dict:
-    """Build a per-kind object schema that requires ``required_fields``.
-
-    ``one_of_required`` lets a kind express "either group A or group B is
-    present" (used by ``ensure_raise``: ``(("ref_field",), ("unique_field",))``)
-    via an ``anyOf`` over ``required`` clauses. Fields named in a one-of group
-    are added as properties but are NOT in the static ``required`` list — they
-    are only pulled in by the ``anyOf``.
-    """
-    kk = kind_by_name(kind_name)
-    props = {"id": {"type": "string"}, "kind": {"const": kind_name}}
-    if kk is not None:
-        for f in kk.fields:
-            props[f] = _rule_field_schema(f)
-    for group in one_of_required:
-        for f in group:
-            props.setdefault(f, _rule_field_schema(f))
-    item = {
-        "type": "object",
-        "properties": props,
-        "required": ["id", "kind"] + list(required_fields),
-        "additionalProperties": False,
-    }
-    if one_of_required:
-        item["allOf"] = [
-            {"anyOf": [{"required": list(group)} for group in one_of_required]}
-        ]
-    return item
-
-
-def _business_rules_array_schema(kinds=None):
+def _business_rules_array_schema():
     """JSON array schema for business_rules (shared by the full test-spec
-    schema and the dedicated kind-detection schema).
-
-    Each kind is a ``oneOf`` branch that REQUIRES its own fields, so a rule
-    cannot be emitted with the right ``kind`` but missing a required field
-    (e.g. ``filter_lt`` without ``field``). That was the root cause of
-    malformed rules that had to be dropped downstream; a strict schema forces
-    the model to produce complete, usable rules.
-
-    ``kinds`` (optional) restricts the schema to a subset of kind names, used
-    by the split detection passes so each call only emits its own kinds.
-    """
-    per_kind = {
-        "overlap_conflict": ("entity", "start_field", "end_field", "scope_field"),
-        "sum_equals": ("parent_entity", "parent_total_field", "child_entity",
-                       "child_amount_fields", "fk_field"),
-        "unique_pair": ("entity", "fields"),
-        "no_stub": ("class", "methods"),
-        "filter_lt": ("entity", "method", "field", "ref_entity", "ref_field", "fk"),
-        "aggregate_mul_sum": ("entity", "method", "fk", "a", "b"),
-    }
-    if kinds is not None:
-        per_kind = {k: v for k, v in per_kind.items() if k in kinds}
-    branches = [
-        _kind_rule_schema(kind, fields)
-        for kind, fields in per_kind.items()
-    ]
-    # ensure_raise: method is mandatory, AND either ref_field or unique_field
-    # must be present (entity / ref_entity stay optional).
-    if kinds is None or "ensure_raise" in kinds:
-        branches.append(
-            _kind_rule_schema(
-                "ensure_raise",
-                ("method",),
-                one_of_required=(("ref_field",), ("unique_field",)),
-            )
-        )
+    schema and the dedicated kind-detection schema)."""
     return {
         "type": "array",
-        "items": {"oneOf": branches},
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "kind": {"type": "string", "enum": list(_BUSINESS_RULE_KINDS)},
+                "entity": {"type": "string"},
+                "start_field": {"type": "string"},
+                "end_field": {"type": "string"},
+                "scope_field": {"type": "string"},
+                "parent_entity": {"type": "string"},
+                "parent_total_field": {"type": "string"},
+                "child_entity": {"type": "string"},
+                "child_amount_fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "fk_field": {"type": "string"},
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "class": {"type": "string"},
+                "methods": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "method": {"type": "string"},
+                "ref_entity": {"type": "string"},
+                "ref_field": {"type": "string"},
+                "fk": {"type": "string"},
+                "a": {"type": "string"},
+                "b": {"type": "string"},
+            },
+            "required": ["id", "kind"],
+            "additionalProperties": False,
+        },
     }
 
 
-def business_rules_schema(kinds=None):
+def business_rules_schema():
     """Narrow JSON schema for a dedicated business-rule detection pass.
 
     Unlike the full ``test_spec_schema``, this only constrains the
     business-rules output so the model's attention is focused on kind
-    detection, not on the whole domain model. ``kinds`` (optional) restricts
-    it to a subset of kind names.
+    detection, not on the whole domain model.
     """
     return {
         "type": "object",
         "properties": {
-            "business_rules": _business_rules_array_schema(kinds),
+            "business_rules": _business_rules_array_schema(),
             "business_logic_coverage": {
                 "type": "string",
                 "enum": ["full", "partial", "none"],
@@ -314,40 +273,6 @@ def _normalize_fks(ent):
         seen.add(field)
         out.append({"field": field, "ref": ref})
     ent["fks"] = out
-
-
-_REQUIRED_RULE_FIELDS: dict[str, tuple[str, ...]] = {
-    "overlap_conflict": ("entity", "start_field", "end_field", "scope_field"),
-    "sum_equals": ("parent_entity", "parent_total_field", "child_entity",
-                   "child_amount_fields", "fk_field"),
-    "unique_pair": ("entity", "fields"),
-    "no_stub": ("class", "methods"),
-    "filter_lt": ("entity", "method", "field", "ref_entity", "ref_field", "fk"),
-    "aggregate_mul_sum": ("entity", "method", "fk", "a", "b"),
-}
-
-
-def rule_is_complete(rule: dict) -> bool:
-    """True if the rule has the fields its kind strictly requires.
-
-    The dedicated oracle may emit a rule with the right ``kind`` but missing
-    some required per-kind fields (a small model often confuses fields between
-    kinds, e.g. ``filter_lt`` given ``a``/``b`` instead of ``field``). Such a
-    rule cannot be exercised meaningfully and would only crash or spuriously
-    fail the renderer, so it is dropped (and surfaced as unexpressed).
-    """
-    kind = rule.get("kind")
-    if kind == "ensure_raise":
-        return bool(rule.get("method")) and bool(
-            rule.get("ref_field") or rule.get("unique_field"))
-    req = _REQUIRED_RULE_FIELDS.get(kind) if isinstance(kind, str) else None
-    if req is None:
-        return True  # unknown kind is caught by the validator
-    for key in req:
-        v = rule.get(key)
-        if v is None or v == "" or v == []:
-            return False
-    return True
 
 
 def _normalize_rule(rule):

@@ -223,71 +223,47 @@ TEST_SPEC = {'database_file': 'app.db',
                      'kind': 'unique_pair',
                      'entity': 'Category',
                      'fields': ['name']},
-                    {'id': 'product_category_exists',
-                     'kind': 'ensure_raise',
-                     'method': 'add_product',
+                    {'id': 'stock_below_reorder_threshold',
+                     'kind': 'filter_lt',
+                     'entity': 'Product',
+                     'method': 'list_products',
                      'ref_entity': 'Category',
-                     'ref_field': 'id',
-                     'unique_field': 'id'},
-                    {'id': 'stock_value_by_category_sum',
+                     'ref_field': 'reorder_threshold',
+                     'fk': 'category_id',
+                     'a': 'stock_qty',
+                     'b': 'reorder_threshold'},
+                    {'id': 'stock_value_by_category',
                      'kind': 'aggregate_mul_sum',
                      'entity': 'Product',
                      'method': 'stock_value_by_category',
                      'fk': 'category_id',
                      'a': 'price_cents',
                      'b': 'stock_qty'},
-                    {'id': 'low_stock_report_filter',
-                     'kind': 'filter_lt',
-                     'entity': 'Product',
-                     'method': 'low_stock_report',
-                     'field': 'stock_qty',
-                     'ref_entity': 'Category',
-                     'ref_field': 'reorder_threshold',
-                     'fk': 'category_id'},
-                    {'id': 'list_products_category_filter',
-                     'kind': 'filter_lt',
-                     'entity': 'Product',
-                     'method': 'list_products',
-                     'field': 'stock_qty',
-                     'ref_entity': 'Category',
-                     'ref_field': 'reorder_threshold',
-                     'fk': 'category_id'},
-                    {'id': 'list_products_low_only_filter',
-                     'kind': 'filter_lt',
-                     'entity': 'Product',
-                     'method': 'list_products',
-                     'field': 'stock_qty',
-                     'ref_entity': 'Category',
-                     'ref_field': 'reorder_threshold',
-                     'fk': 'category_id'},
-                    {'id': 'product_stock_update',
-                     'kind': 'no_stub',
-                     'class': 'ProductRepository',
-                     'methods': ['find_products_by_category',
-                                 'find_low_stock_products',
-                                 'aggregate_total_stock_value_by_category']},
-                    {'id': 'category_repository_crud',
-                     'kind': 'no_stub',
-                     'class': 'CategoryRepository',
-                     'methods': ['create', 'read', 'update', 'delete', 'find_all_products']},
-                    {'id': 'inventory_service_product_validation',
+                    {'id': 'category_exists_check',
                      'kind': 'ensure_raise',
                      'method': 'add_product',
                      'ref_entity': 'Category',
                      'ref_field': 'id',
-                     'unique_field': 'id'}],
+                     'fk': 'category_id',
+                     'a': 'category_id'},
+                    {'id': 'product_low_active_default',
+                     'kind': 'no_stub',
+                     'class': 'Product',
+                     'methods': ['low_active']}],
  'business_logic_coverage': 'partial',
- 'unexpressed_rules': ['The stock_qty must not go below zero after restock or update operations '
-                       '(no negative stock).',
-                       'The reorder_threshold must be a positive integer (or null), and must be '
-                       'defined per category.',
-                       'When a product is deleted, its category must not become empty (no '
-                       'constraint on category-level emptiness).',
-                       'The low_stock_report must only return products where stock_qty < '
-                       'reorder_threshold, and only if the category has a defined '
-                       'reorder_threshold.',
-                       'The stock_value_by_category must only aggregate products that belong to a '
-                       'category with a defined reorder_threshold (if required).']}
+ 'unexpressed_rules': ["A product's stock_qty must not go below zero after restock or update "
+                       'operations (no negative stock).',
+                       'When updating a product, if the category_id changes, the new category must '
+                       'exist.',
+                       'The low_stock_report method must only return products where stock_qty < '
+                       'reorder_threshold (and category must exist).',
+                       'The list_products method must correctly filter by category_id and low_only '
+                       'flags, with proper handling of optional parameters.',
+                       'All monetary values (price_cents) must be stored as integers (cents), '
+                       'which is a data constraint, not a business rule per se but enforced by '
+                       'design.',
+                       'Product deletion must remove the product and not leave orphaned records '
+                       '(foreign key constraint).']}
 
 # --- recording -------------------------------------------------------------
 
@@ -437,12 +413,8 @@ def _model_instance(model_cls, ent, fk_values=None):
         kw[name] = _sample(f)
     return model_cls(**kw)
 
-def _seed_entity_val(model_cls, ent, fk_values=None, index=0):
-    """Build a model instance using type-sample values (no name heuristics).
-
-    ``index`` (when non-zero) makes the sampled values distinct so that
-    seeding several rows of the same entity doesn't collide on a UNIQUE field.
-    """
+def _seed_entity_val(model_cls, ent, fk_values=None):
+    """Build a model instance using type-sample values (no name heuristics)."""
     fk_values = fk_values or {}
     kw = {}
     for f in ent.get("fields", []):
@@ -452,13 +424,7 @@ def _seed_entity_val(model_cls, ent, fk_values=None, index=0):
         if name in fk_values:
             kw[name] = fk_values[name]
             continue
-        val = _type_sample(f)
-        if index:
-            if isinstance(val, str):
-                val = "%s_%d" % (val, index)
-            elif isinstance(val, (int, float)):
-                val = val + index
-        kw[name] = val
+        kw[name] = _type_sample(f)
     return model_cls(**kw)
 
 def _call(obj, name, *args, **kwargs):
@@ -952,11 +918,10 @@ def _test_filter_lt(rule, spec):
         if ref_repo is None or ref_model is None:
             _record("business_rule", test_name, False, "ref repo/model missing")
             return
-        ref_repo_inst = ref_repo(db)
         # Seed the reference entity with ref_field = 5 (a threshold).
         ref_inst = _seed_entity_val(ref_model, ref_ent)
         setattr(ref_inst, ref_field, 5)
-        ref_id = _call(ref_repo_inst, "create", ref_inst)
+        ref_id = _call(ref_repo, "create", ref_inst)
         ref_id = ref_id if isinstance(ref_id, int) else getattr(ref_id, "id", None)
 
         ent_repo = _repo_for(ent)
@@ -964,16 +929,15 @@ def _test_filter_lt(rule, spec):
         if ent_repo is None or ent_model is None:
             _record("business_rule", test_name, False, "entity repo/model missing")
             return
-        ent_repo_inst = ent_repo(db)
         # Row below the threshold (field=3) and row at/above it (field=7).
-        low_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id}, index=1)
+        low_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id})
         setattr(low_inst, field, 3)
-        low_id = _call(ent_repo_inst, "create", low_inst)
+        low_id = _call(ent_repo, "create", low_inst)
         low_id = low_id if isinstance(low_id, int) else getattr(low_id, "id", None)
 
-        high_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id}, index=2)
+        high_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id})
         setattr(high_inst, field, 7)
-        high_id = _call(ent_repo_inst, "create", high_inst)
+        high_id = _call(ent_repo, "create", high_inst)
         high_id = high_id if isinstance(high_id, int) else getattr(high_id, "id", None)
 
         owner_cls = _service_for(ent) or ent_repo
@@ -1024,56 +988,34 @@ def _test_aggregate_mul_sum(rule, spec):
         if ent_repo is None or ent_model is None:
             _record("business_rule", test_name, False, "repo/model missing")
             return
-        ent_repo_inst = ent_repo(db)
 
         # Seed two parent rows for the fk reference (or fall back to int ids).
         fk_def = next((f for f in ent.get("fks", []) if f.get("field") == fk), None)
         ref_name = fk_def.get("ref") if fk_def else None
         group_ids = []
-        by_names = {}
         if ref_name:
             ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_name), None)
             ref_repo = _repo_for(ref_ent) if ref_ent else None
             ref_model = _find_cls("models", ref_name) if ref_ent else None
             if ref_repo is not None and ref_model is not None:
-                ref_repo_inst = ref_repo(db)
-                # Some generated repositories GROUP BY the reference entity's
-                # name field (e.g. SELECT category.name AS k) rather than by
-                # its id, so record the seeded name per group id and fall back
-                # to it when the result key is the name and not the id.
-                name_field = None
-                for f in ref_ent.get("fields", []):
-                    if f.get("name") == "name":
-                        name_field = f.get("name")
-                        break
-                if name_field is None:
-                    for f in ref_ent.get("fields", []):
-                        if f.get("type") == "str" and f.get("name") != "id":
-                            name_field = f.get("name")
-                            break
-                for i in range(2):
-                    rinst = _seed_entity_val(ref_model, ref_ent, index=i + 1)
-                    rid = _call(ref_repo_inst, "create", rinst)
-                    gid = rid if isinstance(rid, int) else getattr(rid, "id", None)
-                    group_ids.append(gid)
-                    if name_field and hasattr(rinst, name_field):
-                        by_names[gid] = getattr(rinst, name_field)
+                for _ in range(2):
+                    rinst = _seed_entity_val(ref_model, ref_ent)
+                    rid = _call(ref_repo, "create", rinst)
+                    group_ids.append(rid if isinstance(rid, int) else getattr(rid, "id", None))
             else:
                 group_ids = [1, 2]
         else:
             group_ids = [1, 2]
 
         expected = {}
-        seed_idx = 0
         for gi, gid in enumerate(group_ids):
             pairs = [(2, 3), (4, 5)] if gi == 0 else [(1, 10)]
             expected[gid] = 0
             for (av, bv) in pairs:
-                seed_idx += 1
-                inst = _seed_entity_val(ent_model, ent, fk_values={fk: gid}, index=seed_idx)
+                inst = _seed_entity_val(ent_model, ent, fk_values={fk: gid})
                 setattr(inst, a, av)
                 setattr(inst, b, bv)
-                _call(ent_repo_inst, "create", inst)
+                _call(ent_repo, "create", inst)
                 expected[gid] += av * bv
 
         owner_cls = _service_for(ent) or ent_repo
@@ -1105,12 +1047,9 @@ def _test_aggregate_mul_sum(rule, spec):
             return
 
         for gid, exp in expected.items():
-            got = result_map.get(gid)
-            if got is None:
-                got = result_map.get(by_names.get(gid))
-            if got != exp:
+            if result_map.get(gid) != exp:
                 _record("business_rule", test_name, False,
-                        "group %r: got %r expected %r" % (gid, got, exp))
+                        "group %r: got %r expected %r" % (gid, result_map.get(gid), exp))
                 return
         _record("business_rule", test_name, True)
     except Exception as exc:

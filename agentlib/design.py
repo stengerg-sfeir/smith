@@ -13,7 +13,8 @@ from .naming import _camel, _snake
 
 
 _MANIFEST_KINDS = (
-    "exceptions", "models", "repository", "service", "cli", "main", "other",
+    "exceptions", "models", "repository", "repository_interface",
+    "service", "cli", "main", "other",
 )
 
 _MANIFEST_SYSTEM = (
@@ -24,8 +25,10 @@ _MANIFEST_SYSTEM = (
     "names (e.g. \"finance.db\"), or \"app.db\" when it names none. Each "
     "file entry: {\"file\", \"role\", \"kind\", \"entity\", "
     "\"imports_from\"} where kind is one of %s. \"entity\" is the "
-    "snake_case domain entity the module owns — REQUIRED for repository and "
-    "service kinds, omit it otherwise. \"imports_from\" lists sibling file "
+    "snake_case domain entity the module owns — REQUIRED for repository, "
+    "repository_interface, and service kinds. Preserve explicitly requested "
+    "interface/implementation filenames; do not collapse them into one file. "
+    "\"imports_from\" lists sibling file "
     "stems this file imports from."
 ) % ", ".join(_MANIFEST_KINDS)
 
@@ -88,6 +91,8 @@ def _infer_manifest_kind(stem):
     if "model" in stem:
         return "models"
     if stem.endswith("_repository") or stem in ("repository", "repositories"):
+    if "repository" in stem and ("interface" in stem or "abstract" in stem):
+        return "repository_interface"
         return "repository"
     if stem.endswith("_service") or stem in ("service", "services"):
         return "service"
@@ -198,6 +203,8 @@ def _entities_schema():
                                     "unique": {"type": "boolean"},
                                     "nullable": {"type": "boolean"},
                                     "auto": {"type": "string", "enum": ["now"]},
+                                    "on_delete": {
+                                        "type": "string", "enum": ["cascade"]},
                                 },
                                 "required": ["name", "type"],
                                 "additionalProperties": False,
@@ -261,6 +268,8 @@ def _methods_schema():
                             },
                         },
                         "returns": {"type": "string"},
+                        "crud": {"type": "boolean"},
+                        "calls": {"type": "array", "items": {"type": "string"}},
                         "impl": {
                             "type": "object",
                             "properties": {
@@ -348,6 +357,8 @@ def _v_entities(d):
                 errs.append("%s: bad type %r for field %r" % (name, ftype, fname))
             if f.get("auto") != "now":
                 f.pop("auto", None)
+            if f.get("on_delete") != "cascade":
+                f.pop("on_delete", None)
         lf = ent.get("list_filters")
         if lf is not None:
             if not isinstance(lf, list):
@@ -592,6 +603,12 @@ def _v_methods(d, label):
                 errs.append("%s.%s: bad param %r" % (label, nm, p.get("name")))
         errs.extend(_v_impl(m, label))
     return errs
+        calls = m.get("calls")
+        if calls is not None and (
+            not isinstance(calls, list)
+            or not all(isinstance(call, str) and call.strip() for call in calls)
+        ):
+            errs.append("%s.%s: calls must be an array of non-empty strings" % (label, nm))
 
 
 # --- design-time inter-file feasibility -------------------------------------

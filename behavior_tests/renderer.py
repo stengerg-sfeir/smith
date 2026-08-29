@@ -680,10 +680,14 @@ def _test_no_stub(rule, spec):
         return
     for m in method_names:
         method = getattr(found_cls, m, None)
-        if method is None:
-            _record("business_rule", test_name, False, "method %s missing" % m)
+        if method is None or not callable(method):
+            _record("business_rule", test_name, False, "method %s missing or not callable" % m)
             return
-        src = inspect.getsource(method)
+        try:
+            src = inspect.getsource(method)
+        except (TypeError, OSError) as e:
+            _record("business_rule", test_name, False, "cannot get source for method %s: %s" % (m, e))
+            return
         if "NotImplementedError" in src:
             _record("business_rule", test_name, False, "method %s is a stub" % m)
             return
@@ -788,34 +792,16 @@ def _test_aggregate_mul_sum(rule, spec):
         fk_def = next((f for f in ent.get("fks", []) if f.get("field") == fk), None)
         ref_name = fk_def.get("ref") if fk_def else None
         group_ids = []
-        by_names = {}
         if ref_name:
             ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_name), None)
             ref_repo = _repo_for(ref_ent) if ref_ent else None
             ref_model = _find_cls("models", ref_name) if ref_ent else None
             if ref_repo is not None and ref_model is not None:
                 ref_repo_inst = ref_repo(db)
-                # Some generated repositories GROUP BY the reference entity's
-                # name field (e.g. SELECT category.name AS k) rather than by
-                # its id, so record the seeded name per group id and fall back
-                # to it when the result key is the name and not the id.
-                name_field = None
-                for f in ref_ent.get("fields", []):
-                    if f.get("name") == "name":
-                        name_field = f.get("name")
-                        break
-                if name_field is None:
-                    for f in ref_ent.get("fields", []):
-                        if f.get("type") == "str" and f.get("name") != "id":
-                            name_field = f.get("name")
-                            break
                 for i in range(2):
                     rinst = _seed_entity_val(ref_model, ref_ent, index=i + 1)
                     rid = _call(ref_repo_inst, "create", rinst)
-                    gid = rid if isinstance(rid, int) else getattr(rid, "id", None)
-                    group_ids.append(gid)
-                    if name_field and hasattr(rinst, name_field):
-                        by_names[gid] = getattr(rinst, name_field)
+                    group_ids.append(rid if isinstance(rid, int) else getattr(rid, "id", None))
             else:
                 group_ids = [1, 2]
         else:
@@ -863,12 +849,9 @@ def _test_aggregate_mul_sum(rule, spec):
             return
 
         for gid, exp in expected.items():
-            got = result_map.get(gid)
-            if got is None:
-                got = result_map.get(by_names.get(gid))
-            if got != exp:
+            if result_map.get(gid) != exp:
                 _record("business_rule", test_name, False,
-                        "group %r: got %r expected %r" % (gid, got, exp))
+                        "group %r: got %r expected %r" % (gid, result_map.get(gid), exp))
                 return
         _record("business_rule", test_name, True)
     except Exception as exc:
@@ -992,8 +975,22 @@ def _run_all():
         _test_fk(ent, spec)
         _test_unique(ent, spec)
     EXECUTOR_DISPATCH = {EXECUTOR_DISPATCH}
+    # Track single unique fields already covered in _test_unique to avoid running duplicate unique_pair tests
+    covered_single_uniques = set()
+    for ent in spec.get("entities", []):
+        if ent["name"] not in repo_entities:
+            continue
+        for f in ent.get("fields", []):
+            if f.get("unique") and f.get("name") != "id":
+                covered_single_uniques.add((ent["name"], f.get("name")))
+
     for rule in spec.get("business_rules", []):
         kind = rule.get("kind")
+        if kind == "unique_pair":
+            r_ent = rule.get("entity")
+            r_fields = rule.get("fields") or []
+            if len(r_fields) == 1 and (r_ent, r_fields[0]) in covered_single_uniques:
+                continue  # Already tested by _test_unique
         executor = EXECUTOR_DISPATCH.get(kind)
         if executor is not None and executor in globals():
             globals()[executor](rule, spec)

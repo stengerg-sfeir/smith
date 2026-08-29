@@ -60,7 +60,8 @@ _TEST_SPEC_SYSTEM = (
     "\"entity\", \"start_field\", \"end_field\", \"scope_field\". "
     "\"sum_equals\" uses \"parent_entity\", \"parent_total_field\", "
     "\"child_entity\", \"child_amount_fields\", \"fk_field\". "
-    "\"unique_pair\" uses \"entity\", \"fields\". Only include rules the "
+    "\"unique_pair\" uses \"entity\", \"fields\" (ONLY for multi-column composite pairs; do NOT emit unique_pair for a single field already marked unique: true). "
+    "\"no_stub\" uses \"class\", \"methods\" (ONLY for actual functions/methods, NEVER for model attributes/fields). Only include rules the "
     "spec states.\n"
     "- \"repositories\": an array of {\"module\", \"class\", \"entity\", "
     "\"methods\": [{\"name\", \"params\": [{\"name\", \"type\"}], "
@@ -79,8 +80,6 @@ def extract_test_spec(prompt_text: str, verbose: bool = False) -> dict | None:
         _TEST_SPEC_SYSTEM
         + "\n\nAVAILABLE RULE KINDS (you may ONLY emit these kinds):\n"
         + rule_kind_descriptions()
-        + "\n\n"
-        + _VERBATIM_NOTE
         + "\n\nCoverage: after business_rules, if the SPECIFICATION describes "
           "business logic/validation that you could NOT express with the kinds "
           "above, set \"business_logic_coverage\" to \"partial\" or \"none\" and "
@@ -152,27 +151,14 @@ _KIND_DETECT_SYSTEM = (
     "elsewhere."
 )
 
-_VERBATIM_NOTE = (
-    "All entity/field/method/parameter names MUST be taken verbatim from the "
-    "specification. Never invent a name that the specification does not state."
-)
-
 
 def extract_business_rules(prompt_text: str, verbose: bool = False) -> dict | None:
-    """Return a normalized business-rules-only spec via a focused kind pass.
-
-    The per-kind descriptions now carry semantic mapping guidance (which
-    method / parameter the kind refers to), and a "verbatim" note forces the
-    model to use the specification's exact names. The strict per-kind schema
-    guarantees every emitted rule is complete.
-    """
+    """Return a normalized business-rules-only spec via a focused kind pass."""
     user = "SPECIFICATION:\n%s\n\nEmit the business-rule JSON now." % prompt_text
     system = (
         _KIND_DETECT_SYSTEM
         + "\n\nAVAILABLE RULE KINDS (you may ONLY emit these kinds):\n"
         + rule_kind_descriptions()
-        + "\n\n"
-        + _VERBATIM_NOTE
     )
     messages = [
         {"role": "system", "content": system},
