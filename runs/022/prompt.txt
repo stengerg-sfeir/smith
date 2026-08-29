@@ -1,0 +1,1 @@
+Create a Python 3.12 order management application. An order contains multiple products. A product can appear in multiple orders. Each order item contains a quantity and unit price. Provide CRUD operations and calculate the total order amount.

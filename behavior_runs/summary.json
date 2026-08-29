@@ -1,0 +1,218 @@
+{
+  "started_at": "2026-08-28T15:55:26.042160+00:00",
+  "finished_at": "2026-08-28T15:56:50.014952+00:00",
+  "prompts_dir": "/Users/gillesstenger/Documents/neurosymbolic/prompts",
+  "generated_root": "/Users/gillesstenger/Documents/neurosymbolic/generated",
+  "total": 1,
+  "pass": 0,
+  "pass_uncovered": 0,
+  "fail": 1,
+  "no_generated_output": 0,
+  "oracle_failed": 0,
+  "conformity_failed": 0,
+  "results": [
+    {
+      "prompt": "inventory",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_inventory.txt",
+      "started_at": "2026-08-28T15:55:26.042160+00:00",
+      "generated_dir": "/Users/gillesstenger/Documents/neurosymbolic/generated/inventory",
+      "output_exists": true,
+      "conformity": {
+        "conforms": true,
+        "structural_issues": [],
+        "prompt_issues": [],
+        "llm_issues": [],
+        "llm_verdict": true,
+        "requirements": [
+          {
+            "req": "Category model with id, name (unique), description, reorder_threshold (optional int)",
+            "status": "yes"
+          },
+          {
+            "req": "Product model with id, sku (unique), name, category_id (FK), price_cents (int), stock_qty (int), low_active (optional bool, default False)",
+            "status": "yes"
+          },
+          {
+            "req": "CategoryRepository with CRUD + find all products belonging to a category",
+            "status": "yes"
+          },
+          {
+            "req": "ProductRepository with CRUD + find products by category + find low-stock products + aggregate total stock value by category",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with add_product(sku, name, category_id, price_cents, stock_qty): validates the category exists and the sku is unique, then adds the product",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with update_product(id, data): updates a product's fields",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with delete_product(id): deletes a product by ID",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with get_product_by_id(id): returns a single product by its ID",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with list_products(category_id (Optional[int]), low_only (Optional[bool])): lists products filtered by optional category and optionally only low-stock ones; no filters returns all products",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with restock(id, qty): increases a product's stock_qty",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with low_stock_report(): returns products whose stock_qty is below their category's reorder_threshold",
+            "status": "yes"
+          },
+          {
+            "req": "InventoryService with stock_value_by_category(): returns the total price_cents * stock_qty per category",
+            "status": "yes"
+          },
+          {
+            "req": "CLI interface with nested command groups including product add, list, update, delete, restock, report low-stock, report value, category add, list, update, delete",
+            "status": "yes"
+          },
+          {
+            "req": "All monetary values stored as integers (cents)",
+            "status": "yes"
+          },
+          {
+            "req": "All IDs must be auto-incremented primary keys that are optional (default None) in the domain models",
+            "status": "yes"
+          },
+          {
+            "req": "Implement proper error handling with custom exception classes: CategoryNotFoundError, ProductNotFoundError",
+            "status": "yes"
+          },
+          {
+            "req": "Use SQLite with foreign keys enabled",
+            "status": "yes"
+          }
+        ],
+        "issues": []
+      },
+      "test_spec": "/Users/gillesstenger/Documents/neurosymbolic/behavior_runs/inventory/test_spec.json",
+      "business_logic_coverage": "partial",
+      "unexpressed_rules": [
+        "A product's stock_qty must not go below zero after restock or update operations (no negative stock).",
+        "When updating a product, if the category_id changes, the new category must exist.",
+        "The low_stock_report method must only return products where stock_qty < reorder_threshold (and category must exist).",
+        "The list_products method must correctly filter by category_id and low_only flags, with proper handling of optional parameters.",
+        "All monetary values (price_cents) must be stored as integers (cents), which is a data constraint, not a business rule per se but enforced by design.",
+        "Product deletion must remove the product and not leave orphaned records (foreign key constraint)."
+      ],
+      "exit_code": 1,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"tests\": [\n    {\n      \"id\": \"crud:Category\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"unique:unique_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"crud:Product\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_category_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:pair_unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:pair_unique_category_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:filter_stock_below_reorder_threshold\",\n      \"status\": \"fail\",\n      \"detail\": \"error: TypeError(\\\"CategoryRepository.create() missing 1 required positional argument: 'category'\\\")\"\n    },\n    {\n      \"id\": \"business_rule:agg_stock_value_by_category\",\n      \"status\": \"fail\",\n      \"detail\": \"error: TypeError(\\\"CategoryRepository.create() missing 1 required positional argument: 'category'\\\")\"\n    },\n    {\n      \"id\": \"business_rule:raise_category_exists_check\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"business_rule:nostub_product_low_active_default\",\n      \"status\": \"fail\",\n      \"detail\": \"class not found\"\n    },\n    {\n      \"id\": \"exceptions:exc_CategoryNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ProductNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    }\n  ],\n  \"coverage\": {\n    \"crud\": {\n      \"Category\": \"pass\",\n      \"Product\": \"pass\"\n    },\n    \"unique\": {\n      \"unique_name\": \"pass\",\n      \"unique_sku\": \"pass\"\n    },\n    \"fk\": {\n      \"fk_category_id\": \"pass\"\n    },\n    \"business_rule\": {\n      \"pair_unique_sku\": \"pass\",\n      \"pair_unique_category_name\": \"pass\",\n      \"filter_stock_below_reorder_threshold\": \"fail\",\n      \"agg_stock_value_by_category\": \"fail\",\n      \"raise_category_exists_check\": \"pass\",\n      \"nostub_product_low_active_default\": \"fail\"\n    },\n    \"exceptions\": {\n      \"exc_CategoryNotFoundError\": \"pass\",\n      \"exc_ProductNotFoundError\": \"pass\"\n    }\n  },\n  \"build_errors\": [],\n  \"status\": \"fail\"\n}\n",
+      "status": "fail",
+      "tests": [
+        {
+          "id": "crud:Category",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "unique:unique_name",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "unique:unique_name",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "crud:Product",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "fk:fk_category_id",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "unique:unique_sku",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "unique:unique_sku",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "business_rule:pair_unique_sku",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "business_rule:pair_unique_category_name",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "business_rule:filter_stock_below_reorder_threshold",
+          "status": "fail",
+          "detail": "error: TypeError(\"CategoryRepository.create() missing 1 required positional argument: 'category'\")"
+        },
+        {
+          "id": "business_rule:agg_stock_value_by_category",
+          "status": "fail",
+          "detail": "error: TypeError(\"CategoryRepository.create() missing 1 required positional argument: 'category'\")"
+        },
+        {
+          "id": "business_rule:raise_category_exists_check",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "business_rule:nostub_product_low_active_default",
+          "status": "fail",
+          "detail": "class not found"
+        },
+        {
+          "id": "exceptions:exc_CategoryNotFoundError",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "exceptions:exc_ProductNotFoundError",
+          "status": "pass",
+          "detail": ""
+        }
+      ],
+      "coverage": {
+        "crud": {
+          "Category": "pass",
+          "Product": "pass"
+        },
+        "unique": {
+          "unique_name": "pass",
+          "unique_sku": "pass"
+        },
+        "fk": {
+          "fk_category_id": "pass"
+        },
+        "business_rule": {
+          "pair_unique_sku": "pass",
+          "pair_unique_category_name": "pass",
+          "filter_stock_below_reorder_threshold": "fail",
+          "agg_stock_value_by_category": "fail",
+          "raise_category_exists_check": "pass",
+          "nostub_product_low_active_default": "fail"
+        },
+        "exceptions": {
+          "exc_CategoryNotFoundError": "pass",
+          "exc_ProductNotFoundError": "pass"
+        }
+      },
+      "build_errors": [],
+      "finished_at": "2026-08-28T15:56:50.014778+00:00"
+    }
+  ]
+}

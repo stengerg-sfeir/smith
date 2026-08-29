@@ -1,0 +1,1 @@
+Create a Python 3.12 invoicing application. An invoice belongs to a customer and contains multiple invoice lines. Each line references a product and quantity. The invoice total must be calculated from its lines.

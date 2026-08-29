@@ -1,0 +1,1 @@
+Create a Python 3.12 application for managing contacts. A contact has a name, email address and phone number. Provide operations to create, list, update and delete contacts. Store the data in SQLite.

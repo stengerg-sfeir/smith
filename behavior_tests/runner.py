@@ -22,7 +22,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .oracle import generate_test_spec
+from .oracle import extract_business_rules, generate_test_spec
 from .renderer import render_test_file
 from .design_extract import extract_design
 from .conformity import check_conformity
@@ -105,6 +105,49 @@ def run_single(prompt_path: Path, generated_root: Path, run_dir: Path,
             # strip the extra 'cli' key before conversion.
             testable = {k: v for k, v in design.items() if k != "cli"}
             spec = normalize_test_spec(testable)
+            # Merge the dedicated kind-detection pass into the design based
+            # spec so the business rules the prompt implies are detected by a
+            # focused oracle (lower cognitive load) rather than the full spec
+            # oracle, which tends to miss them.
+            kind_oracle = extract_business_rules(prompt_text, verbose=verbose)
+            if kind_oracle is not None:
+                entity_names = {e["name"] for e in spec.get("entities", [])}
+                repo_svc_classes = {
+                    o.get("class") for o in
+                    (spec.get("repositories", []) + spec.get("services", []))
+                }
+
+                def _rule_target_exists(rule):
+                    """True if every entity/class target the rule names exists
+                    in the design-based spec. The dedicated oracle reads only
+                    the prompt, so it may invent a target (entity/class) with
+                    no counterpart in the generated design; such a rule cannot
+                    be exercised and would only cause a spurious FAIL."""
+                    for key in ("entity", "parent_entity", "child_entity",
+                                "ref_entity"):
+                        val = rule.get(key)
+                        if val and val not in entity_names:
+                            return False
+                    cls = rule.get("class")
+                    if cls and cls not in repo_svc_classes:
+                        return False
+                    return True
+
+                merged = list(spec.get("business_rules", []))
+                unexpressed = list(kind_oracle.get("unexpressed_rules", []))
+                for rule in kind_oracle.get("business_rules", []):
+                    if not _rule_target_exists(rule):
+                        unexpressed.append(
+                            "Rule %s (%s): target not present in the generated "
+                            "design" % (rule.get("id"), rule.get("kind"))
+                        )
+                        continue
+                    if not any(r.get("id") == rule.get("id") for r in merged):
+                        merged.append(rule)
+                spec["business_rules"] = merged
+                spec["business_logic_coverage"] = kind_oracle.get(
+                    "business_logic_coverage", "full")
+                spec["unexpressed_rules"] = unexpressed
         else:
             result["status"] = "conformity_failed"
             result["tests"] = []
@@ -126,6 +169,15 @@ def run_single(prompt_path: Path, generated_root: Path, run_dir: Path,
         result["tests"] = []
         result["coverage"] = {}
         return result
+
+    # Surface business-logic coverage (full|partial|none) + unexpressed rules.
+    result["business_logic_coverage"] = spec.get("business_logic_coverage", "full")
+    result["unexpressed_rules"] = spec.get("unexpressed_rules", [])
+    # Persist the (possibly merged) spec alongside the run for reproducibility.
+    spec_path.write_text(
+        json.dumps(spec, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
     # 2. Deterministic render.
     test_file = run_dir / "test_behavior.py"
@@ -226,6 +278,7 @@ def main(args: list[str] | None = None) -> int:
 
     all_results = []
     total_pass = 0
+    total_pass_uncovered = 0
     total_fail = 0
     total_no_output = 0
     total_oracle_failed = 0
@@ -251,9 +304,14 @@ def main(args: list[str] | None = None) -> int:
         status = result.get("status")
         n_tests = len(result.get("tests", []))
         n_fail = sum(1 for t in result.get("tests", []) if t.get("status") != "pass")
+        blc = result.get("business_logic_coverage", "full")
         if status == "pass":
             total_pass += 1
-            label = "PASS"
+            if blc == "full":
+                label = "PASS"
+            else:
+                label = "PASS \u26a0 uncovered"
+                total_pass_uncovered += 1
         elif status == "fail":
             total_fail += 1
             label = "FAIL"
@@ -278,6 +336,7 @@ def main(args: list[str] | None = None) -> int:
         "generated_root": str(generated_root),
         "total": len(all_results),
         "pass": total_pass,
+        "pass_uncovered": total_pass_uncovered,
         "fail": total_fail,
         "no_generated_output": total_no_output,
         "oracle_failed": total_oracle_failed,
@@ -293,11 +352,12 @@ def main(args: list[str] | None = None) -> int:
     print("\n" + "=" * 64)
     print("SUMMARY")
     print("=" * 64)
-    print("Pass:  %d" % total_pass)
-    print("Fail:  %d" % total_fail)
-    print("No output:    %d" % total_no_output)
-    print("Oracle fail:  %d" % total_oracle_failed)
-    print("Conformity fail: %d" % total_conformity_failed)
+    print("Pass:               %d" % total_pass)
+    print("  of which uncovered:%d" % total_pass_uncovered)
+    print("Fail:               %d" % total_fail)
+    print("No output:          %d" % total_no_output)
+    print("Oracle fail:        %d" % total_oracle_failed)
+    print("Conformity fail:    %d" % total_conformity_failed)
     print("Summary: %s" % summary_file)
 
     return 0 if total_fail == 0 and total_oracle_failed == 0 else 1

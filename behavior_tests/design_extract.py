@@ -75,7 +75,8 @@ def _parse_fields(cls: ast.ClassDef) -> list[dict]:
             "nullable": False if is_pk else _field_nullable(type_str, node.value),
             "unique": False,  # refined from DDL below
             "primary_key": is_pk,
-            "auto": "now" if is_pk else None,
+            "auto": "autoincrement" if is_pk else None,
+            "default": ast.unparse(node.value) if node.value is not None else None,
         })
     return fields
 

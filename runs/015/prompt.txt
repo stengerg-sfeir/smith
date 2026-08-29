@@ -1,0 +1,1 @@
+Create a Python 3.12 application for managing products. Provide CRUD operations and allow users to list products sorted by name, price or quantity, in ascending or descending order.

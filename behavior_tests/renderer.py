@@ -95,6 +95,11 @@ def _entity_snake(name):
     import re
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
+def _camel(name):
+    import re
+    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
+    return "".join(p.capitalize() for p in re.split(r"[_\\s]+", name) if p)
+
 def _plural(name):
     if name.endswith("s"):
         return name + "es"
@@ -133,6 +138,50 @@ def _sample(field):
         return "TEST-CODE"
     return "test_" + name
 
+def _type_sample(field):
+    """Value by declared type only (no name heuristics)."""
+    typ = field.get("type", "str") if isinstance(field, dict) else str(field)
+    return {
+        "int": 42,
+        "float": 15.5,
+        "bool": True,
+        "date": "2024-01-15",
+        "datetime": "2024-01-15T10:00:00",
+    }.get(typ, "sample_")
+
+def _build_args(method, rule, ctx, spec):
+    """Build positional args for `method` from its signature.
+
+    ``ctx`` maps a parameter name to a value used to probe a role (e.g. a
+    missing FK id, a duplicated unique value). Any parameter not in ``ctx``
+    falls back to a type sample resolved by name against the rule's entity.
+    """
+    args = []
+    try:
+        params = list(inspect.signature(method).parameters.values())
+    except (ValueError, TypeError):
+        return args
+    ent_name = rule.get("entity")
+    ent = next(
+        (e for e in spec.get("entities", []) if e["name"] == ent_name), None
+    )
+    for p in params:
+        if p.name == "self":
+            continue
+        if p.name in ctx:
+            args.append(ctx[p.name])
+            continue
+        field_type = "str"
+        if ent is not None:
+            fld = next(
+                (f for f in ent.get("fields", []) if f.get("name") == p.name),
+                None,
+            )
+            if fld is not None:
+                field_type = fld.get("type", "str")
+        args.append(_type_sample(field_type))
+    return args
+
 def _model_instance(model_cls, ent, fk_values=None):
     fk_values = fk_values or {}
     kw = {}
@@ -144,6 +193,30 @@ def _model_instance(model_cls, ent, fk_values=None):
             kw[name] = fk_values[name]
             continue
         kw[name] = _sample(f)
+    return model_cls(**kw)
+
+def _seed_entity_val(model_cls, ent, fk_values=None, index=0):
+    """Build a model instance using type-sample values (no name heuristics).
+
+    ``index`` (when non-zero) makes the sampled values distinct so that
+    seeding several rows of the same entity doesn't collide on a UNIQUE field.
+    """
+    fk_values = fk_values or {}
+    kw = {}
+    for f in ent.get("fields", []):
+        name = f.get("name")
+        if name == "id":
+            continue
+        if name in fk_values:
+            kw[name] = fk_values[name]
+            continue
+        val = _type_sample(f)
+        if index:
+            if isinstance(val, str):
+                val = "%s_%d" % (val, index)
+            elif isinstance(val, (int, float)):
+                val = val + index
+        kw[name] = val
     return model_cls(**kw)
 
 def _call(obj, name, *args, **kwargs):
@@ -206,24 +279,20 @@ def _service_create_rejects_overlap(svc_cls, spec, ent, fkv, start_f, end_f, sco
     try:
         svc = svc_cls(db)
         method = getattr(svc, method_name)  # bound: self is implicit
-        args = []
-        sig_params = list(inspect.signature(method).parameters.values())
-        for p in sig_params:
-            pname = p.name
-            if pname == "self":
-                continue
-            if pname == scope_f:
-                args.append(fkv.get(scope_f, 1))
-            elif pname == start_f:
-                args.append("2024-01-01T10:00:00")
-            elif pname == end_f:
-                args.append("2024-01-01T12:00:00")
-            elif pname.endswith("_id") and pname in fkv:
-                args.append(fkv[pname])
-            elif pname in ("status", "state"):
-                args.append("active")
-            else:
-                args.append(0)
+        # Build args uniformly: FK ids from fkv, overlap interval values in
+        # ctx, every other param by type sample. No heuristic business words.
+        rule = {
+            "entity": ent["name"],
+            "start_field": start_f,
+            "end_field": end_f,
+            "scope_field": scope_f,
+        }
+        ctx = dict(fkv)
+        ctx[start_f] = "2024-01-01T10:00:00"
+        ctx[end_f] = "2024-01-01T12:00:00"
+        ctx[scope_f] = fkv.get(scope_f, 1)
+        # Resolve any status/state param by its declared type (no keyword).
+        args = _build_args(method, rule, ctx, spec)
         method(*args)
         return False
     except Exception as exc:
@@ -533,9 +602,11 @@ def _test_sum_equals(rule, spec):
             cinst = _model_instance(child_cls, child, fk_values={fk_field: pid})
             vals = []
             for a_name in amounts:
-                val = (i + 1) * 100
-                if a_name.endswith("_price") or "price" in a_name or "amount" in a_name:
-                    val = (i + 1) * 500
+                afield = next(
+                    (f for f in child.get("fields", []) if f.get("name") == a_name),
+                    {"name": a_name, "type": "int"},
+                )
+                val = _type_sample(afield)
                 setattr(cinst, a_name, val)
                 vals.append(val)
             if len(vals) >= 2:
@@ -573,8 +644,9 @@ def _test_unique_pair(rule, spec):
         db = _db_setup()
         repo = repo_cls(db)
         model_cls = _find_cls("models", ent_name)
-        inst1 = _model_instance(model_cls, ent)
-        inst2 = _model_instance(model_cls, ent)
+        fkv = _resolved_fk_values(ent, spec, db)
+        inst1 = _seed_entity_val(model_cls, ent, fk_values=fkv)
+        inst2 = _seed_entity_val(model_cls, ent, fk_values=fkv)
         for name in fields:
             setattr(inst2, name, getattr(inst1, name))
         _call(repo, "create", inst1)
@@ -616,6 +688,241 @@ def _test_no_stub(rule, spec):
             _record("business_rule", test_name, False, "method %s is a stub" % m)
             return
     _record("business_rule", test_name, True)
+
+def _test_filter_lt(rule, spec):
+    ent_name = rule.get("entity")
+    method_name = rule.get("method")
+    field = rule.get("field")
+    ref_ent_name = rule.get("ref_entity")
+    ref_field = rule.get("ref_field")
+    fk = rule.get("fk")
+    test_name = "filter_%s" % rule.get("id", ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None)
+    ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_ent_name), None)
+    if ent is None or ref_ent is None or not method_name:
+        _record("business_rule", test_name, False, "entity/ref_entity/method missing")
+        return
+    try:
+        db = _db_setup()
+        ref_repo = _repo_for(ref_ent)
+        ref_model = _find_cls("models", ref_ent_name)
+        if ref_repo is None or ref_model is None:
+            _record("business_rule", test_name, False, "ref repo/model missing")
+            return
+        ref_repo_inst = ref_repo(db)
+        # Seed the reference entity with ref_field = 5 (a threshold).
+        ref_inst = _seed_entity_val(ref_model, ref_ent)
+        setattr(ref_inst, ref_field, 5)
+        ref_id = _call(ref_repo_inst, "create", ref_inst)
+        ref_id = ref_id if isinstance(ref_id, int) else getattr(ref_id, "id", None)
+
+        ent_repo = _repo_for(ent)
+        ent_model = _find_cls("models", ent_name)
+        if ent_repo is None or ent_model is None:
+            _record("business_rule", test_name, False, "entity repo/model missing")
+            return
+        ent_repo_inst = ent_repo(db)
+        # Row below the threshold (field=3) and row at/above it (field=7).
+        low_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id}, index=1)
+        setattr(low_inst, field, 3)
+        low_id = _call(ent_repo_inst, "create", low_inst)
+        low_id = low_id if isinstance(low_id, int) else getattr(low_id, "id", None)
+
+        high_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id}, index=2)
+        setattr(high_inst, field, 7)
+        high_id = _call(ent_repo_inst, "create", high_inst)
+        high_id = high_id if isinstance(high_id, int) else getattr(high_id, "id", None)
+
+        owner_cls = _service_for(ent) or ent_repo
+        owner = owner_cls(db)
+        method = getattr(owner, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False, "method %s not found" % method_name)
+            return
+        try:
+            result = method()
+        except TypeError:
+            result = method(*_build_args(method, rule, {}, spec))
+        if not isinstance(result, list):
+            _record("business_rule", test_name, False,
+                    "method returned non-list %r" % type(result).__name__)
+            return
+        ids = []
+        for item in result:
+            if isinstance(item, dict):
+                ids.append(item.get("id"))
+            else:
+                ids.append(getattr(item, "id", None))
+        if low_id in ids and high_id not in ids:
+            _record("business_rule", test_name, True)
+        else:
+            _record("business_rule", test_name, False,
+                    "filter_lt: low=%r in=%r; high=%r out=%r" %
+                    (low_id, low_id in ids, high_id, high_id not in ids))
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+def _test_aggregate_mul_sum(rule, spec):
+    ent_name = rule.get("entity")
+    method_name = rule.get("method")
+    fk = rule.get("fk")
+    a = rule.get("a")
+    b = rule.get("b")
+    test_name = "agg_%s" % rule.get("id", ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None)
+    if ent is None or not method_name or not fk or not a or not b:
+        _record("business_rule", test_name, False, "entity/method/fk/a/b missing")
+        return
+    try:
+        db = _db_setup()
+        ent_repo = _repo_for(ent)
+        ent_model = _find_cls("models", ent_name)
+        if ent_repo is None or ent_model is None:
+            _record("business_rule", test_name, False, "repo/model missing")
+            return
+        ent_repo_inst = ent_repo(db)
+
+        # Seed two parent rows for the fk reference (or fall back to int ids).
+        fk_def = next((f for f in ent.get("fks", []) if f.get("field") == fk), None)
+        ref_name = fk_def.get("ref") if fk_def else None
+        group_ids = []
+        if ref_name:
+            ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_name), None)
+            ref_repo = _repo_for(ref_ent) if ref_ent else None
+            ref_model = _find_cls("models", ref_name) if ref_ent else None
+            if ref_repo is not None and ref_model is not None:
+                ref_repo_inst = ref_repo(db)
+                for i in range(2):
+                    rinst = _seed_entity_val(ref_model, ref_ent, index=i + 1)
+                    rid = _call(ref_repo_inst, "create", rinst)
+                    group_ids.append(rid if isinstance(rid, int) else getattr(rid, "id", None))
+            else:
+                group_ids = [1, 2]
+        else:
+            group_ids = [1, 2]
+
+        expected = {}
+        seed_idx = 0
+        for gi, gid in enumerate(group_ids):
+            pairs = [(2, 3), (4, 5)] if gi == 0 else [(1, 10)]
+            expected[gid] = 0
+            for (av, bv) in pairs:
+                seed_idx += 1
+                inst = _seed_entity_val(ent_model, ent, fk_values={fk: gid}, index=seed_idx)
+                setattr(inst, a, av)
+                setattr(inst, b, bv)
+                _call(ent_repo_inst, "create", inst)
+                expected[gid] += av * bv
+
+        owner_cls = _service_for(ent) or ent_repo
+        owner = owner_cls(db)
+        method = getattr(owner, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False, "method %s not found" % method_name)
+            return
+        try:
+            result = method()
+        except TypeError:
+            result = method(*_build_args(method, rule, {}, spec))
+
+        result_map = {}
+        if isinstance(result, dict):
+            result_map = result
+        elif isinstance(result, (list, tuple)):
+            for item in result:
+                if isinstance(item, dict):
+                    k = item.get(fk) or item.get("id")
+                    v = item.get("total") or item.get("value") or item.get("sum")
+                    if k is not None:
+                        result_map[k] = v
+                elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                    result_map[item[0]] = item[1]
+        else:
+            _record("business_rule", test_name, False,
+                    "method returned %r" % type(result).__name__)
+            return
+
+        for gid, exp in expected.items():
+            if result_map.get(gid) != exp:
+                _record("business_rule", test_name, False,
+                        "group %r: got %r expected %r" % (gid, result_map.get(gid), exp))
+                return
+        _record("business_rule", test_name, True)
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+def _test_ensure_raise(rule, spec):
+    method_name = rule.get("method")
+    ent_name = rule.get("entity")
+    ref_field = rule.get("ref_field")
+    unique_field = rule.get("unique_field")
+    test_name = "raise_%s" % rule.get("id", method_name or ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None) \
+        if ent_name else None
+    if not method_name:
+        _record("business_rule", test_name, False, "method missing")
+        return
+    try:
+        db = _db_setup()
+        owner_cls = None
+        if ent is not None:
+            owner_cls = _service_for(ent) or _repo_for(ent)
+        if owner_cls is None:
+            # Fall back to scanning declared services/repositories for the method.
+            for obj in spec.get("services", []) + spec.get("repositories", []):
+                cls = _find_cls(obj.get("module", ""), obj.get("class", ""))
+                if cls is not None and hasattr(cls, method_name):
+                    owner_cls = cls
+                    break
+        if owner_cls is None:
+            _record("business_rule", test_name, False, "owner class for method not found")
+            return
+        owner = owner_cls(db)
+        method = getattr(owner, method_name)
+
+        # Case 1: raise when a referenced entity (ref_field) does not exist.
+        if ref_field:
+            ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
+            ctx[ref_field] = 999999
+            args = _build_args(method, rule, ctx, spec)
+            raised = None
+            try:
+                method(*args)
+            except Exception as exc:
+                raised = exc
+            if raised is None:
+                _record("business_rule", test_name, False,
+                        "method did not raise on missing %s" % ref_field)
+                return
+
+        # Case 2: raise when a unique field is duplicated.
+        if unique_field and ent is not None:
+            ent_repo = _repo_for(ent)
+            ent_model = _find_cls("models", ent_name)
+            if ent_repo is not None and ent_model is not None:
+                fkv = _resolved_fk_values(ent, spec, db)
+                first = _seed_entity_val(ent_model, ent, fk_values=fkv)
+                dup_value = getattr(first, unique_field, None)
+                _call(ent_repo, "create", first)
+                ctx = dict(fkv)
+                ctx[unique_field] = dup_value
+                args = _build_args(method, rule, ctx, spec)
+                raised = None
+                try:
+                    method(*args)
+                except Exception as exc:
+                    raised = exc
+                if raised is None:
+                    _record("business_rule", test_name, False,
+                            "method did not raise on duplicate %s" % unique_field)
+                    return
+
+        _record("business_rule", test_name, True)
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
 
 # --- exceptions ------------------------------------------------------------
 
@@ -663,16 +970,12 @@ def _run_all():
         _test_crud(ent, spec)
         _test_fk(ent, spec)
         _test_unique(ent, spec)
+    EXECUTOR_DISPATCH = {EXECUTOR_DISPATCH}
     for rule in spec.get("business_rules", []):
         kind = rule.get("kind")
-        if kind == "overlap_conflict":
-            _test_overlap(rule, spec)
-        elif kind == "sum_equals":
-            _test_sum_equals(rule, spec)
-        elif kind == "unique_pair":
-            _test_unique_pair(rule, spec)
-        elif kind == "no_stub":
-            _test_no_stub(rule, spec)
+        executor = EXECUTOR_DISPATCH.get(kind)
+        if executor is not None and executor in globals():
+            globals()[executor](rule, spec)
     for exc in spec.get("exceptions", []):
         _test_exception(exc, spec)
 
@@ -702,5 +1005,18 @@ def _emit_spec_literal(spec):
 
 
 def render_test_file(spec: dict) -> str:
-    """Return the source of a self-contained behavior test module."""
-    return _RUNNER_TEMPLATE.replace("{SPEC_LITERAL}", _emit_spec_literal(spec))
+    """Return the source of a self-contained behavior test module.
+
+    The ``kind -> executor`` dispatch is injected from the registry so the
+    template runs *any* registered rule kind generically (no hard-coded
+    ``if kind == ...`` chain).
+    """
+    from .rule_kinds import RULE_KINDS
+
+    dispatch = {k.name: k.executor for k in RULE_KINDS}
+    dispatch_literal = pprint.pformat(dispatch, width=100, sort_dicts=False)
+    return (
+        _RUNNER_TEMPLATE
+        .replace("{SPEC_LITERAL}", _emit_spec_literal(spec))
+        .replace("{EXECUTOR_DISPATCH}", dispatch_literal)
+    )

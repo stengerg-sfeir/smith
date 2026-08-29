@@ -11,6 +11,11 @@ def _snake(s):
 
 
 def _camel(s):
+    # Split on underscores/spaces, then on existing camelCase boundaries so
+    # already-PascalCase tokens (e.g. CategoryNotFoundError) survive intact
+    # instead of collapsing to "Categorynotfounderror".
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", s)
+    s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", s)
     return "".join(p.capitalize() for p in re.split(r"[_\s]+", s) if p)
 
 

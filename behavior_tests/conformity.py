@@ -205,25 +205,53 @@ def prompt_unique_violations(prompt_text: str, design: dict) -> list[str]:
 _CHECKLIST_SYSTEM = (
     "You are a rigorous requirements auditor. You are given a SOFTWARE "
     "SPECIFICATION and a DESIGN (entities, fields, exceptions, repositories, "
-    "services, CLI commands). Your job is to determine whether the design's "
-    "DECLARED SURFACE matches the specification's declared surface.\n\n"
-    "Audit ONLY the declared surface: are all required entities present, with "
-    "the required fields (types, uniqueness, nullability), the required "
-    "primary-key 'id', the required foreign keys, the required exception "
-    "classes, the required repository/service methods, and the required CLI "
-    "commands/flags?\n\n"
-    "DO NOT judge runtime business-logic validation (e.g. whether a service "
-    "method checks that a referenced row exists before inserting, or whether "
-    "a uniqueness check is implemented in code). Those are behavioral "
-    "properties verified by execution, not design-surface conformity.\n\n"
+    "services, CLI commands). Audit ONLY the design's DECLARED SURFACE: are "
+    "all required entities present, with the required fields (types, "
+    "uniqueness), the required primary-key 'id', the required foreign keys, "
+    "the required exception classes, the required repository/service methods, "
+    "and the required CLI commands/flags?\n\n"
+    "INTERPRETATION RULES (follow them exactly):\n"
+    "1. Field 'auto': 'autoincrement' on an 'id' field MEANS it is an "
+    "auto-incremented primary key. 'auto': 'now' means a creation-timestamp "
+    "column. Never claim an 'id' is 'missing' or 'not autoincrement' when the "
+    "design declares 'primary_key': true or 'auto': 'autoincrement'.\n"
+    "2. Nullability vs default: a field may have 'nullable': false (a SQL "
+    "NOT NULL primary key) AND still satisfy 'optional (default None)' in the "
+    "Python model when it carries 'default': 'None'. For 'id' fields, check "
+    "'default' (e.g. 'default': 'None'), not 'nullable', when the spec says "
+    "'optional (default None)'.\n"
+    "3. Do NOT judge runtime/business-logic validation (method bodies): e.g. "
+    "whether a service validates that a referenced row exists before insert, "
+    "whether a uniqueness check is implemented in code, how FK constraints or "
+    "cascades are handled. These are behavioral properties verified by "
+    "execution, NOT design-surface conformity. Never report them as issues.\n"
+    "4. Extra methods/params in the design that the specification does NOT "
+    "forbid are NOT failures. Only a MISSING or CONTRADICTED declared-surface "
+    "requirement is a failure. Do not invent requirements.\n"
+    "5. If the specification is internally inconsistent (e.g. the CLI section "
+    "names a flag '--price' while the model field is 'price_cents'), do NOT "
+    "report the design for following the CLI section verbatim.\n"
+    "6. A 'unique_together' that is redundant with a 'unique': true field is "
+    "not a failure, merely redundant detail. A field flagged 'unique': true "
+    "that the spec requires to be unique is satisfied.\n"
+    "7. The 'issues' array must contain ONLY genuine violations (a missing or "
+    "contradicted declared-surface requirement). NEVER include an entry that "
+    "confirms a requirement is met (e.g. ending with 'this is present', 'this "
+    "is satisfied', 'this is correct', 'this is not a violation'). "
+    "Confirmations belong nowhere in 'issues'.\n"
+    "8. Before declaring a method, field, or CLI command as missing/omitted, "
+    "verify it is truly ABSENT from the exact list you inspected. A method may "
+    "appear in several classes (e.g. 'find_products_by_category' may live in "
+    "both CategoryRepository and ProductRepository); it is present if the "
+    "specific class the specification assigns it to declares it.\n\n"
     "Output JSON: {\"conforms\": true|false, \"issues\": [\"...\"], "
     "\"requirements\": [{\"req\": \"...\", \"status\": \"yes\"|\"no\"|\"unclear\"}]}. "
     "Enumerate every DECLARED-SURFACE requirement of the specification as a "
     "separate object. Mark 'yes' only if the design clearly declares it. Mark "
-    "'no' if the design omits/contradicts it. Mark 'unclear' if you cannot "
-    "tell. The design CONFORMS only when every requirement is 'yes'. Any "
-    "'no' or 'unclear' means \"conforms\": false. Do not invent requirements. "
-    "Do not be lenient."
+    "'no' only if the design genuinely omits or contradicts it. Mark 'unclear' "
+    "only if you truly cannot tell. The design CONFORMS only when every "
+    "requirement is 'yes'. Any 'no' or 'unclear' (on a genuine requirement) "
+    "means \"conforms\": false. Be precise, not pedantic. Do not be lenient."
 )
 
 
@@ -266,6 +294,20 @@ def llm_checklist(prompt_text: str, design: dict, verbose: bool = False) -> dict
             "requirements": []}
 
 
+_CONFIRMATION_MARKERS = (
+    "this is present", "this satisfies", "this is satisfied",
+    "this is correct", "this is not a violation", "which is correct",
+    "is actually correct", "satisfies the requirement", "matches the specification",
+    "already satisfies", "so this is not", "does not violate", "this is not required",
+)
+
+
+def _is_confirmation(issue: str) -> bool:
+    """True when an 'issue' entry merely confirms a requirement is met."""
+    low = issue.lower()
+    return any(m in low for m in _CONFIRMATION_MARKERS)
+
+
 def check_conformity(prompt_text: str, design: dict, project_dir: Path,
                      verbose: bool = False) -> dict:
     """Full conformity gate.
@@ -281,15 +323,22 @@ def check_conformity(prompt_text: str, design: dict, project_dir: Path,
     struct_errs = structural_violations(design, project_dir)
     prompt_errs = prompt_unique_violations(prompt_text, design)
     llm = llm_checklist(prompt_text, design, verbose=verbose)
+    llm_issues = [i for i in llm.get("issues", []) if i and not _is_confirmation(i)]
     deterministic_errs = struct_errs + prompt_errs
     conforms = not deterministic_errs
-    issues = deterministic_errs + [i for i in llm.get("issues", []) if i]
+    reqs = llm.get("requirements", [])
+    # The LLM's raw 'conforms' boolean can contradict its own requirement list
+    # (e.g. all 'yes' yet conforms=false). The system prompt defines "conforms
+    # only when every requirement is 'yes'", so derive the advisory verdict
+    # from the requirements to stay internally consistent.
+    llm_verdict = bool(reqs) and all(r.get("status") == "yes" for r in reqs)
+    issues = deterministic_errs + llm_issues
     return {
         "conforms": conforms,
         "structural_issues": struct_errs,
         "prompt_issues": prompt_errs,
-        "llm_issues": llm.get("issues", []),
-        "llm_verdict": llm.get("conforms"),
-        "requirements": llm.get("requirements", []),
+        "llm_issues": llm_issues,
+        "llm_verdict": llm_verdict,
+        "requirements": reqs,
         "issues": issues,
     }

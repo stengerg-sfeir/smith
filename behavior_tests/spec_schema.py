@@ -18,16 +18,14 @@ import re
 
 from agentlib.naming import _camel, _snake
 
+from .rule_kinds import kind_names
+
 _NAME_SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
 _NAME_CLASS = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
 
 _FIELD_TYPES = ("str", "int", "float", "bool", "date", "datetime")
-_BUSINESS_RULE_KINDS = (
-    "overlap_conflict",   # no two intervals of an entity may overlap in a scope
-    "sum_equals",         # parent.total must equal sum(child.amount_expr) by FK
-    "unique_pair",        # a (set of) fields must be unique together
-    "no_stub",            # a method must be implemented, not a stub
-)
+# Business-rule kinds are discovered from the registry (single source of truth).
+_BUSINESS_RULE_KINDS = tuple(kind_names())
 _EXCEPTION_TRIGGERS = (
     "not_found", "validation", "conflict", "constraint", "custom",
 )
@@ -41,9 +39,80 @@ def _field_schema():
             "type": {"type": "string", "enum": list(_FIELD_TYPES)},
             "nullable": {"type": "boolean"},
             "unique": {"type": "boolean"},
-            "auto": {"type": "string", "enum": ["now"]},
+            "auto": {"type": "string", "enum": ["now", "autoincrement"]},
+            "primary_key": {"type": "boolean"},
+            "default": {"type": "string"},
         },
         "required": ["name", "type"],
+        "additionalProperties": False,
+    }
+
+
+def _business_rules_array_schema():
+    """JSON array schema for business_rules (shared by the full test-spec
+    schema and the dedicated kind-detection schema)."""
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "kind": {"type": "string", "enum": list(_BUSINESS_RULE_KINDS)},
+                "entity": {"type": "string"},
+                "start_field": {"type": "string"},
+                "end_field": {"type": "string"},
+                "scope_field": {"type": "string"},
+                "parent_entity": {"type": "string"},
+                "parent_total_field": {"type": "string"},
+                "child_entity": {"type": "string"},
+                "child_amount_fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "fk_field": {"type": "string"},
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "class": {"type": "string"},
+                "methods": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "method": {"type": "string"},
+                "ref_entity": {"type": "string"},
+                "ref_field": {"type": "string"},
+                "fk": {"type": "string"},
+                "a": {"type": "string"},
+                "b": {"type": "string"},
+            },
+            "required": ["id", "kind"],
+            "additionalProperties": False,
+        },
+    }
+
+
+def business_rules_schema():
+    """Narrow JSON schema for a dedicated business-rule detection pass.
+
+    Unlike the full ``test_spec_schema``, this only constrains the
+    business-rules output so the model's attention is focused on kind
+    detection, not on the whole domain model.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "business_rules": _business_rules_array_schema(),
+            "business_logic_coverage": {
+                "type": "string",
+                "enum": ["full", "partial", "none"],
+            },
+            "unexpressed_rules": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "required": ["business_rules", "business_logic_coverage", "unexpressed_rules"],
         "additionalProperties": False,
     }
 
@@ -104,42 +173,7 @@ def test_spec_schema():
                     "additionalProperties": False,
                 },
             },
-            "business_rules": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"},
-                        "kind": {
-                            "type": "string",
-                            "enum": list(_BUSINESS_RULE_KINDS),
-                        },
-                        "entity": {"type": "string"},
-                        "start_field": {"type": "string"},
-                        "end_field": {"type": "string"},
-                        "scope_field": {"type": "string"},
-                        "parent_entity": {"type": "string"},
-                        "parent_total_field": {"type": "string"},
-                        "child_entity": {"type": "string"},
-                        "child_amount_fields": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "fk_field": {"type": "string"},
-                        "fields": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "class": {"type": "string"},
-                        "methods": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                    },
-                    "required": ["id", "kind"],
-                    "additionalProperties": False,
-                },
-            },
+            "business_rules": _business_rules_array_schema(),
             "repositories": {
                 "type": "array",
                 "items": _api_object_schema(),
@@ -155,6 +189,14 @@ def test_spec_schema():
                     "items": {"type": "object"},
                 },
             },
+        },
+        "business_logic_coverage": {
+            "type": "string",
+            "enum": ["full", "partial", "none"],
+        },
+        "unexpressed_rules": {
+            "type": "array",
+            "items": {"type": "string"},
         },
         "required": ["entities", "exceptions", "repositories"],
         "additionalProperties": False,
@@ -237,9 +279,14 @@ def _normalize_rule(rule):
     for key in (
         "entity", "start_field", "end_field", "scope_field", "parent_entity",
         "parent_total_field", "child_entity", "fk_field", "class",
+        "method", "ref_entity", "ref_field", "fk", "a", "b",
     ):
         if isinstance(rule.get(key), str) and rule[key]:
-            rule[key] = _snake(rule[key]) if key != "class" else _camel(rule[key])
+            if key in ("entity", "parent_entity", "child_entity",
+                       "class", "ref_entity"):
+                rule[key] = _camel(rule[key])
+            else:
+                rule[key] = _snake(rule[key])
     for key in ("child_amount_fields", "fields", "methods"):
         val = rule.get(key)
         if isinstance(val, list):
@@ -295,6 +342,39 @@ def normalize_test_spec(data):
                     else ""
                 )
     return data
+
+
+def normalize_business_rules(data):
+    """Normalize a parsed business-rules-only dict (kind-detection result)."""
+    if not isinstance(data, dict):
+        return data
+    rules = data.get("business_rules")
+    if isinstance(rules, list):
+        for r in rules:
+            if isinstance(r, dict):
+                _normalize_rule(r)
+    return data
+
+
+def v_business_rules(data):
+    """Return validation errors for a business-rules-only dict ([] when OK)."""
+    if not isinstance(data, dict):
+        return ["business-rule spec must be an object"]
+    errs = []
+    br = data.get("business_rules")
+    if not isinstance(br, list):
+        errs.append("business_rules must be an array")
+    else:
+        for r in br:
+            if not isinstance(r, dict) or not isinstance(r.get("id"), str):
+                errs.append("bad business rule %r" % (r,))
+            elif r.get("kind") not in _BUSINESS_RULE_KINDS:
+                errs.append("bad business rule kind %r" % (r.get("kind"),))
+    if data.get("business_logic_coverage") not in ("full", "partial", "none"):
+        errs.append(
+            "bad business_logic_coverage %r" % (data.get("business_logic_coverage"),)
+        )
+    return errs
 
 
 def _v_fields(ent):
