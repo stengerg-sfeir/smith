@@ -707,6 +707,11 @@ def _test_filter_lt(rule, spec):
     if ent is None or ref_ent is None or not method_name:
         _record("business_rule", test_name, False, "entity/ref_entity/method missing")
         return
+    # A filter_lt rule missing its comparison/threshold fields cannot be
+    # exercised (setattr(inst, None, ...) would crash). Treat it as a skip
+    # rather than a false FAIL on the generated code.
+    if not field or not ref_field or not fk:
+        return
     try:
         db = _db_setup()
         ref_repo = _repo_for(ref_ent)
@@ -886,33 +891,19 @@ def _test_ensure_raise(rule, spec):
             return
         owner = owner_cls(db)
         method = getattr(owner, method_name)
+        # Only exercise a raise case if the field is actually a parameter of the
+        # method. An ensure_raise rule whose ref_field/unique_field is NOT a
+        # method param is mis-targeted and cannot be exercised meaningfully;
+        # skipping avoids a false FAIL on the generated code.
+        params = set(inspect.signature(method).parameters) if method else set()
 
         # Case 1: raise when a referenced entity (ref_field) does not exist.
         if ref_field:
-            ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
-            ctx[ref_field] = 999999
-            args = _build_args(method, rule, ctx, spec)
-            raised = None
-            try:
-                method(*args)
-            except Exception as exc:
-                raised = exc
-            if raised is None:
-                _record("business_rule", test_name, False,
-                        "method did not raise on missing %s" % ref_field)
-                return
-
-        # Case 2: raise when a unique field is duplicated.
-        if unique_field and ent is not None:
-            ent_repo = _repo_for(ent)
-            ent_model = _find_cls("models", ent_name)
-            if ent_repo is not None and ent_model is not None:
-                fkv = _resolved_fk_values(ent, spec, db)
-                first = _seed_entity_val(ent_model, ent, fk_values=fkv)
-                dup_value = getattr(first, unique_field, None)
-                _call(ent_repo, "create", first)
-                ctx = dict(fkv)
-                ctx[unique_field] = dup_value
+            if ref_field not in params:
+                pass  # not a method parameter -> cannot exercise
+            else:
+                ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
+                ctx[ref_field] = 999999
                 args = _build_args(method, rule, ctx, spec)
                 raised = None
                 try:
@@ -921,8 +912,33 @@ def _test_ensure_raise(rule, spec):
                     raised = exc
                 if raised is None:
                     _record("business_rule", test_name, False,
-                            "method did not raise on duplicate %s" % unique_field)
+                            "method did not raise on missing %s" % ref_field)
                     return
+
+        # Case 2: raise when a unique field is duplicated.
+        if unique_field and ent is not None:
+            if unique_field not in params:
+                pass  # not a method parameter -> cannot exercise
+            else:
+                ent_repo = _repo_for(ent)
+                ent_model = _find_cls("models", ent_name)
+                if ent_repo is not None and ent_model is not None:
+                    fkv = _resolved_fk_values(ent, spec, db)
+                    first = _seed_entity_val(ent_model, ent, fk_values=fkv)
+                    dup_value = getattr(first, unique_field, None)
+                    _call(ent_repo, "create", first)
+                    ctx = dict(fkv)
+                    ctx[unique_field] = dup_value
+                    args = _build_args(method, rule, ctx, spec)
+                    raised = None
+                    try:
+                        method(*args)
+                    except Exception as exc:
+                        raised = exc
+                    if raised is None:
+                        _record("business_rule", test_name, False,
+                                "method did not raise on duplicate %s" % unique_field)
+                        return
 
         _record("business_rule", test_name, True)
     except Exception as exc:

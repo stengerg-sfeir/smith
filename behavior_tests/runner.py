@@ -26,7 +26,7 @@ from .oracle import extract_business_rules, generate_test_spec
 from .renderer import render_test_file
 from .design_extract import extract_design
 from .conformity import check_conformity
-from .spec_schema import normalize_test_spec, v_test_spec
+from .spec_schema import normalize_test_spec, rule_is_complete, v_test_spec
 
 
 def parse_prompt_number(path: Path) -> int | None:
@@ -136,10 +136,11 @@ def run_single(prompt_path: Path, generated_root: Path, run_dir: Path,
                 merged = list(spec.get("business_rules", []))
                 unexpressed = list(kind_oracle.get("unexpressed_rules", []))
                 for rule in kind_oracle.get("business_rules", []):
-                    if not _rule_target_exists(rule):
+                    if not _rule_target_exists(rule) or not rule_is_complete(rule):
                         unexpressed.append(
-                            "Rule %s (%s): target not present in the generated "
-                            "design" % (rule.get("id"), rule.get("kind"))
+                            "Rule %s (%s): incomplete rule or target not present "
+                            "in the generated design"
+                            % (rule.get("id"), rule.get("kind"))
                         )
                         continue
                     if not any(r.get("id") == rule.get("id") for r in merged):

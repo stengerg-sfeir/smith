@@ -275,6 +275,40 @@ def _normalize_fks(ent):
     ent["fks"] = out
 
 
+_REQUIRED_RULE_FIELDS: dict[str, tuple[str, ...]] = {
+    "overlap_conflict": ("entity", "start_field", "end_field", "scope_field"),
+    "sum_equals": ("parent_entity", "parent_total_field", "child_entity",
+                   "child_amount_fields", "fk_field"),
+    "unique_pair": ("entity", "fields"),
+    "no_stub": ("class", "methods"),
+    "filter_lt": ("entity", "method", "field", "ref_entity", "ref_field", "fk"),
+    "aggregate_mul_sum": ("entity", "method", "fk", "a", "b"),
+}
+
+
+def rule_is_complete(rule: dict) -> bool:
+    """True if the rule has the fields its kind strictly requires.
+
+    The dedicated kind oracle may emit a rule with the right ``kind`` but
+    missing some required per-kind fields (a small model often confuses fields
+    between kinds, e.g. ``filter_lt`` given ``a``/``b`` instead of ``field``).
+    Such a rule cannot be exercised meaningfully and would crash the renderer
+    (e.g. ``setattr(inst, None, ...)``), so it is dropped/surfaced instead.
+    """
+    kind = rule.get("kind")
+    if kind == "ensure_raise":
+        return bool(rule.get("method")) and bool(
+            rule.get("ref_field") or rule.get("unique_field"))
+    req = _REQUIRED_RULE_FIELDS.get(kind) if isinstance(kind, str) else None
+    if req is None:
+        return True  # unknown kind is caught by the validator
+    for key in req:
+        v = rule.get(key)
+        if v is None or v == "" or v == []:
+            return False
+    return True
+
+
 def _normalize_rule(rule):
     for key in (
         "entity", "start_field", "end_field", "scope_field", "parent_entity",

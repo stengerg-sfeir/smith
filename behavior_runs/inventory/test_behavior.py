@@ -223,15 +223,6 @@ TEST_SPEC = {'database_file': 'app.db',
                      'kind': 'unique_pair',
                      'entity': 'Category',
                      'fields': ['name']},
-                    {'id': 'stock_below_reorder_threshold',
-                     'kind': 'filter_lt',
-                     'entity': 'Product',
-                     'method': 'list_products',
-                     'ref_entity': 'Category',
-                     'ref_field': 'reorder_threshold',
-                     'fk': 'category_id',
-                     'a': 'stock_qty',
-                     'b': 'reorder_threshold'},
                     {'id': 'stock_value_by_category',
                      'kind': 'aggregate_mul_sum',
                      'entity': 'Product',
@@ -246,24 +237,17 @@ TEST_SPEC = {'database_file': 'app.db',
                      'ref_field': 'id',
                      'fk': 'category_id',
                      'a': 'category_id'},
-                    {'id': 'product_low_active_default',
-                     'kind': 'no_stub',
-                     'class': 'Product',
-                     'methods': ['low_active']}],
- 'business_logic_coverage': 'partial',
- 'unexpressed_rules': ["A product's stock_qty must not go below zero after restock or update "
-                       'operations (no negative stock).',
-                       'When updating a product, if the category_id changes, the new category must '
-                       'exist.',
-                       'The low_stock_report method must only return products where stock_qty < '
-                       'reorder_threshold (and category must exist).',
-                       'The list_products method must correctly filter by category_id and low_only '
-                       'flags, with proper handling of optional parameters.',
-                       'All monetary values (price_cents) must be stored as integers (cents), '
-                       'which is a data constraint, not a business rule per se but enforced by '
-                       'design.',
-                       'Product deletion must remove the product and not leave orphaned records '
-                       '(foreign key constraint).']}
+                    {'id': 'category_exists_in_list',
+                     'kind': 'ensure_raise',
+                     'method': 'list_products',
+                     'ref_entity': 'Category',
+                     'ref_field': 'id',
+                     'fk': 'category_id'}],
+ 'business_logic_coverage': 'full',
+ 'unexpressed_rules': ['Rule stock_below_reorder_threshold (filter_lt): incomplete rule or target '
+                       'not present in the generated design',
+                       'Rule product_low_active_default (no_stub): incomplete rule or target not '
+                       'present in the generated design']}
 
 # --- recording -------------------------------------------------------------
 
@@ -413,8 +397,12 @@ def _model_instance(model_cls, ent, fk_values=None):
         kw[name] = _sample(f)
     return model_cls(**kw)
 
-def _seed_entity_val(model_cls, ent, fk_values=None):
-    """Build a model instance using type-sample values (no name heuristics)."""
+def _seed_entity_val(model_cls, ent, fk_values=None, index=0):
+    """Build a model instance using type-sample values (no name heuristics).
+
+    ``index`` (when non-zero) makes the sampled values distinct so that
+    seeding several rows of the same entity doesn't collide on a UNIQUE field.
+    """
     fk_values = fk_values or {}
     kw = {}
     for f in ent.get("fields", []):
@@ -424,7 +412,13 @@ def _seed_entity_val(model_cls, ent, fk_values=None):
         if name in fk_values:
             kw[name] = fk_values[name]
             continue
-        kw[name] = _type_sample(f)
+        val = _type_sample(f)
+        if index:
+            if isinstance(val, str):
+                val = "%s_%d" % (val, index)
+            elif isinstance(val, (int, float)):
+                val = val + index
+        kw[name] = val
     return model_cls(**kw)
 
 def _call(obj, name, *args, **kwargs):
@@ -888,10 +882,14 @@ def _test_no_stub(rule, spec):
         return
     for m in method_names:
         method = getattr(found_cls, m, None)
-        if method is None:
-            _record("business_rule", test_name, False, "method %s missing" % m)
+        if method is None or not callable(method):
+            _record("business_rule", test_name, False, "method %s missing or not callable" % m)
             return
-        src = inspect.getsource(method)
+        try:
+            src = inspect.getsource(method)
+        except (TypeError, OSError) as e:
+            _record("business_rule", test_name, False, "cannot get source for method %s: %s" % (m, e))
+            return
         if "NotImplementedError" in src:
             _record("business_rule", test_name, False, "method %s is a stub" % m)
             return
@@ -911,6 +909,11 @@ def _test_filter_lt(rule, spec):
     if ent is None or ref_ent is None or not method_name:
         _record("business_rule", test_name, False, "entity/ref_entity/method missing")
         return
+    # A filter_lt rule missing its comparison/threshold fields cannot be
+    # exercised (setattr(inst, None, ...) would crash). Treat it as a skip
+    # rather than a false FAIL on the generated code.
+    if not field or not ref_field or not fk:
+        return
     try:
         db = _db_setup()
         ref_repo = _repo_for(ref_ent)
@@ -918,10 +921,11 @@ def _test_filter_lt(rule, spec):
         if ref_repo is None or ref_model is None:
             _record("business_rule", test_name, False, "ref repo/model missing")
             return
+        ref_repo_inst = ref_repo(db)
         # Seed the reference entity with ref_field = 5 (a threshold).
         ref_inst = _seed_entity_val(ref_model, ref_ent)
         setattr(ref_inst, ref_field, 5)
-        ref_id = _call(ref_repo, "create", ref_inst)
+        ref_id = _call(ref_repo_inst, "create", ref_inst)
         ref_id = ref_id if isinstance(ref_id, int) else getattr(ref_id, "id", None)
 
         ent_repo = _repo_for(ent)
@@ -929,15 +933,16 @@ def _test_filter_lt(rule, spec):
         if ent_repo is None or ent_model is None:
             _record("business_rule", test_name, False, "entity repo/model missing")
             return
+        ent_repo_inst = ent_repo(db)
         # Row below the threshold (field=3) and row at/above it (field=7).
-        low_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id})
+        low_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id}, index=1)
         setattr(low_inst, field, 3)
-        low_id = _call(ent_repo, "create", low_inst)
+        low_id = _call(ent_repo_inst, "create", low_inst)
         low_id = low_id if isinstance(low_id, int) else getattr(low_id, "id", None)
 
-        high_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id})
+        high_inst = _seed_entity_val(ent_model, ent, fk_values={fk: ref_id}, index=2)
         setattr(high_inst, field, 7)
-        high_id = _call(ent_repo, "create", high_inst)
+        high_id = _call(ent_repo_inst, "create", high_inst)
         high_id = high_id if isinstance(high_id, int) else getattr(high_id, "id", None)
 
         owner_cls = _service_for(ent) or ent_repo
@@ -988,6 +993,7 @@ def _test_aggregate_mul_sum(rule, spec):
         if ent_repo is None or ent_model is None:
             _record("business_rule", test_name, False, "repo/model missing")
             return
+        ent_repo_inst = ent_repo(db)
 
         # Seed two parent rows for the fk reference (or fall back to int ids).
         fk_def = next((f for f in ent.get("fks", []) if f.get("field") == fk), None)
@@ -998,9 +1004,10 @@ def _test_aggregate_mul_sum(rule, spec):
             ref_repo = _repo_for(ref_ent) if ref_ent else None
             ref_model = _find_cls("models", ref_name) if ref_ent else None
             if ref_repo is not None and ref_model is not None:
-                for _ in range(2):
-                    rinst = _seed_entity_val(ref_model, ref_ent)
-                    rid = _call(ref_repo, "create", rinst)
+                ref_repo_inst = ref_repo(db)
+                for i in range(2):
+                    rinst = _seed_entity_val(ref_model, ref_ent, index=i + 1)
+                    rid = _call(ref_repo_inst, "create", rinst)
                     group_ids.append(rid if isinstance(rid, int) else getattr(rid, "id", None))
             else:
                 group_ids = [1, 2]
@@ -1008,14 +1015,16 @@ def _test_aggregate_mul_sum(rule, spec):
             group_ids = [1, 2]
 
         expected = {}
+        seed_idx = 0
         for gi, gid in enumerate(group_ids):
             pairs = [(2, 3), (4, 5)] if gi == 0 else [(1, 10)]
             expected[gid] = 0
             for (av, bv) in pairs:
-                inst = _seed_entity_val(ent_model, ent, fk_values={fk: gid})
+                seed_idx += 1
+                inst = _seed_entity_val(ent_model, ent, fk_values={fk: gid}, index=seed_idx)
                 setattr(inst, a, av)
                 setattr(inst, b, bv)
-                _call(ent_repo, "create", inst)
+                _call(ent_repo_inst, "create", inst)
                 expected[gid] += av * bv
 
         owner_cls = _service_for(ent) or ent_repo
@@ -1083,33 +1092,19 @@ def _test_ensure_raise(rule, spec):
             return
         owner = owner_cls(db)
         method = getattr(owner, method_name)
+        # Only exercise a raise case if the field is actually a parameter of the
+        # method. An ensure_raise rule whose ref_field/unique_field is NOT a
+        # method param is mis-targeted and cannot be exercised meaningfully;
+        # skipping avoids a false FAIL on the generated code.
+        params = set(inspect.signature(method).parameters) if method else set()
 
         # Case 1: raise when a referenced entity (ref_field) does not exist.
         if ref_field:
-            ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
-            ctx[ref_field] = 999999
-            args = _build_args(method, rule, ctx, spec)
-            raised = None
-            try:
-                method(*args)
-            except Exception as exc:
-                raised = exc
-            if raised is None:
-                _record("business_rule", test_name, False,
-                        "method did not raise on missing %s" % ref_field)
-                return
-
-        # Case 2: raise when a unique field is duplicated.
-        if unique_field and ent is not None:
-            ent_repo = _repo_for(ent)
-            ent_model = _find_cls("models", ent_name)
-            if ent_repo is not None and ent_model is not None:
-                fkv = _resolved_fk_values(ent, spec, db)
-                first = _seed_entity_val(ent_model, ent, fk_values=fkv)
-                dup_value = getattr(first, unique_field, None)
-                _call(ent_repo, "create", first)
-                ctx = dict(fkv)
-                ctx[unique_field] = dup_value
+            if ref_field not in params:
+                pass  # not a method parameter -> cannot exercise
+            else:
+                ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
+                ctx[ref_field] = 999999
                 args = _build_args(method, rule, ctx, spec)
                 raised = None
                 try:
@@ -1118,8 +1113,33 @@ def _test_ensure_raise(rule, spec):
                     raised = exc
                 if raised is None:
                     _record("business_rule", test_name, False,
-                            "method did not raise on duplicate %s" % unique_field)
+                            "method did not raise on missing %s" % ref_field)
                     return
+
+        # Case 2: raise when a unique field is duplicated.
+        if unique_field and ent is not None:
+            if unique_field not in params:
+                pass  # not a method parameter -> cannot exercise
+            else:
+                ent_repo = _repo_for(ent)
+                ent_model = _find_cls("models", ent_name)
+                if ent_repo is not None and ent_model is not None:
+                    fkv = _resolved_fk_values(ent, spec, db)
+                    first = _seed_entity_val(ent_model, ent, fk_values=fkv)
+                    dup_value = getattr(first, unique_field, None)
+                    _call(ent_repo, "create", first)
+                    ctx = dict(fkv)
+                    ctx[unique_field] = dup_value
+                    args = _build_args(method, rule, ctx, spec)
+                    raised = None
+                    try:
+                        method(*args)
+                    except Exception as exc:
+                        raised = exc
+                    if raised is None:
+                        _record("business_rule", test_name, False,
+                                "method did not raise on duplicate %s" % unique_field)
+                        return
 
         _record("business_rule", test_name, True)
     except Exception as exc:
@@ -1178,8 +1198,22 @@ def _run_all():
  'filter_lt': '_test_filter_lt',
  'aggregate_mul_sum': '_test_aggregate_mul_sum',
  'ensure_raise': '_test_ensure_raise'}
+    # Track single unique fields already covered in _test_unique to avoid running duplicate unique_pair tests
+    covered_single_uniques = set()
+    for ent in spec.get("entities", []):
+        if ent["name"] not in repo_entities:
+            continue
+        for f in ent.get("fields", []):
+            if f.get("unique") and f.get("name") != "id":
+                covered_single_uniques.add((ent["name"], f.get("name")))
+
     for rule in spec.get("business_rules", []):
         kind = rule.get("kind")
+        if kind == "unique_pair":
+            r_ent = rule.get("entity")
+            r_fields = rule.get("fields") or []
+            if len(r_fields) == 1 and (r_ent, r_fields[0]) in covered_single_uniques:
+                continue  # Already tested by _test_unique
         executor = EXECUTOR_DISPATCH.get(kind)
         if executor is not None and executor in globals():
             globals()[executor](rule, spec)

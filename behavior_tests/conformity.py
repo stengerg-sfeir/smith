@@ -7,12 +7,16 @@ drift). We then verify the design is BOTH:
 1. internally consistent (deterministic structural checks — CLI flags map to
    model fields, service methods wire to declared repos, FK refs point to
    real entities, repo SQL references designed columns), and
-2. faithful to the prompt (a strict LLM requirement-checklist that adds no
-   'unclear' entries).
+2. faithful to the prompt (a deterministic verifier over a structured
+   requirement list extracted from the prompt).
 
 A design that fails either is REJECTED before any test is generated, so the
 tests-from-design are never tautological. The renderer merely materializes
 the verified design as behavioral assertions.
+
+The LLM's only job is EXTRACTION (parse the prompt into a machine-checkable
+requirement list); the actual compliance VERDICT is deterministic, so the
+gate never emits a self-contradictory opinion.
 """
 
 from __future__ import annotations
@@ -199,146 +203,229 @@ def prompt_unique_violations(prompt_text: str, design: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Strict LLM requirement-checklist (anti-tautology guard)
+# STRUCTURED REQUIREMENT EXTRACTION (LLM) — no judgment, only extraction
 # ---------------------------------------------------------------------------
 
-_CHECKLIST_SYSTEM = (
-    "You are a rigorous requirements auditor. You are given a SOFTWARE "
-    "SPECIFICATION and a DESIGN (entities, fields, exceptions, repositories, "
-    "services, CLI commands). Audit ONLY the design's DECLARED SURFACE: are "
-    "all required entities present, with the required fields (types, "
-    "uniqueness), the required primary-key 'id', the required foreign keys, "
-    "the required exception classes, the required repository/service methods, "
-    "and the required CLI commands/flags?\n\n"
-    "INTERPRETATION RULES (follow them exactly):\n"
-    "1. Field 'auto': 'autoincrement' on an 'id' field MEANS it is an "
-    "auto-incremented primary key. 'auto': 'now' means a creation-timestamp "
-    "column. Never claim an 'id' is 'missing' or 'not autoincrement' when the "
-    "design declares 'primary_key': true or 'auto': 'autoincrement'.\n"
-    "2. Nullability vs default: a field may have 'nullable': false (a SQL "
-    "NOT NULL primary key) AND still satisfy 'optional (default None)' in the "
-    "Python model when it carries 'default': 'None'. For 'id' fields, check "
-    "'default' (e.g. 'default': 'None'), not 'nullable', when the spec says "
-    "'optional (default None)'.\n"
-    "3. Do NOT judge runtime/business-logic validation (method bodies): e.g. "
-    "whether a service validates that a referenced row exists before insert, "
-    "whether a uniqueness check is implemented in code, how FK constraints or "
-    "cascades are handled. These are behavioral properties verified by "
-    "execution, NOT design-surface conformity. Never report them as issues.\n"
-    "4. Extra methods/params in the design that the specification does NOT "
-    "forbid are NOT failures. Only a MISSING or CONTRADICTED declared-surface "
-    "requirement is a failure. Do not invent requirements.\n"
-    "5. If the specification is internally inconsistent (e.g. the CLI section "
-    "names a flag '--price' while the model field is 'price_cents'), do NOT "
-    "report the design for following the CLI section verbatim.\n"
-    "6. A 'unique_together' that is redundant with a 'unique': true field is "
-    "not a failure, merely redundant detail. A field flagged 'unique': true "
-    "that the spec requires to be unique is satisfied.\n"
-    "7. The 'issues' array must contain ONLY genuine violations (a missing or "
-    "contradicted declared-surface requirement). NEVER include an entry that "
-    "confirms a requirement is met (e.g. ending with 'this is present', 'this "
-    "is satisfied', 'this is correct', 'this is not a violation'). "
-    "Confirmations belong nowhere in 'issues'.\n"
-    "8. Before declaring a method, field, or CLI command as missing/omitted, "
-    "verify it is truly ABSENT from the exact list you inspected. A method may "
-    "appear in several classes (e.g. 'find_products_by_category' may live in "
-    "both CategoryRepository and ProductRepository); it is present if the "
-    "specific class the specification assigns it to declares it.\n\n"
-    "Output JSON: {\"conforms\": true|false, \"issues\": [\"...\"], "
-    "\"requirements\": [{\"req\": \"...\", \"status\": \"yes\"|\"no\"|\"unclear\"}]}. "
-    "Enumerate every DECLARED-SURFACE requirement of the specification as a "
-    "separate object. Mark 'yes' only if the design clearly declares it. Mark "
-    "'no' only if the design genuinely omits or contradicts it. Mark 'unclear' "
-    "only if you truly cannot tell. The design CONFORMS only when every "
-    "requirement is 'yes'. Any 'no' or 'unclear' (on a genuine requirement) "
-    "means \"conforms\": false. Be precise, not pedantic. Do not be lenient."
+_EXTRACT_SYSTEM = (
+    "You are a requirements extractor. Given a SOFTWARE SPECIFICATION, extract "
+    "its DECLARED-SURFACE requirements as JSON. Do NOT audit, judge, or opine "
+    "on correctness — ONLY extract what the specification explicitly requires "
+    "to exist.\n\n"
+    "For each required ENTITY: {\"name\", \"fields\": [{\"name\", \"type\", "
+    "\"unique\", \"required\", \"pk\"}]}. type is one of "
+    "str/int/float/bool/date/datetime; unique true only if the spec says the "
+    "field is unique; required true for mandatory fields; pk true for the "
+    "auto-increment id.\n"
+    "For each required REPOSITORY/SERVICE: {\"class\"}, listing the exact "
+    "class name the specification names. Do NOT enumerate methods — method "
+    "presence is exercised by behavioral tests, not here.\n"
+    "For each required EXCEPTION class: its name.\n"
+    "Output ONLY the JSON. Do not invent requirements the spec does not state."
 )
 
 
-def llm_checklist(prompt_text: str, design: dict, verbose: bool = False) -> dict:
-    """Strict LLM conformity check. Returns {'conforms', 'issues', ...}."""
-    user = (
-        "SPECIFICATION:\n%s\n\nDESIGN:\n%r\n\n"
-        "Audit requirement-by-requirement now." % (prompt_text, design)
-    )
-    messages = [
-        {"role": "system", "content": _CHECKLIST_SYSTEM},
-        {"role": "user", "content": user},
-    ]
-    schema = {
+def _method_owner_schema():
+    """Repo/service owner schema: only the CLASS name is extracted.
+
+    Method presence/params are intentionally NOT verified here — mapping
+    natural-language method descriptions to exact code names is unreliable
+    (the small LLM guesses names like 'read' instead of 'get_by_id'). The
+    behavioral tests invoke the methods, so a missing method surfaces as a
+    runtime failure there; this gate stays on the reliable surface.
+    """
+    return {
+        "type": "object",
+        "properties": {"class": {"type": "string"}},
+        "required": ["class"],
+        "additionalProperties": False,
+    }
+
+
+def _extraction_schema():
+    return {
         "type": "object",
         "properties": {
-            "conforms": {"type": "boolean"},
-            "issues": {"type": "array", "items": {"type": "string"}},
-            "requirements": {
+            "entities": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "req": {"type": "string"},
-                        "status": {"type": "string", "enum": ["yes", "no", "unclear"]},
+                        "name": {"type": "string"},
+                        "fields": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "type": {"type": "string"},
+                                    "unique": {"type": "boolean"},
+                                    "required": {"type": "boolean"},
+                                    "pk": {"type": "boolean"},
+                                },
+                                "required": ["name", "type"],
+                                "additionalProperties": False,
+                            },
+                        },
                     },
-                    "required": ["req", "status"],
+                    "required": ["name", "fields"],
                     "additionalProperties": False,
                 },
             },
+            "repositories": {
+                "type": "array",
+                "items": _method_owner_schema(),
+            },
+            "services": {
+                "type": "array",
+                "items": _method_owner_schema(),
+            },
+            "exceptions": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
         },
-        "required": ["conforms", "issues", "requirements"],
+        "required": ["entities", "exceptions"],
         "additionalProperties": False,
     }
+
+
+def extract_requirements(prompt_text: str, verbose: bool = False) -> dict | None:
+    """Extract the prompt's declared-surface requirements as structured data.
+
+    The LLM only recalls/structures what the spec requires; it emits no
+    verdict. Returns None if extraction fails.
+    """
+    user = "SPECIFICATION:\n%s\n\nExtract the declared-surface requirements now." % prompt_text
+    messages = [
+        {"role": "system", "content": _EXTRACT_SYSTEM},
+        {"role": "user", "content": user},
+    ]
     for _ in range(2):
-        data = _json_complete(messages, schema=schema, verbose=verbose, max_tokens=LLM_MAX_TOKENS_LONG)
-        if isinstance(data, dict) and "conforms" in data and isinstance(data.get("requirements"), list):
+        data = _json_complete(
+            messages, schema=_extraction_schema(), verbose=verbose,
+            max_tokens=LLM_MAX_TOKENS_LONG,
+        )
+        if isinstance(data, dict) and isinstance(data.get("entities"), list):
             return data
-    return {"conforms": False, "issues": ["conformity-checker failed to produce a verdict"],
-            "requirements": []}
+        if verbose:
+            print("    [conformity] requirement extraction retrying…")
+    return None
 
 
-_CONFIRMATION_MARKERS = (
-    "this is present", "this satisfies", "this is satisfied",
-    "this is correct", "this is not a violation", "which is correct",
-    "is actually correct", "satisfies the requirement", "matches the specification",
-    "already satisfies", "so this is not", "does not violate", "this is not required",
-)
+# ---------------------------------------------------------------------------
+# Deterministic verification of extracted requirements (no LLM)
+# ---------------------------------------------------------------------------
+
+def verify_requirements(reqs: dict, design: dict) -> tuple[list[str], list[dict]]:
+    """Deterministically compare extracted requirements to the design.
+
+    Returns ``(issues, requirements_report)``. ``requirements_report`` is a
+    list of ``{"req": ..., "status": "yes"|"no"}`` — one per extracted
+    requirement — so the gate's report is fully deterministic.
+    """
+    issues: list[str] = []
+    report: list[dict] = []
+    entity_by_name = {e["name"]: e for e in design.get("entities", [])}
+    repo_by_class = {o["class"]: o for o in design.get("repositories", [])}
+    svc_by_class = {o["class"]: o for o in design.get("services", [])}
+    exceptions_design = {e["name"] for e in design.get("exceptions", [])}
+
+    # Entities + fields.
+    for cent in reqs.get("entities", []):
+        name = cent.get("name")
+        d_ent = entity_by_name.get(name)
+        if d_ent is None:
+            report.append({"req": "entity %s" % name, "status": "no"})
+            issues.append("entity %s is required but missing" % name)
+            continue
+        report.append({"req": "entity %s" % name, "status": "yes"})
+        for rf in cent.get("fields", []):
+            fname = rf.get("name")
+            req_text = "field %s.%s (%s%s%s)" % (
+                name, fname, rf.get("type", ""),
+                ", pk" if rf.get("pk") else "",
+                ", unique" if rf.get("unique") else "",
+            )
+            d_field = next(
+                (f for f in d_ent.get("fields", []) if f.get("name") == fname), None)
+            if d_field is None:
+                report.append({"req": req_text, "status": "no"})
+                issues.append("field %s.%s is required but missing" % (name, fname))
+                continue
+            problems = []
+            if rf.get("type") and d_field.get("type") != rf.get("type"):
+                problems.append("type %r != required %r" % (d_field.get("type"), rf.get("type")))
+            if rf.get("unique") and not d_field.get("unique"):
+                problems.append("spec requires unique but design is non-unique")
+            if problems:
+                report.append({"req": req_text, "status": "no"})
+                issues.append("field %s.%s: %s" % (name, fname, "; ".join(problems)))
+            else:
+                report.append({"req": req_text, "status": "yes"})
+
+    # Exceptions.
+    for exc_name in reqs.get("exceptions", []):
+        if exc_name not in exceptions_design:
+            report.append({"req": "exception %s" % exc_name, "status": "no"})
+            issues.append("exception %s is required but missing" % exc_name)
+        else:
+            report.append({"req": "exception %s" % exc_name, "status": "yes"})
+
+    # Repository/service classes (method presence is exercised by behavioral
+    # tests, not verified via naming here).
+    for key, by_class in (("repositories", repo_by_class), ("services", svc_by_class)):
+        for owner in reqs.get(key, []):
+            cls = owner.get("class")
+            d_obj = by_class.get(cls)
+            if d_obj is None:
+                report.append({"req": "%s %s" % (key, cls), "status": "no"})
+                issues.append("%s %s is required but missing" % (key, cls))
+            else:
+                report.append({"req": "%s %s" % (key, cls), "status": "yes"})
+
+    return issues, report
 
 
-def _is_confirmation(issue: str) -> bool:
-    """True when an 'issue' entry merely confirms a requirement is met."""
-    low = issue.lower()
-    return any(m in low for m in _CONFIRMATION_MARKERS)
-
+# ---------------------------------------------------------------------------
+# Full gate
+# ---------------------------------------------------------------------------
 
 def check_conformity(prompt_text: str, design: dict, project_dir: Path,
                      verbose: bool = False) -> dict:
-    """Full conformity gate.
+    """Full conformity gate — deterministic verdict only.
 
-    The DETERMINISTIC checks (structural + prompt-requirement) are the
-    authoritative gate: they flag real, provable violations (dangling FK,
-    missing UNIQUE on a field the prompt declares unique, rogue CLI flag,
-    undeclared repo entity). The 4B LLM checklist is ADVISORY: it surfaces
-    candidate issues for a human, but a strict "no" on a *non-declared extra*
-    (e.g. an extra optional filter or an implied-but-not-listed service
-    method) is not a real compliance failure, so it must not force a reject.
+    The DETERMINISTIC checks (structural + unique + verified-extracted
+    requirements) are the authoritative gate. There is NO freeform LLM
+    judgment, so the verdict can never be self-contradictory: the LLM only
+    extracts a structured requirement list, and the verdict is computed
+    deterministically against the design.
     """
     struct_errs = structural_violations(design, project_dir)
     prompt_errs = prompt_unique_violations(prompt_text, design)
-    llm = llm_checklist(prompt_text, design, verbose=verbose)
-    llm_issues = [i for i in llm.get("issues", []) if i and not _is_confirmation(i)]
-    deterministic_errs = struct_errs + prompt_errs
+    reqs = extract_requirements(prompt_text, verbose=verbose)
+
+    req_issues: list[str] = []
+    report: list[dict] = []
+    extraction_failed = reqs is None
+    if reqs is not None:
+        req_issues, report = verify_requirements(reqs, design)
+
+    deterministic_errs = struct_errs + prompt_errs + req_issues
+    if extraction_failed:
+        # Extraction failure must NOT reject; it just limits coverage. The
+        # deterministic unique/structural checks still run.
+        deterministic_errs = struct_errs + prompt_errs
+
     conforms = not deterministic_errs
-    reqs = llm.get("requirements", [])
-    # The LLM's raw 'conforms' boolean can contradict its own requirement list
-    # (e.g. all 'yes' yet conforms=false). The system prompt defines "conforms
-    # only when every requirement is 'yes'", so derive the advisory verdict
-    # from the requirements to stay internally consistent.
-    llm_verdict = bool(reqs) and all(r.get("status") == "yes" for r in reqs)
-    issues = deterministic_errs + llm_issues
+    if extraction_failed:
+        report = [{"req": "requirement extraction failed", "status": "unclear"}]
+
     return {
         "conforms": conforms,
         "structural_issues": struct_errs,
         "prompt_issues": prompt_errs,
-        "llm_issues": llm_issues,
-        "llm_verdict": llm_verdict,
-        "requirements": reqs,
-        "issues": issues,
+        "requirement_issues": req_issues,
+        "extraction_ok": not extraction_failed,
+        "requirements": report,
+        "issues": deterministic_errs,
     }
