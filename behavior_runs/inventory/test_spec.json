@@ -518,7 +518,34 @@
       ]
     },
     {
-      "id": "stock_below_reorder_threshold",
+      "id": "product_category_exists",
+      "kind": "ensure_raise",
+      "method": "add_product",
+      "ref_entity": "Category",
+      "ref_field": "id",
+      "unique_field": "id"
+    },
+    {
+      "id": "stock_value_by_category_sum",
+      "kind": "aggregate_mul_sum",
+      "entity": "Product",
+      "method": "stock_value_by_category",
+      "fk": "category_id",
+      "a": "price_cents",
+      "b": "stock_qty"
+    },
+    {
+      "id": "low_stock_report_filter",
+      "kind": "filter_lt",
+      "entity": "Product",
+      "method": "low_stock_report",
+      "field": "stock_qty",
+      "ref_entity": "Category",
+      "ref_field": "reorder_threshold",
+      "fk": "category_id"
+    },
+    {
+      "id": "list_products_category_filter",
       "kind": "filter_lt",
       "entity": "Product",
       "method": "list_products",
@@ -528,24 +555,52 @@
       "fk": "category_id"
     },
     {
-      "id": "stock_value_by_category_aggregate",
-      "kind": "aggregate_mul_sum",
+      "id": "list_products_low_only_filter",
+      "kind": "filter_lt",
       "entity": "Product",
-      "method": "stock_value_by_category",
-      "fk": "category_id",
-      "a": "price_cents",
-      "b": "stock_qty"
+      "method": "list_products",
+      "field": "stock_qty",
+      "ref_entity": "Category",
+      "ref_field": "reorder_threshold",
+      "fk": "category_id"
     },
     {
-      "id": "product_category_exists",
+      "id": "product_stock_update",
+      "kind": "no_stub",
+      "class": "ProductRepository",
+      "methods": [
+        "find_products_by_category",
+        "find_low_stock_products",
+        "aggregate_total_stock_value_by_category"
+      ]
+    },
+    {
+      "id": "category_repository_crud",
+      "kind": "no_stub",
+      "class": "CategoryRepository",
+      "methods": [
+        "create",
+        "read",
+        "update",
+        "delete",
+        "find_all_products"
+      ]
+    },
+    {
+      "id": "inventory_service_product_validation",
       "kind": "ensure_raise",
       "method": "add_product",
-      "entity": "Product",
       "ref_entity": "Category",
       "ref_field": "id",
-      "unique_field": "category_id"
+      "unique_field": "id"
     }
   ],
-  "business_logic_coverage": "full",
-  "unexpressed_rules": []
+  "business_logic_coverage": "partial",
+  "unexpressed_rules": [
+    "The stock_qty must not go below zero after restock or update operations (no negative stock).",
+    "The reorder_threshold must be a positive integer (or null), and must be defined per category.",
+    "When a product is deleted, its category must not become empty (no constraint on category-level emptiness).",
+    "The low_stock_report must only return products where stock_qty < reorder_threshold, and only if the category has a defined reorder_threshold.",
+    "The stock_value_by_category must only aggregate products that belong to a category with a defined reorder_threshold (if required)."
+  ]
 }

@@ -88,7 +88,7 @@ def _kind_rule_schema(kind_name: str, required_fields: tuple[str, ...],
     return item
 
 
-def _business_rules_array_schema():
+def _business_rules_array_schema(kinds=None):
     """JSON array schema for business_rules (shared by the full test-spec
     schema and the dedicated kind-detection schema).
 
@@ -97,6 +97,9 @@ def _business_rules_array_schema():
     (e.g. ``filter_lt`` without ``field``). That was the root cause of
     malformed rules that had to be dropped downstream; a strict schema forces
     the model to produce complete, usable rules.
+
+    ``kinds`` (optional) restricts the schema to a subset of kind names, used
+    by the split detection passes so each call only emits its own kinds.
     """
     per_kind = {
         "overlap_conflict": ("entity", "start_field", "end_field", "scope_field"),
@@ -107,36 +110,40 @@ def _business_rules_array_schema():
         "filter_lt": ("entity", "method", "field", "ref_entity", "ref_field", "fk"),
         "aggregate_mul_sum": ("entity", "method", "fk", "a", "b"),
     }
+    if kinds is not None:
+        per_kind = {k: v for k, v in per_kind.items() if k in kinds}
     branches = [
         _kind_rule_schema(kind, fields)
         for kind, fields in per_kind.items()
     ]
     # ensure_raise: method is mandatory, AND either ref_field or unique_field
     # must be present (entity / ref_entity stay optional).
-    branches.append(
-        _kind_rule_schema(
-            "ensure_raise",
-            ("method",),
-            one_of_required=(("ref_field",), ("unique_field",)),
+    if kinds is None or "ensure_raise" in kinds:
+        branches.append(
+            _kind_rule_schema(
+                "ensure_raise",
+                ("method",),
+                one_of_required=(("ref_field",), ("unique_field",)),
+            )
         )
-    )
     return {
         "type": "array",
         "items": {"oneOf": branches},
     }
 
 
-def business_rules_schema():
+def business_rules_schema(kinds=None):
     """Narrow JSON schema for a dedicated business-rule detection pass.
 
     Unlike the full ``test_spec_schema``, this only constrains the
     business-rules output so the model's attention is focused on kind
-    detection, not on the whole domain model.
+    detection, not on the whole domain model. ``kinds`` (optional) restricts
+    it to a subset of kind names.
     """
     return {
         "type": "object",
         "properties": {
-            "business_rules": _business_rules_array_schema(),
+            "business_rules": _business_rules_array_schema(kinds),
             "business_logic_coverage": {
                 "type": "string",
                 "enum": ["full", "partial", "none"],

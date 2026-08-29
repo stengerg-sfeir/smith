@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-08-29T09:21:31.121624+00:00",
-  "finished_at": "2026-08-29T09:22:49.759210+00:00",
+  "started_at": "2026-08-29T09:52:10.247767+00:00",
+  "finished_at": "2026-08-29T09:53:40.154665+00:00",
   "prompts_dir": "/Users/gillesstenger/Documents/neurosymbolic/prompts",
   "generated_root": "/Users/gillesstenger/Documents/neurosymbolic/generated",
   "total": 1,
@@ -14,7 +14,7 @@
     {
       "prompt": "inventory",
       "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_inventory.txt",
-      "started_at": "2026-08-29T09:21:31.121624+00:00",
+      "started_at": "2026-08-29T09:52:10.247767+00:00",
       "generated_dir": "/Users/gillesstenger/Documents/neurosymbolic/generated/inventory",
       "output_exists": true,
       "conformity": {
@@ -96,11 +96,17 @@
         "issues": []
       },
       "test_spec": "/Users/gillesstenger/Documents/neurosymbolic/behavior_runs/inventory/test_spec.json",
-      "business_logic_coverage": "full",
-      "unexpressed_rules": [],
+      "business_logic_coverage": "partial",
+      "unexpressed_rules": [
+        "The stock_qty must not go below zero after restock or update operations (no negative stock).",
+        "The reorder_threshold must be a positive integer (or null), and must be defined per category.",
+        "When a product is deleted, its category must not become empty (no constraint on category-level emptiness).",
+        "The low_stock_report must only return products where stock_qty < reorder_threshold, and only if the category has a defined reorder_threshold.",
+        "The stock_value_by_category must only aggregate products that belong to a category with a defined reorder_threshold (if required)."
+      ],
       "exit_code": 1,
       "stderr_tail": "",
-      "stdout_tail": "{\n  \"tests\": [\n    {\n      \"id\": \"crud:Category\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"unique:unique_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"crud:Product\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_category_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:pair_unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:pair_unique_category_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:filter_stock_below_reorder_threshold\",\n      \"status\": \"fail\",\n      \"detail\": \"filter_lt: low=1 in=True; high=2 out=False\"\n    },\n    {\n      \"id\": \"business_rule:agg_stock_value_by_category_aggregate\",\n      \"status\": \"fail\",\n      \"detail\": \"group 1: got 6 expected 26\"\n    },\n    {\n      \"id\": \"business_rule:raise_product_category_exists\",\n      \"status\": \"fail\",\n      \"detail\": \"method did not raise on missing id\"\n    },\n    {\n      \"id\": \"exceptions:exc_CategoryNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ProductNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    }\n  ],\n  \"coverage\": {\n    \"crud\": {\n      \"Category\": \"pass\",\n      \"Product\": \"pass\"\n    },\n    \"unique\": {\n      \"unique_name\": \"pass\",\n      \"unique_sku\": \"pass\"\n    },\n    \"fk\": {\n      \"fk_category_id\": \"pass\"\n    },\n    \"business_rule\": {\n      \"pair_unique_sku\": \"pass\",\n      \"pair_unique_category_name\": \"pass\",\n      \"filter_stock_below_reorder_threshold\": \"fail\",\n      \"agg_stock_value_by_category_aggregate\": \"fail\",\n      \"raise_product_category_exists\": \"fail\"\n    },\n    \"exceptions\": {\n      \"exc_CategoryNotFoundError\": \"pass\",\n      \"exc_ProductNotFoundError\": \"pass\"\n    }\n  },\n  \"build_errors\": [],\n  \"status\": \"fail\"\n}\n",
+      "stdout_tail": "{\n  \"tests\": [\n    {\n      \"id\": \"crud:Category\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"unique:unique_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"crud:Product\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_category_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"unique:unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:pair_unique_sku\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:pair_unique_category_name\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:raise_product_category_exists\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"business_rule:agg_stock_value_by_category_sum\",\n      \"status\": \"fail\",\n      \"detail\": \"group 1: got 6 expected 26\"\n    },\n    {\n      \"id\": \"business_rule:filter_low_stock_report_filter\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"business_rule:filter_list_products_category_filter\",\n      \"status\": \"fail\",\n      \"detail\": \"filter_lt: low=1 in=True; high=2 out=False\"\n    },\n    {\n      \"id\": \"business_rule:filter_list_products_low_only_filter\",\n      \"status\": \"fail\",\n      \"detail\": \"filter_lt: low=1 in=True; high=2 out=False\"\n    },\n    {\n      \"id\": \"business_rule:nostub_product_stock_update\",\n      \"status\": \"fail\",\n      \"detail\": \"method aggregate_total_stock_value_by_category missing\"\n    },\n    {\n      \"id\": \"business_rule:nostub_category_repository_crud\",\n      \"status\": \"fail\",\n      \"detail\": \"method read missing\"\n    },\n    {\n      \"id\": \"business_rule:raise_inventory_service_product_validation\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_CategoryNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ProductNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    }\n  ],\n  \"coverage\": {\n    \"crud\": {\n      \"Category\": \"pass\",\n      \"Product\": \"pass\"\n    },\n    \"unique\": {\n      \"unique_name\": \"pass\",\n      \"unique_sku\": \"pass\"\n    },\n    \"fk\": {\n      \"fk_category_id\": \"pass\"\n    },\n    \"business_rule\": {\n      \"pair_unique_sku\": \"pass\",\n      \"pair_unique_category_name\": \"pass\",\n      \"raise_product_category_exists\": \"pass\",\n      \"agg_stock_value_by_category_sum\": \"fail\",\n      \"filter_low_stock_report_filter\": \"pass\",\n      \"filter_list_products_category_filter\": \"fail\",\n      \"filter_list_products_low_only_filter\": \"fail\",\n      \"nostub_product_stock_update\": \"fail\",\n      \"nostub_category_repository_crud\": \"fail\",\n      \"raise_inventory_service_product_validation\": \"pass\"\n    },\n    \"exceptions\": {\n      \"exc_CategoryNotFoundError\": \"pass\",\n      \"exc_ProductNotFoundError\": \"pass\"\n    }\n  },\n  \"build_errors\": [],\n  \"status\": \"fail\"\n}\n",
       "status": "fail",
       "tests": [
         {
@@ -149,19 +155,44 @@
           "detail": "raised 'IntegrityError'"
         },
         {
-          "id": "business_rule:filter_stock_below_reorder_threshold",
-          "status": "fail",
-          "detail": "filter_lt: low=1 in=True; high=2 out=False"
+          "id": "business_rule:raise_product_category_exists",
+          "status": "pass",
+          "detail": ""
         },
         {
-          "id": "business_rule:agg_stock_value_by_category_aggregate",
+          "id": "business_rule:agg_stock_value_by_category_sum",
           "status": "fail",
           "detail": "group 1: got 6 expected 26"
         },
         {
-          "id": "business_rule:raise_product_category_exists",
+          "id": "business_rule:filter_low_stock_report_filter",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "business_rule:filter_list_products_category_filter",
           "status": "fail",
-          "detail": "method did not raise on missing id"
+          "detail": "filter_lt: low=1 in=True; high=2 out=False"
+        },
+        {
+          "id": "business_rule:filter_list_products_low_only_filter",
+          "status": "fail",
+          "detail": "filter_lt: low=1 in=True; high=2 out=False"
+        },
+        {
+          "id": "business_rule:nostub_product_stock_update",
+          "status": "fail",
+          "detail": "method aggregate_total_stock_value_by_category missing"
+        },
+        {
+          "id": "business_rule:nostub_category_repository_crud",
+          "status": "fail",
+          "detail": "method read missing"
+        },
+        {
+          "id": "business_rule:raise_inventory_service_product_validation",
+          "status": "pass",
+          "detail": ""
         },
         {
           "id": "exceptions:exc_CategoryNotFoundError",
@@ -189,9 +220,14 @@
         "business_rule": {
           "pair_unique_sku": "pass",
           "pair_unique_category_name": "pass",
-          "filter_stock_below_reorder_threshold": "fail",
-          "agg_stock_value_by_category_aggregate": "fail",
-          "raise_product_category_exists": "fail"
+          "raise_product_category_exists": "pass",
+          "agg_stock_value_by_category_sum": "fail",
+          "filter_low_stock_report_filter": "pass",
+          "filter_list_products_category_filter": "fail",
+          "filter_list_products_low_only_filter": "fail",
+          "nostub_product_stock_update": "fail",
+          "nostub_category_repository_crud": "fail",
+          "raise_inventory_service_product_validation": "pass"
         },
         "exceptions": {
           "exc_CategoryNotFoundError": "pass",
@@ -199,7 +235,7 @@
         }
       },
       "build_errors": [],
-      "finished_at": "2026-08-29T09:22:49.759031+00:00"
+      "finished_at": "2026-08-29T09:53:40.154490+00:00"
     }
   ]
 }

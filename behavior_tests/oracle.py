@@ -79,6 +79,8 @@ def extract_test_spec(prompt_text: str, verbose: bool = False) -> dict | None:
         _TEST_SPEC_SYSTEM
         + "\n\nAVAILABLE RULE KINDS (you may ONLY emit these kinds):\n"
         + rule_kind_descriptions()
+        + "\n\n"
+        + _VERBATIM_NOTE
         + "\n\nCoverage: after business_rules, if the SPECIFICATION describes "
           "business logic/validation that you could NOT express with the kinds "
           "above, set \"business_logic_coverage\" to \"partial\" or \"none\" and "
@@ -150,14 +152,27 @@ _KIND_DETECT_SYSTEM = (
     "elsewhere."
 )
 
+_VERBATIM_NOTE = (
+    "All entity/field/method/parameter names MUST be taken verbatim from the "
+    "specification. Never invent a name that the specification does not state."
+)
+
 
 def extract_business_rules(prompt_text: str, verbose: bool = False) -> dict | None:
-    """Return a normalized business-rules-only spec via a focused kind pass."""
+    """Return a normalized business-rules-only spec via a focused kind pass.
+
+    The per-kind descriptions now carry semantic mapping guidance (which
+    method / parameter the kind refers to), and a "verbatim" note forces the
+    model to use the specification's exact names. The strict per-kind schema
+    guarantees every emitted rule is complete.
+    """
     user = "SPECIFICATION:\n%s\n\nEmit the business-rule JSON now." % prompt_text
     system = (
         _KIND_DETECT_SYSTEM
         + "\n\nAVAILABLE RULE KINDS (you may ONLY emit these kinds):\n"
         + rule_kind_descriptions()
+        + "\n\n"
+        + _VERBATIM_NOTE
     )
     messages = [
         {"role": "system", "content": system},
