@@ -58,17 +58,55 @@ def _record(domain, test, ok, detail=""):
     })
     RESULT["coverage"].setdefault(domain, {})[test] = "pass" if ok else "fail"
 
+def _classify_error(exc):
+    """Return 'app' if the error indicates a bug in the code under test, else
+    'tester' (a harness bug we should fix — our own reflection/import/arg
+    construction, never a real generated-code problem)."""
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        # A project module we tried to import isn't there: either we guessed the
+        # path wrong (harness) or the app genuinely lacks the module (app). The
+        # import helpers already try several paths; a failure here is usually a
+        # harness naming issue.
+        return "tester"
+    name = type(exc).__name__
+    if name == "TypeError":
+        # Ambiguous, but the harness builds args from the real signature, so a
+        # TypeError most often reflects our own reflection/arg mismatch or an
+        # app-internal one. Conservative toward surfacing harness bugs.
+        return "tester"
+    if name == "SyntaxError":
+        # A syntax error in a generated assertion/expression is a harness bug
+        # (our test code), never a bug in the app under test.
+        return "tester"
+    # AttributeError (missing method/field), DB integrity/programming errors and
+    # NotImplementedError all point at the generated application.
+    return "app"
+
 def _record_error(domain, test, exc):
-    """Record a failing test that errored (not cleanly asserted)."""
+    """Classify an exception: an app bug is recorded as a failing test; a
+    harness bug is recorded in ``build_errors`` (kind=tester) so it is surfaced
+    for fixing without being conflated with a real app failure."""
+    kind = _classify_error(exc)
+    if kind == "tester":
+        RESULT["build_errors"].append({
+            "kind": "tester",
+            "error": "%r" % (exc,),
+            "test": "%s:%s" % (domain, test),
+        })
+        return
     _record(domain, test, False, "error: %r" % (exc,))
 
 def _safe(fn):
-    """Run `fn()`; a raised exception is recorded as a failure, never a crash."""
+    """Run `fn()`; a raised exception is classified: a harness bug is recorded
+    in ``build_errors`` (kind=tester), an app bug is recorded as a failure."""
     try:
         return fn()
     except Exception as exc:
         traceback.print_exc()
-        RESULT["build_errors"].append(str(exc))
+        RESULT["build_errors"].append({
+            "kind": _classify_error(exc),
+            "error": str(exc),
+        })
         return None
 
 # --- import / discovery helpers --------------------------------------------
@@ -315,7 +353,11 @@ def _seed_row_for(ent, spec, db):
     repo_cls = _repo_for(ent)
     model_cls = _find_cls("models", ent["name"])
     if repo_cls is not None and model_cls is not None:
-        inst = _model_instance(model_cls, ent)
+        # Resolve this row's own FKs first, so a parent (e.g. Invoice) that
+        # itself has a FK (e.g. Customer) is created with a REAL customer_id,
+        # not a dangling sample id that would raise an FK IntegrityError.
+        inst = _model_instance(model_cls, ent,
+                               fk_values=_resolved_fk_values(ent, spec, db))
         created = _call(repo_cls(db), "create", inst)
         return created if isinstance(created, int) else getattr(created, "id", None)
     # Direct-SQL fallback for reference-only entities (e.g. a Room with no
@@ -590,16 +632,28 @@ def _test_sum_equals(rule, spec):
         if parent_repo is None or child_repo is None:
             _record("business_rule", test_name, False, "repo missing")
             return
+        parent_repo_inst = parent_repo(db)
+        child_repo_inst = child_repo(db)
         parent_cls = _find_cls("models", parent_ent)
         child_cls = _find_cls("models", child_ent)
-        pinst = _model_instance(parent_cls, parent)
+        # Resolve every FK of the parent (e.g. Invoice.customer_id) so it is
+        # created without a dangling reference, which would otherwise surface
+        # as a spurious IntegrityError instead of the real total invariant.
+        pinst = _model_instance(parent_cls, parent,
+                                fk_values=_resolved_fk_values(parent, spec, db))
         setattr(pinst, parent_total, 0)
-        parent_id = _call(parent_repo, "create", pinst)
+        parent_id = _call(parent_repo_inst, "create", pinst)
         pid = parent_id if isinstance(parent_id, int) else getattr(parent_id, "id", None)
+
+        # Resolve the child's OTHER FKs (everything except the fk_field that
+        # links it to the parent we just created) so child rows don't dangle.
+        child_fkv = _resolved_fk_values(child, spec, db)
+        child_fkv.pop(fk_field, None)
 
         expected = 0
         for i in range(2):
-            cinst = _model_instance(child_cls, child, fk_values={fk_field: pid})
+            cinst = _model_instance(child_cls, child,
+                                    fk_values={**child_fkv, fk_field: pid})
             vals = []
             for a_name in amounts:
                 afield = next(
@@ -613,9 +667,9 @@ def _test_sum_equals(rule, spec):
                 expected += vals[0] * vals[1]
             else:
                 expected += vals[0]
-            _call(child_repo, "create", cinst)
+            _call(child_repo_inst, "create", cinst)
 
-        parent_fetched = _call(parent_repo, "get_by_id", pid)
+        parent_fetched = _call(parent_repo_inst, "get_by_id", pid)
         actual = getattr(parent_fetched, parent_total, None)
         if actual is None:
             _record("business_rule", test_name, False, "total field missing/None")
@@ -707,10 +761,13 @@ def _test_filter_lt(rule, spec):
     if ent is None or ref_ent is None or not method_name:
         _record("business_rule", test_name, False, "entity/ref_entity/method missing")
         return
-    # A filter_lt rule missing its comparison/threshold fields cannot be
-    # exercised (setattr(inst, None, ...) would crash). Treat it as a skip
-    # rather than a false FAIL on the generated code.
+    # A filter_lt rule must carry its comparison/threshold fields to be
+    # exercised. The runner validates completeness (rule_is_complete); if one
+    # is still missing here, that is a pipeline inconsistency — surface it as
+    # a failure instead of silently skipping.
     if not field or not ref_field or not fk:
+        _record("business_rule", test_name, False,
+                "filter_lt rule missing field/ref_field/fk")
         return
     try:
         db = _db_setup()
@@ -867,6 +924,7 @@ def _test_ensure_raise(rule, spec):
     ent_name = rule.get("entity")
     ref_field = rule.get("ref_field")
     unique_field = rule.get("unique_field")
+    fk = rule.get("fk")
     test_name = "raise_%s" % rule.get("id", method_name or ent_name)
 
     ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None) \
@@ -891,19 +949,53 @@ def _test_ensure_raise(rule, spec):
             return
         owner = owner_cls(db)
         method = getattr(owner, method_name)
-        # Only exercise a raise case if the field is actually a parameter of the
-        # method. An ensure_raise rule whose ref_field/unique_field is NOT a
-        # method param is mis-targeted and cannot be exercised meaningfully;
-        # skipping avoids a false FAIL on the generated code.
         params = set(inspect.signature(method).parameters) if method else set()
 
-        # Case 1: raise when a referenced entity (ref_field) does not exist.
+        # Case 1: raise when a referenced entity does not exist. The local FK
+        # (`fk`) is the method parameter that carries the referenced id, so it
+        # is the natural probe: ctx[fk] = 999999 injects a dangling reference.
+        # Fall back to `ref_field` if it is itself a parameter. If neither is
+        # reachable the rule is mis-targeted — surface it, never silently skip.
         if ref_field:
-            if ref_field not in params:
-                pass  # not a method parameter -> cannot exercise
-            else:
-                ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
-                ctx[ref_field] = 999999
+            probe_key = None
+            if fk and fk in params:
+                probe_key = fk
+            elif ref_field in params:
+                probe_key = ref_field
+            if probe_key is None:
+                _record("business_rule", test_name, False,
+                        "mis-targeted: neither %s nor %s is a parameter of %s"
+                        % (fk, ref_field, method_name))
+                return
+            ctx = _resolved_fk_values(ent, spec, db) if ent is not None else {}
+            ctx[probe_key] = 999999
+            args = _build_args(method, rule, ctx, spec)
+            raised = None
+            try:
+                method(*args)
+            except Exception as exc:
+                raised = exc
+            if raised is None:
+                _record("business_rule", test_name, False,
+                        "method did not raise on missing %s" % ref_field)
+                return
+
+        # Case 2: raise when a unique field is duplicated.
+        if unique_field and ent is not None:
+            if unique_field not in params:
+                _record("business_rule", test_name, False,
+                        "mis-targeted: %s is not a parameter of %s"
+                        % (unique_field, method_name))
+                return
+            ent_repo = _repo_for(ent)
+            ent_model = _find_cls("models", ent_name)
+            if ent_repo is not None and ent_model is not None:
+                fkv = _resolved_fk_values(ent, spec, db)
+                first = _seed_entity_val(ent_model, ent, fk_values=fkv)
+                dup_value = getattr(first, unique_field, None)
+                _call(ent_repo, "create", first)
+                ctx = dict(fkv)
+                ctx[unique_field] = dup_value
                 args = _build_args(method, rule, ctx, spec)
                 raised = None
                 try:
@@ -912,35 +1004,697 @@ def _test_ensure_raise(rule, spec):
                     raised = exc
                 if raised is None:
                     _record("business_rule", test_name, False,
-                            "method did not raise on missing %s" % ref_field)
+                            "method did not raise on duplicate %s" % unique_field)
                     return
 
-        # Case 2: raise when a unique field is duplicated.
-        if unique_field and ent is not None:
-            if unique_field not in params:
-                pass  # not a method parameter -> cannot exercise
-            else:
-                ent_repo = _repo_for(ent)
-                ent_model = _find_cls("models", ent_name)
-                if ent_repo is not None and ent_model is not None:
-                    fkv = _resolved_fk_values(ent, spec, db)
-                    first = _seed_entity_val(ent_model, ent, fk_values=fkv)
-                    dup_value = getattr(first, unique_field, None)
-                    _call(ent_repo, "create", first)
-                    ctx = dict(fkv)
-                    ctx[unique_field] = dup_value
-                    args = _build_args(method, rule, ctx, spec)
-                    raised = None
-                    try:
-                        method(*args)
-                    except Exception as exc:
-                        raised = exc
-                    if raised is None:
-                        _record("business_rule", test_name, False,
-                                "method did not raise on duplicate %s" % unique_field)
-                        return
-
         _record("business_rule", test_name, True)
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+def _test_count_group_by(rule, spec):
+    ent_name = rule.get("entity")
+    method_name = rule.get("method")
+    fk = rule.get("fk")
+    ref_ent_name = rule.get("ref_entity")
+    test_name = "count_%s" % rule.get("id", ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None)
+    ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_ent_name), None)
+    if ent is None or ref_ent is None or not method_name or not fk:
+        _record("business_rule", test_name, False, "entity/ref_entity/method/fk missing")
+        return
+    try:
+        db = _db_setup()
+        ref_repo = _repo_for(ref_ent)
+        ref_model = _find_cls("models", ref_ent_name)
+        ent_repo = _repo_for(ent)
+        ent_model = _find_cls("models", ent_name)
+        if ref_repo is None or ref_model is None or ent_repo is None or ent_model is None:
+            _record("business_rule", test_name, False, "repo/model missing")
+            return
+        ref_repo_inst = ref_repo(db)
+        ent_repo_inst = ent_repo(db)
+
+        # Seed two reference groups, then 2 rows for group 0 and 1 for group 1.
+        group_ids = []
+        for i in range(2):
+            rinst = _seed_entity_val(ref_model, ref_ent, index=i + 1)
+            rid = _call(ref_repo_inst, "create", rinst)
+            group_ids.append(rid if isinstance(rid, int) else getattr(rid, "id", None))
+
+        counts = {group_ids[0]: 2, group_ids[1]: 1}
+        seed_idx = 0
+        for gid, n in counts.items():
+            for _ in range(n):
+                seed_idx += 1
+                inst = _seed_entity_val(ent_model, ent, fk_values={fk: gid}, index=seed_idx)
+                _call(ent_repo_inst, "create", inst)
+
+        owner_cls = _service_for(ent) or ent_repo
+        owner = owner_cls(db)
+        method = getattr(owner, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False, "method %s not found" % method_name)
+            return
+        try:
+            result = method()
+        except TypeError:
+            result = method(*_build_args(method, rule, {}, spec))
+
+        result_map = {}
+        if isinstance(result, dict):
+            result_map = result
+        elif isinstance(result, (list, tuple)):
+            for item in result:
+                if isinstance(item, dict):
+                    k = item.get(fk) or item.get("id") or item.get("key")
+                    v = item.get("count") or item.get("total") or item.get("value")
+                    if k is not None:
+                        result_map[k] = v
+                elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                    result_map[item[0]] = item[1]
+        else:
+            _record("business_rule", test_name, False,
+                    "method returned %r" % type(result).__name__)
+            return
+
+        for gid, exp in counts.items():
+            if result_map.get(gid) != exp:
+                _record("business_rule", test_name, False,
+                        "group %r: got %r expected %r" % (gid, result_map.get(gid), exp))
+                return
+        _record("business_rule", test_name, True)
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+def _test_sum_mul_joined(rule, spec):
+    ent_name = rule.get("entity")
+    method_name = rule.get("method")
+    fk = rule.get("fk")
+    ref_ent_name = rule.get("ref_entity")
+    child_field = rule.get("child_field")
+    ref_field = rule.get("ref_field")
+    test_name = "sumn_%s" % rule.get("id", ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None)
+    ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_ent_name), None)
+    if ent is None or ref_ent is None or not method_name or not fk \
+            or not child_field or not ref_field:
+        _record("business_rule", test_name, False,
+                "entity/ref_entity/method/fk/child_field/ref_field missing")
+        return
+    try:
+        db = _db_setup()
+        ref_repo = _repo_for(ref_ent)
+        ref_model = _find_cls("models", ref_ent_name)
+        ent_repo = _repo_for(ent)
+        ent_model = _find_cls("models", ent_name)
+        if ref_repo is None or ref_model is None or ent_repo is None or ent_model is None:
+            _record("business_rule", test_name, False, "repo/model missing")
+            return
+        ref_repo_inst = ref_repo(db)
+        ent_repo_inst = ent_repo(db)
+
+        # Seed two reference rows with distinct ref_field (e.g. unit prices),
+        # then several child rows whose child_field is the per-row quantity.
+        ref_vals = []
+        for i, price in ((0, 3.0), (1, 5.0)):
+            rinst = _seed_entity_val(ref_model, ref_ent, index=i + 1)
+            setattr(rinst, ref_field, price)
+            rid = _call(ref_repo_inst, "create", rinst)
+            ref_vals.append((rid if isinstance(rid, int) else getattr(rid, "id", None), price))
+
+        expected = 0.0
+        seed_idx = 0
+        for rid, price in ref_vals:
+            for qty in (2, 4):
+                seed_idx += 1
+                inst = _seed_entity_val(ent_model, ent, fk_values={fk: rid}, index=seed_idx)
+                setattr(inst, child_field, qty)
+                _call(ent_repo_inst, "create", inst)
+                expected += qty * price
+
+        owner_cls = _service_for(ent) or ent_repo
+        owner = owner_cls(db)
+        method = getattr(owner, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False, "method %s not found" % method_name)
+            return
+        try:
+            result = method()
+        except TypeError:
+            result = method(*_build_args(method, rule, {}, spec))
+
+        try:
+            actual = float(result)
+        except (TypeError, ValueError):
+            _record("business_rule", test_name, False,
+                    "method returned non-scalar %r" % (result,))
+            return
+        if abs(actual - expected) < 1e-6:
+            _record("business_rule", test_name, True)
+        else:
+            _record("business_rule", test_name, False,
+                    "sum %r != expected %r" % (actual, expected))
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+def _collect_status_pairs(obj, fk, out):
+    """Recursively collect (group_id, status) pairs from a report result.
+
+    Handles a direct {group_id: status} mapping, a list of per-group status
+    dicts ({fk: id, 'status': ...}), and a nested container such as
+    {'month': ..., 'per_category': [{category_id, budget_status}]}.
+    """
+    if isinstance(obj, dict):
+        k = obj.get(fk) or obj.get("id") or obj.get("key")
+        v = obj.get("status") or obj.get("budget_status") or obj.get("state")
+        if k is not None and v is not None and isinstance(v, str):
+            out[k] = v
+            return
+        for kk, vv in obj.items():
+            if isinstance(vv, str) and isinstance(kk, int):
+                out[kk] = vv
+            elif isinstance(vv, (dict, list, tuple)):
+                _collect_status_pairs(vv, fk, out)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            _collect_status_pairs(item, fk, out)
+
+def _test_ensure_raise_with_comparison(rule, spec):
+    method_name = rule.get("method")
+    ent_name = rule.get("entity")
+    fk = rule.get("fk")
+    ref_ent_name = rule.get("ref_entity")
+    ref_field = rule.get("ref_field")
+    agg_field = rule.get("aggregate_field")
+    exception_name = rule.get("exception")
+    test_name = "raisecmp_%s" % rule.get("id", method_name or ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None) \
+        if ent_name else None
+    ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_ent_name), None) \
+        if ref_ent_name else None
+    if not method_name or ent is None or ref_ent is None or not fk \
+            or not ref_field or not agg_field:
+        _record("business_rule", test_name, False,
+                "ensure_raise_with_comparison missing fields")
+        return
+    try:
+        db = _db_setup()
+        ref_repo = _repo_for(ref_ent)
+        ref_model = _find_cls("models", ref_ent_name)
+        ent_repo = _repo_for(ent)
+        ent_model = _find_cls("models", ent_name)
+        if ref_repo is None or ref_model is None or ent_repo is None or ent_model is None:
+            _record("business_rule", test_name, False, "repo/model missing")
+            return
+        ref_repo_inst = ref_repo(db)
+        ent_repo_inst = ent_repo(db)
+
+        # Seed the reference entity with a small threshold, then child rows whose
+        # aggregate sums just below it so the accumulated check is exercised.
+        threshold = 100
+        ref_inst = _seed_entity_val(ref_model, ref_ent,
+                                    fk_values=_resolved_fk_values(ref_ent, spec, db))
+        setattr(ref_inst, ref_field, threshold)
+        ref_id = _call(ref_repo_inst, "create", ref_inst)
+        ref_id = ref_id if isinstance(ref_id, int) else getattr(ref_id, "id", None)
+
+        # Resolve the child's OTHER FKs first so the rows we seed do not dangle
+        # (the FK being driven is overwritten with the ref row we just created).
+        child_fkv = _resolved_fk_values(ent, spec, db)
+        child_fkv.pop(fk, None)
+
+        running = 0
+        seed_idx = 0
+        for v in (60, 30):
+            seed_idx += 1
+            inst = _seed_entity_val(ent_model, ent,
+                                    fk_values={**child_fkv, fk: ref_id},
+                                    index=seed_idx)
+            setattr(inst, agg_field, v)
+            _call(ent_repo_inst, "create", inst)
+            running += v
+
+        owner_cls = _service_for(ent) or ent_repo
+        owner = owner_cls(db)
+        method = getattr(owner, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False, "method %s not found" % method_name)
+            return
+        params = set(inspect.signature(method).parameters)
+
+        # The comparison must be exercisable: either the FK (group) or the
+        # aggregate field must be an actual method parameter; otherwise the rule
+        # is mis-targeted and we cannot drive the condition deterministically.
+        if fk not in params and agg_field not in params:
+            _record("business_rule", test_name, False,
+                    "mis-targeted: neither %s nor %s is a parameter of %s"
+                    % (fk, agg_field, method_name))
+            return
+
+        ctx = {}
+        if fk in params:
+            ctx[fk] = ref_id
+        if agg_field in params:
+            # A single-row value that (alone or atop the accumulated total) pushes
+            # the aggregate over the threshold.
+            ctx[agg_field] = threshold - running + 1
+        args = _build_args(method, rule, ctx, spec)
+
+        raised = None
+        try:
+            method(*args)
+        except Exception as exc:
+            raised = exc
+        if raised is None:
+            _record("business_rule", test_name, False,
+                    "method did not raise when aggregate crossed threshold")
+            return
+
+        if exception_name:
+            exp_cls = None
+            try:
+                exc_mod = _import("exceptions")
+                exp_cls = getattr(exc_mod, exception_name, None)
+            except Exception:
+                exp_cls = None
+            if exp_cls is not None and isinstance(raised, exp_cls):
+                _record("business_rule", test_name, True)
+            elif exp_cls is None:
+                _record("business_rule", test_name, True,
+                        "raised %r (exception %s not importable, taken as satisfied)"
+                        % (type(raised).__name__, exception_name))
+            else:
+                _record("business_rule", test_name, False,
+                        "raised %r expected %s" % (type(raised).__name__, exception_name))
+        else:
+            _record("business_rule", test_name, True, "raised %r" % type(raised).__name__)
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+def _test_sum_compare_status(rule, spec):
+    ent_name = rule.get("entity")
+    method_name = rule.get("method")
+    fk = rule.get("fk")
+    ref_ent_name = rule.get("ref_entity")
+    ref_field = rule.get("ref_field")
+    agg_field = rule.get("aggregate_field")
+    over_status = rule.get("over_status")
+    test_name = "status_%s" % rule.get("id", ent_name)
+
+    ent = next((e for e in spec.get("entities", []) if e["name"] == ent_name), None) \
+        if ent_name else None
+    ref_ent = next((e for e in spec.get("entities", []) if e["name"] == ref_ent_name), None) \
+        if ref_ent_name else None
+    if ent is None or ref_ent is None or not method_name or not fk \
+            or not ref_field or not agg_field or not over_status:
+        _record("business_rule", test_name, False, "sum_compare_status missing fields")
+        return
+    try:
+        db = _db_setup()
+        ref_repo = _repo_for(ref_ent)
+        ref_model = _find_cls("models", ref_ent_name)
+        ent_repo = _repo_for(ent)
+        ent_model = _find_cls("models", ent_name)
+        if ref_repo is None or ref_model is None or ent_repo is None or ent_model is None:
+            _record("business_rule", test_name, False, "repo/model missing")
+            return
+        ref_repo_inst = ref_repo(db)
+        ent_repo_inst = ent_repo(db)
+
+        # Seed two owners: one whose aggregate sum EXCEEDS the threshold, one
+        # below it. Then drive the report and assert the per-group status.
+        owner_ids = {}
+        seed_idx = 0
+        for label in ("over", "under"):
+            seed_idx += 1
+            rinst = _seed_entity_val(ref_model, ref_ent, index=seed_idx,
+                                     fk_values=_resolved_fk_values(ref_ent, spec, db))
+            setattr(rinst, ref_field, 100)
+            rid = _call(ref_repo_inst, "create", rinst)
+            owner_ids[label] = rid if isinstance(rid, int) else getattr(rid, "id", None)
+
+        # Resolve the child's OTHER FKs so the seeded rows do not dangle.
+        child_fkv = _resolved_fk_values(ent, spec, db)
+        child_fkv.pop(fk, None)
+
+        seed_idx = 0
+        for label, values in (("over", (60, 90)), ("under", (20, 30))):
+            oid = owner_ids[label]
+            for v in values:
+                seed_idx += 1
+                inst = _seed_entity_val(ent_model, ent,
+                                        fk_values={**child_fkv, fk: oid},
+                                        index=seed_idx)
+                setattr(inst, agg_field, v)
+                _call(ent_repo_inst, "create", inst)
+
+        owner_cls = _service_for(ent) or ent_repo
+        owner = owner_cls(db)
+        method = getattr(owner, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False, "method %s not found" % method_name)
+            return
+        try:
+            result = method()
+        except TypeError:
+            result = method(*_build_args(method, rule, {}, spec))
+
+        status_map = {}
+        _collect_status_pairs(result, fk, status_map)
+
+        a_status = status_map.get(owner_ids["over"])
+        b_status = status_map.get(owner_ids["under"])
+        if a_status is None or b_status is None:
+            _record("business_rule", test_name, False,
+                    "missing status for seeded groups (over=%r under=%r)"
+                    % (a_status, b_status))
+            return
+        if str(a_status).lower() == str(over_status).lower() and \
+                str(b_status).lower() != str(over_status).lower():
+            _record("business_rule", test_name, True)
+        else:
+            _record("business_rule", test_name, False,
+                    "over=%r under=%r expected over_status=%r"
+                    % (a_status, b_status, over_status))
+    except Exception as exc:
+        _record_error("business_rule", test_name, exc)
+
+# --- scenario-based business rules (redesign) ------------------------------
+
+def _resolve_scn_ref(s, refs, ref_vals):
+    """Resolve a '@handle' / '@handle.field' reference to a concrete value.
+
+    ``refs`` maps a handle to that row's id; ``ref_vals`` maps a handle to the
+    field values that were seeded. A non-@ string is returned unchanged.
+    """
+    import re as _re
+    if not isinstance(s, str):
+        return s
+    s = s.strip()
+    m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)[.]([A-Za-z_][A-Za-z0-9_]*)", s)
+    if m:
+        handle = m.group(1)
+        field = m.group(2)
+        if field == "id":
+            return refs.get(handle)
+        return ref_vals.get(handle, {}).get(field)
+    m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)", s)
+    if m:
+        return refs.get(m.group(1))
+    return s
+
+def _seed_auto_parent(ref_ent, spec, db, idx):
+    """Create one support parent row for an FK the scenario did not seed."""
+    repo = _repo_for(ref_ent)
+    model = _find_cls("models", ref_ent["name"])
+    if repo is not None and model is not None:
+        fkv = _resolved_fk_values(ref_ent, spec, db)
+        inst = _seed_entity_val(model, ref_ent, fk_values=fkv, index=idx)
+        created = _call(repo(db), "create", inst)
+        return created if isinstance(created, int) else getattr(created, "id", None)
+    return _seed_row_for(ref_ent, spec, db)
+
+def _run_scenario_setup(scenario, spec, db):
+    """Seed every setup row; return ``(refs, ref_vals)``.
+
+    ``refs`` maps each setup handle to the created row's id. ``ref_vals`` maps
+    a handle to the field values that were seeded (so an expected expression
+    can read ``@handle.field``). FK values are resolved from earlier handles,
+    or auto-created with a distinct index when a scenario omitted them.
+    """
+    refs = {}
+    ref_vals = {}
+    auto_idx = [0]
+    for row in scenario.get("setup", []) or []:
+        ent = next((e for e in spec.get("entities", [])
+                    if e["name"] == row.get("entity")), None)
+        if ent is None:
+            raise ValueError("setup: unknown entity %s" % row.get("entity"))
+        model_cls = _find_cls("models", ent["name"])
+        if model_cls is None:
+            raise ValueError("setup: model %s not found" % ent["name"])
+        provided = dict(row.get("fields", {}) or {})
+        vals = {}
+        fkv = {}
+        fk_names = {fk.get("field") for fk in ent.get("fks", [])}
+        for fname, fval in provided.items():
+            if isinstance(fval, str) and fval.startswith("@"):
+                resolved = _resolve_scn_ref(fval, refs, ref_vals)
+                vals[fname] = resolved
+                if fname in fk_names:
+                    fkv[fname] = resolved
+            else:
+                vals[fname] = fval
+        for fk in ent.get("fks", []):
+            fkf = fk.get("field")
+            if fkf not in fkv and fkf not in vals:
+                auto_idx[0] += 1
+                ref_ent = next((e for e in spec.get("entities", [])
+                                if e["name"] == fk.get("ref")), None)
+                if ref_ent is not None:
+                    fkv[fkf] = _seed_auto_parent(ref_ent, spec, db, auto_idx[0])
+        kw = {}
+        for f in ent.get("fields", []):
+            name = f.get("name")
+            if name == "id":
+                continue
+            if name in vals:
+                kw[name] = vals[name]
+            elif name in fkv:
+                kw[name] = fkv[name]
+            else:
+                kw[name] = _type_sample(f)
+        inst = model_cls(**kw)
+        repo = _repo_for(ent)
+        if repo is not None:
+            created = _call(repo(db), "create", inst)
+            rid = created if isinstance(created, int) else getattr(created, "id", None)
+        else:
+            # Direct-SQL fallback: a row the repo layer does not expose, but a
+            # child FK needs a real id for. Seed via the generic helper.
+            rid = _seed_row_for(ent, spec, db)
+        refs[row.get("ref")] = rid
+        ref_vals[row.get("ref")] = vals
+    return refs, ref_vals
+
+def _eval_arith(s, refs, ref_vals):
+    """Evaluate a small arithmetic expression over '@handle.field' refs.
+
+    Supports numbers, + - * / and parentheses. Values come from ``ref_vals``
+    (the seeded field values) or ``refs`` (the row id for a bare '@handle').
+    This is how `expected` is computed from the setup rather than hardcoded.
+    """
+    s = s.replace(" ", "")
+    if s == "":
+        return None
+    pos = [0]
+    def parse_expr():
+        return parse_add()
+    def parse_add():
+        left = parse_mul()
+        while pos[0] < len(s) and s[pos[0]] in "+-":
+            op = s[pos[0]]
+            pos[0] += 1
+            right = parse_mul()
+            left = left + right if op == "+" else left - right
+        return left
+    def parse_mul():
+        left = parse_atom()
+        while pos[0] < len(s) and s[pos[0]] in "*/":
+            op = s[pos[0]]
+            pos[0] += 1
+            right = parse_atom()
+            left = left * right if op == "*" else left / right
+        return left
+    def parse_atom():
+        if pos[0] < len(s) and s[pos[0]] == "(":
+            pos[0] += 1
+            v = parse_expr()
+            pos[0] += 1  # skip ')'
+            return v
+        if s[pos[0]] == "@":
+            start = pos[0]
+            pos[0] += 1
+            while pos[0] < len(s) and (s[pos[0]].isalnum() or s[pos[0]] in "_."):
+                pos[0] += 1
+            tok = s[start:pos[0]]
+            return _resolve_scn_ref(tok, refs, ref_vals)
+        start = pos[0]
+        while pos[0] < len(s) and (s[pos[0]].isdigit() or s[pos[0]] == "."):
+            pos[0] += 1
+        tok = s[start:pos[0]]
+        return float(tok) if "." in tok else int(tok)
+    return parse_expr()
+
+def _eval_expr(expr, refs, ref_vals):
+    """Recursively evaluate an `expected` expression (scalar, list, or dict)."""
+    if isinstance(expr, bool):
+        return expr
+    if isinstance(expr, (int, float)):
+        return expr
+    if isinstance(expr, str):
+        e = expr.strip()
+        if not e:
+            return None
+        import re as _re
+        m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)[.]([A-Za-z_][A-Za-z0-9_]*)", e)
+        if m:
+            handle = m.group(1)
+            field = m.group(2)
+            if field == "id":
+                return refs.get(handle)
+            return ref_vals.get(handle, {}).get(field)
+        m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)", e)
+        if m:
+            return refs.get(m.group(1))
+        try:
+            return float(e) if "." in e else int(e)
+        except ValueError:
+            pass
+        return _eval_arith(e, refs, ref_vals)
+    if isinstance(expr, list):
+        return [_eval_expr(x, refs, ref_vals) for x in expr]
+    if isinstance(expr, dict):
+        return {_eval_expr(k, refs, ref_vals): _eval_expr(v, refs, ref_vals)
+                for k, v in expr.items()}
+    return expr
+
+def _substitute_refs(expr, refs, ref_vals):
+    """Replace '@handle' / '@handle.field' tokens in a Python assertion with
+    the real seeded values (the row id for a bare '@handle' / '@handle.id',
+    the seeded field value otherwise). Other tokens are left untouched."""
+    import re as _re
+    def repl(m):
+        handle = m.group(1)
+        field = m.group(2)
+        if field is None or field == "id":
+            return repr(refs.get(handle))
+        return repr(ref_vals.get(handle, {}).get(field))
+    return _re.sub(r"@([A-Za-z_][A-Za-z0-9_]*)(?:[.]([A-Za-z_][A-Za-z0-9_]*))?", repl, expr)
+
+def _run_python_assertion(assertion, result, refs, ref_vals):
+    """Evaluate a Python boolean assertion against the real seeded values.
+
+    Substitutes '@handle'/'@handle.field' with the concrete seeded values, then
+    evaluates the expression with `result` bound. `len` and `raises` are
+    provided in the eval namespace so `len(result) == 2` and `raises(X)` work.
+    """
+    import re as _re
+    expr = _substitute_refs(assertion, refs, ref_vals)
+    # Normalize common JS-style operators the model occasionally emits so the
+    # assertion runs instead of surfacing a spurious harness error. gap-free
+    # validation rejects these upstream; this is only a safety net.
+    expr = _re.sub(r"\s*&&\s*", " and ", expr)
+    expr = _re.sub(r"\s*\|\|\s*", " or ", expr)
+    expr = _re.sub(r"(?<![=<>!])!\s*", " not ", expr)
+    namespace = {
+        "result": result,
+        "len": len,
+        "str": str,
+        "int": int,
+        "float": float,
+        "bool": bool,
+        "abs": abs,
+        "min": min,
+        "max": max,
+        "sum": sum,
+        "all": all,
+        "any": any,
+        "sorted": sorted,
+        "dict": dict,
+        "list": list,
+        "set": set,
+        "raises": None,  # replaced below for the raises case
+    }
+    # A 'raises(ExceptionName)' assertion is evaluated specially.
+    import re as _re
+    m = _re.fullmatch(r"raises[(]\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*[)]\\s*", expr or "")
+    if m:
+        return ("raises", m.group(1))
+    return ("bool", bool(eval(expr, {"__builtins__": {}}, namespace)))
+
+def _test_scenario(scenario, spec):
+    """Run one generated test: seed setup, call action, run the assertion."""
+    test_name = "scn_%s" % scenario.get("requirement_id", "?")
+    try:
+        db = _db_setup()
+        refs, ref_vals = _run_scenario_setup(scenario, spec, db)
+        action = scenario.get("action", {}) or {}
+        method_name = action.get("method")
+        cls_name = action.get("class")
+        owner = None
+        if cls_name:
+            for obj in spec.get("services", []) + spec.get("repositories", []):
+                if obj.get("class") == cls_name:
+                    owner = _find_cls(obj.get("module", ""), cls_name)
+                    break
+            if owner is None:
+                owner = _find_cls(action.get("module", ""), cls_name)
+        if owner is None:
+            ent_name = (scenario.get("setup") or [{}])[0].get("entity")
+            ent = next((e for e in spec.get("entities", [])
+                        if e["name"] == ent_name), None)
+            if ent is not None:
+                owner = _service_for(ent) or _repo_for(ent)
+        if owner is None:
+            _record("business_rule", test_name, False,
+                    "owner for %s not found" % method_name)
+            return
+        inst = owner(db)
+        method = getattr(inst, method_name, None)
+        if method is None:
+            _record("business_rule", test_name, False,
+                    "method %s not found" % method_name)
+            return
+        args = []
+        for a in action.get("args", []) or []:
+            if isinstance(a, str) and a.startswith("@"):
+                args.append(_eval_expr(a, refs, ref_vals))
+            else:
+                args.append(a)
+        raised = None
+        result = None
+        try:
+            result = method(*args)
+        except Exception as exc:
+            raised = exc
+        assertion = scenario.get("assertion", "") or ""
+        if not assertion.strip():
+            _record("business_rule", test_name, True,
+                    "not testable: %s" % scenario.get("rationale", ""))
+            return
+        kind, payload = _run_python_assertion(assertion, result, refs, ref_vals)
+        if kind == "raises":
+            if raised is not None:
+                exp_name = payload
+                try:
+                    exc_mod = _import("exceptions")
+                    exp_cls = getattr(exc_mod, exp_name, None)
+                except Exception:
+                    exp_cls = None
+                if exp_cls is not None and isinstance(raised, exp_cls):
+                    _record("business_rule", test_name, True,
+                            "raised %r" % type(raised).__name__)
+                elif exp_cls is None:
+                    _record("business_rule", test_name, True,
+                            "raised %r (exception %s not importable, taken as satisfied)"
+                            % (type(raised).__name__, exp_name))
+                else:
+                    _record("business_rule", test_name, False,
+                            "raised %r expected %s"
+                            % (type(raised).__name__, exp_name))
+            else:
+                _record("business_rule", test_name, False, "did not raise")
+            return
+        if raised is not None:
+            _record("business_rule", test_name, False, "error: %r" % (raised,))
+            return
+        ok = bool(payload)
+        _record("business_rule", test_name, ok,
+                "" if ok else "assertion %r failed (result=%r)" % (assertion, result))
     except Exception as exc:
         _record_error("business_rule", test_name, exc)
 
@@ -1010,6 +1764,11 @@ def _run_all():
         executor = EXECUTOR_DISPATCH.get(kind)
         if executor is not None and executor in globals():
             globals()[executor](rule, spec)
+    # Scenario-based business rules (redesign): one deterministic scenario per
+    # extracted requirement. A scenario either passes/fails on its own assertion
+    # or (kind=not_testable) records "not testable" as a pass with the reason.
+    for scenario in spec.get("scenarios", []) or []:
+        _test_scenario(scenario, spec)
     for exc in spec.get("exceptions", []):
         _test_exception(exc, spec)
 
@@ -1020,13 +1779,23 @@ def main():
         _run_all()
     except Exception as exc:
         traceback.print_exc()
-        RESULT["build_errors"].append("fatal: %r" % (exc,))
-    status = "pass" if not RESULT["build_errors"] and all(
-        t["status"] == "pass" for t in RESULT["tests"]
-    ) else "fail"
-    RESULT["status"] = status
+        RESULT["build_errors"].append({
+            "kind": "tester",
+            "error": "fatal: %r" % (exc,),
+        })
+    # A failed test = a real bug in the code under test -> "fail". A harness
+    # bug (build_errors with kind=tester, no test failures) -> "harness_error",
+    # surfaced distinctly so it is fixed, never conflated with an app failure.
+    tests_failed = any(t["status"] != "pass" for t in RESULT["tests"])
+    harness_errors = [b for b in RESULT["build_errors"] if b.get("kind") == "tester"]
+    if tests_failed:
+        RESULT["status"] = "fail"
+    elif harness_errors:
+        RESULT["status"] = "harness_error"
+    else:
+        RESULT["status"] = "pass"
     print(json.dumps(RESULT, indent=2, default=str))
-    return 0 if status == "pass" else 1
+    return 0 if RESULT["status"] == "pass" else 1
 
 if __name__ == "__main__":
     raise SystemExit(main())

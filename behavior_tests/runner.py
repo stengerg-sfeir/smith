@@ -22,11 +22,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .oracle import extract_business_rules, generate_test_spec
+from .oracle import generate_test_spec
 from .renderer import render_test_file
 from .design_extract import extract_design
 from .conformity import check_conformity
-from .spec_schema import normalize_test_spec, rule_is_complete, v_test_spec
+from .spec_schema import normalize_test_spec
 
 
 def parse_prompt_number(path: Path) -> int | None:
@@ -105,50 +105,17 @@ def run_single(prompt_path: Path, generated_root: Path, run_dir: Path,
             # strip the extra 'cli' key before conversion.
             testable = {k: v for k, v in design.items() if k != "cli"}
             spec = normalize_test_spec(testable)
-            # Merge the dedicated kind-detection pass into the design based
-            # spec so the business rules the prompt implies are detected by a
-            # focused oracle (lower cognitive load) rather than the full spec
-            # oracle, which tends to miss them.
-            kind_oracle = extract_business_rules(prompt_text, verbose=verbose)
-            if kind_oracle is not None:
-                entity_names = {e["name"] for e in spec.get("entities", [])}
-                repo_svc_classes = {
-                    o.get("class") for o in
-                    (spec.get("repositories", []) + spec.get("services", []))
-                }
-
-                def _rule_target_exists(rule):
-                    """True if every entity/class target the rule names exists
-                    in the design-based spec. The dedicated oracle reads only
-                    the prompt, so it may invent a target (entity/class) with
-                    no counterpart in the generated design; such a rule cannot
-                    be exercised and would only cause a spurious FAIL."""
-                    for key in ("entity", "parent_entity", "child_entity",
-                                "ref_entity"):
-                        val = rule.get(key)
-                        if val and val not in entity_names:
-                            return False
-                    cls = rule.get("class")
-                    if cls and cls not in repo_svc_classes:
-                        return False
-                    return True
-
-                merged = list(spec.get("business_rules", []))
-                unexpressed = list(kind_oracle.get("unexpressed_rules", []))
-                for rule in kind_oracle.get("business_rules", []):
-                    if not _rule_target_exists(rule) or not rule_is_complete(rule):
-                        unexpressed.append(
-                            "Rule %s (%s): incomplete rule or target not present "
-                            "in the generated design"
-                            % (rule.get("id"), rule.get("kind"))
-                        )
-                        continue
-                    if not any(r.get("id") == rule.get("id") for r in merged):
-                        merged.append(rule)
-                spec["business_rules"] = merged
-                spec["business_logic_coverage"] = kind_oracle.get(
-                    "business_logic_coverage", "full")
-                spec["unexpressed_rules"] = unexpressed
+            # Scenario-based business-rule flow (replaces the closed "rule
+            # kind" vocabulary): prose requirements -> per-requirement
+            # scenario -> deterministic structural validation -> LLM semantic
+            # validation with a repair loop. Each requirement either becomes a
+            # runnable scenario or is surfaced as unexpressed with a reason.
+            scenarios, unexpressed, cov = _scenario_pipeline(
+                prompt_text, spec, verbose=verbose
+            )
+            spec["scenarios"] = scenarios
+            spec["business_logic_coverage"] = cov
+            spec["unexpressed_rules"] = unexpressed
         else:
             result["status"] = "conformity_failed"
             result["tests"] = []
@@ -211,12 +178,125 @@ def run_single(prompt_path: Path, generated_root: Path, run_dir: Path,
         result["coverage"] = {}
         return result
 
-    result["status"] = "pass" if parsed.get("status") == "pass" else "fail"
+    parsed_status = parsed.get("status")
+    result["status"] = (
+        parsed_status if parsed_status in ("pass", "fail", "harness_error")
+        else "fail"
+    )
     result["tests"] = parsed.get("tests", [])
     result["coverage"] = parsed.get("coverage", {})
     result["build_errors"] = parsed.get("build_errors", [])
     result["finished_at"] = datetime.now(timezone.utc).isoformat()
     return result
+
+
+def _scenario_pipeline(prompt_text: str, spec: dict,
+                       verbose: bool = False) -> tuple[list, list, str]:
+    """Extract prose requirements, generate a test + prose expectation per
+    requirement, then validate each structurally (deterministic reference
+    check) and semantically (LLM critic comparing expectation vs requirement,
+    with a repair loop). Returns ``(tests, unexpressed, coverage)``.
+
+    A requirement that cannot be exercised deterministically, or whose test
+    fails validation even after repair, is surfaced in ``unexpressed`` with an
+    explicit reason — never silently dropped.
+    """
+    from .scenarios import (
+        extract_business_requirements,
+        generate_test,
+        generate_expectation,
+        validate_test_structure,
+        validate_expectation_semantic,
+    )
+    requirements = extract_business_requirements(prompt_text, verbose=verbose)
+    tests = []
+    unexpressed = []
+    cov = "full"
+    for req in requirements:
+        test, exp = _build_test(req, spec, verbose=verbose)
+        if test is None:
+            unexpressed.append(
+                "requirement %s: no test generated"
+                % req.get("requirement_id"))
+            cov = "partial"
+            continue
+        if not (test.get("assertion") or "").strip():
+            unexpressed.append(
+                "requirement %s: %s"
+                % (req.get("requirement_id"),
+                   test.get("rationale", "not testable")))
+            cov = "partial"
+            continue
+        if exp is None:
+            unexpressed.append(
+                "requirement %s: no expectation generated (cannot verify semantics)"
+                % req.get("requirement_id"))
+            cov = "partial"
+            continue
+        verdict, reason = validate_expectation_semantic(
+            req, exp, spec, verbose=verbose)
+        ok = verdict != "does_not_verify"
+        if not ok:
+            test2, exp2 = _build_test(req, spec, verbose=verbose, repair=True,
+                                      semantic_reason=reason)
+            if test2 is not None and (test2.get("assertion") or "").strip() \
+                    and exp2 is not None:
+                verdict2, reason2 = validate_expectation_semantic(
+                    req, exp2, spec, verbose=verbose)
+                ok2 = verdict2 != "does_not_verify"
+                if ok2:
+                    test = test2
+                    exp = exp2
+                    ok = True
+                    reason = ""
+                    verdict = verdict2
+                else:
+                    reason = reason2 or reason
+        if ok:
+            test["semantic"] = verdict
+            tests.append(test)
+        else:
+            unexpressed.append(
+                "requirement %s: %s"
+                % (req.get("requirement_id"), reason or "semantic mismatch"))
+            cov = "partial"
+    return tests, unexpressed, cov
+
+
+def _build_test(req: dict, spec: dict, verbose: bool = False,
+                repair: bool = False,
+                semantic_reason: str | None = None) -> tuple[dict | None, str | None]:
+    """Generate one test + its prose expectation and validate it structurally.
+
+    On a structural/reference failure, run one hard repair (regenerate with the
+    design re-listed AND the specific structural errors threaded into the
+    prompt). If the structural check still fails, return a test with an empty
+    assertion (the requirement is surfaced as not-testable).
+    """
+    from .scenarios import generate_test, generate_expectation, validate_test_structure
+    test = generate_test(req, spec, verbose=verbose, repair=repair)
+    if test is None:
+        return None, None
+    errs = validate_test_structure(test, spec)
+    if errs:
+        if not repair:
+            test = generate_test(req, spec, verbose=verbose, repair=True,
+                                 errors=errs)
+            if test is not None:
+                errs = validate_test_structure(test, spec)
+        if errs:
+            return {
+                "requirement_id": req.get("requirement_id"),
+                "setup": [],
+                "action": {"method": ""},
+                "assertion": "",
+                "rationale": "structural: " + "; ".join(errs),
+            }, None
+    if test is None:
+        return None, None
+    exp = generate_expectation(test, req, spec, verbose=verbose,
+                               reason=semantic_reason)
+    return test, exp
 
 
 def _discover_prompts(prompts_dir: Path, prompt: list[str] | None,
@@ -284,6 +364,7 @@ def main(args: list[str] | None = None) -> int:
     total_no_output = 0
     total_oracle_failed = 0
     total_conformity_failed = 0
+    total_harness_errors = 0
 
     print("=" * 64)
     print("Behavioral tests: %d prompt(s)" % len(prompts))
@@ -322,6 +403,9 @@ def main(args: list[str] | None = None) -> int:
         elif status == "conformity_failed":
             total_conformity_failed += 1
             label = "CONFORMITY FAIL"
+        elif status == "harness_error":
+            total_harness_errors += 1
+            label = "HARNESS ERROR"
         else:
             total_oracle_failed += 1
             label = "ORACLE FAIL"
@@ -342,6 +426,7 @@ def main(args: list[str] | None = None) -> int:
         "no_generated_output": total_no_output,
         "oracle_failed": total_oracle_failed,
         "conformity_failed": total_conformity_failed,
+        "harness_error": total_harness_errors,
         "results": all_results,
     }
     summary_file = runs_dir / "summary.json"
@@ -359,9 +444,11 @@ def main(args: list[str] | None = None) -> int:
     print("No output:          %d" % total_no_output)
     print("Oracle fail:        %d" % total_oracle_failed)
     print("Conformity fail:    %d" % total_conformity_failed)
+    print("Harness error:      %d" % total_harness_errors)
     print("Summary: %s" % summary_file)
 
-    return 0 if total_fail == 0 and total_oracle_failed == 0 else 1
+    return 0 if (total_fail == 0 and total_oracle_failed == 0
+                 and total_harness_errors == 0) else 1
 
 
 if __name__ == "__main__":

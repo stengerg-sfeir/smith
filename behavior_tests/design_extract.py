@@ -216,8 +216,12 @@ def _parse_fks_uniques(database: Path, entities: list[dict]) -> tuple[dict[str, 
         sing = _singular(table)
         ent = next((e for e in entities if _snake(e["name"]) == sing), None)
         if ent is None:
+            # Compound entity names: table 'invoicelines' singularizes to
+            # 'invoiceline', matching _snake('InvoiceLine') = 'invoice_line'
+            # once underscores are removed. Compare against the SINGULAR form,
+            # not the raw (plural) table name.
             ent = next((e for e in entities
-                        if _snake(e["name"]).replace("_", "") == table.replace("_", "")),
+                        if _snake(e["name"]).replace("_", "") == sing.replace("_", "")),
                        None)
         if ent is None:
             continue

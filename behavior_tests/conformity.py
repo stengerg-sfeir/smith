@@ -312,6 +312,69 @@ def extract_requirements(prompt_text: str, verbose: bool = False) -> dict | None
     return None
 
 
+def _prompt_types_field(text_low: str, fname: str, ftype: str) -> bool:
+    """True if the prompt explicitly types ``fname`` as ``ftype``.
+
+    Only anchor a field's type to the prompt when it is stated right next to
+    the field name (``loan_date (datetime)``, ``created_at: datetime``,
+    ``expense_date (str, ISO date)``). Without this, the extractor assumes a
+    type (e.g. datetime) for a field the prompt merely names, producing false
+    positives on the type check.
+    """
+    esc = re.escape(fname)
+    tesc = re.escape(ftype)
+    return bool(
+        re.search(r"\b%s\s*[\(\:]\s*%s\b" % (esc, tesc), text_low)
+        or re.search(r"\b%s\s+%s\b" % (esc, tesc), text_low)
+    )
+
+
+def _anchor_requirements(reqs: dict, prompt_text: str) -> dict:
+    """Drop extractions the prompt does NOT literally declare.
+
+    The small LLM hallucinates 'declared-surface' entities/repositories/
+    services/exceptions from narrative text (a CSV CLI yields phantom
+    ``CSVRow``, ``CSVReader``, ``FileNotFoundError``). Only keep a requirement
+    whose NAME actually appears in the prompt; only keep a field's TYPE when
+    the prompt explicitly types it next to the field name. This removes the
+    false positives (cli_tool phantom structures, library/multi_module assumed
+    ``datetime``) without weakening the real unique/type checks (expenses
+    ``Category.name`` unique, ``expense_date`` str).
+    """
+    if not isinstance(reqs, dict):
+        return reqs
+    text_low = prompt_text.lower()
+    out = {"entities": [], "repositories": [], "services": [], "exceptions": []}
+
+    for cent in reqs.get("entities", []):
+        name = cent.get("name", "")
+        if name.lower() not in text_low:
+            continue  # phantom entity (e.g. CSVRow)
+        fields = []
+        for rf in cent.get("fields", []):
+            rf = dict(rf)
+            fname = rf.get("name", "")
+            ftype = rf.get("type", "")
+            if ftype and not _prompt_types_field(text_low, fname, ftype):
+                rf["type"] = ""  # un-anchored type → don't flag a mismatch
+            fields.append(rf)
+        cent = dict(cent)
+        cent["fields"] = fields
+        out["entities"].append(cent)
+
+    for key in ("repositories", "services"):
+        for owner in reqs.get(key, []):
+            cls = owner.get("class", "")
+            if cls.lower() in text_low:
+                out[key].append(owner)
+
+    for exc in reqs.get("exceptions", []):
+        if isinstance(exc, str) and exc.lower() in text_low:
+            out["exceptions"].append(exc)
+
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Deterministic verification of extracted requirements (no LLM)
 # ---------------------------------------------------------------------------
@@ -355,7 +418,9 @@ def verify_requirements(reqs: dict, design: dict) -> tuple[list[str], list[dict]
             problems = []
             if rf.get("type") and d_field.get("type") != rf.get("type"):
                 problems.append("type %r != required %r" % (d_field.get("type"), rf.get("type")))
-            if rf.get("unique") and not d_field.get("unique"):
+            # A PRIMARY KEY is unique by definition — do not flag a missing
+            # separate UNIQUE constraint when the design marks it as the PK.
+            if rf.get("unique") and not d_field.get("unique") and not d_field.get("primary_key"):
                 problems.append("spec requires unique but design is non-unique")
             if problems:
                 report.append({"req": req_text, "status": "no"})
@@ -403,6 +468,8 @@ def check_conformity(prompt_text: str, design: dict, project_dir: Path,
     struct_errs = structural_violations(design, project_dir)
     prompt_errs = prompt_unique_violations(prompt_text, design)
     reqs = extract_requirements(prompt_text, verbose=verbose)
+    if reqs is not None:
+        reqs = _anchor_requirements(reqs, prompt_text)
 
     req_issues: list[str] = []
     report: list[dict] = []

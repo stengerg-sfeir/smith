@@ -18,11 +18,8 @@ from agentlib.config import LLM_MAX_TOKENS_LONG
 from agentlib.llm.client import _json_complete
 
 from .spec_schema import (
-    business_rules_schema,
-    normalize_business_rules,
     normalize_test_spec,
     test_spec_schema,
-    v_business_rules,
     v_test_spec,
 )
 from .rule_kinds import rule_kind_descriptions
@@ -122,60 +119,7 @@ def generate_test_spec(prompt_path: Path, out_path: Path | None = None,
     return spec
 
 
-# ---------------------------------------------------------------------------
-# Dedicated business-rule (kind) detection pass.
-#
-# A focused LLM call that reads ONLY the prompt and outputs just
-# business_rules + coverage. Isolating kind detection from the full spec
-# (entities/repositories/services) lowers the model's cognitive load so it is
-# far less likely to miss the business rules a prompt actually implies.
-# Descriptions stay abstract/shape-only: no concrete entity/field examples,
-# to avoid a small model "copying" example names into unrelated prompts.
-# ---------------------------------------------------------------------------
-
-_KIND_DETECT_SYSTEM = (
-    "You are an expert software tester. Given a software specification, your "
-    "ONLY task is to identify which BUSINESS RULES it requires, expressed with "
-    "the available rule KINDS. Do NOT describe the data model, repositories, "
-    "services or exceptions — those are handled elsewhere. Output ONLY a JSON "
-    "object with three keys:\n"
-    "- \"business_rules\": an array of {\"id\": \"snake_case\", \"kind\": one "
-    "of the kinds below, plus ONLY the fields that kind uses}.\n"
-    "- \"business_logic_coverage\": \"full\" if you expressed every business "
-    "rule in the specification, \"partial\" if some are not expressible with "
-    "these kinds, \"none\" if none are expressible.\n"
-    "- \"unexpressed_rules\": one string per rule you could NOT express "
-    "([] if none).\n\n"
-    "Match the SHAPE of the specification to a kind; do not invent rules the "
-    "spec does not state, and do not copy example entity/field names from "
-    "elsewhere."
-)
-
-
-def extract_business_rules(prompt_text: str, verbose: bool = False) -> dict | None:
-    """Return a normalized business-rules-only spec via a focused kind pass."""
-    user = "SPECIFICATION:\n%s\n\nEmit the business-rule JSON now." % prompt_text
-    system = (
-        _KIND_DETECT_SYSTEM
-        + "\n\nAVAILABLE RULE KINDS (you may ONLY emit these kinds):\n"
-        + rule_kind_descriptions()
-    )
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-    for _ in range(2):
-        data = _json_complete(
-            messages, schema=business_rules_schema(), verbose=verbose,
-            max_tokens=LLM_MAX_TOKENS_LONG,
-        )
-        if not isinstance(data, dict):
-            continue
-        data = normalize_business_rules(data)
-        errs = v_business_rules(data)
-        if not errs:
-            return data
-        if verbose:
-            for e in errs:
-                print("    [kind-oracle] issue: %s" % e)
-    return None
+# (The dedicated business-rule "kind" oracle — extract_business_rules /
+# _KIND_DETECT_SYSTEM / _compact_design_names — was removed. The design-based
+# path now uses the scenario flow in ``scenarios.py``; the fresh-prompt path
+# still uses ``_TEST_SPEC_SYSTEM`` + ``rule_kind_descriptions`` above.)

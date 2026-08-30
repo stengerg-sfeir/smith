@@ -85,6 +85,11 @@ def _business_rules_array_schema():
                 "fk": {"type": "string"},
                 "a": {"type": "string"},
                 "b": {"type": "string"},
+                "child_field": {"type": "string"},
+                "aggregate_field": {"type": "string"},
+                "comparator": {"type": "string"},
+                "exception": {"type": "string"},
+                "over_status": {"type": "string"},
             },
             "required": ["id", "kind"],
             "additionalProperties": False,
@@ -283,6 +288,13 @@ _REQUIRED_RULE_FIELDS: dict[str, tuple[str, ...]] = {
     "no_stub": ("class", "methods"),
     "filter_lt": ("entity", "method", "field", "ref_entity", "ref_field", "fk"),
     "aggregate_mul_sum": ("entity", "method", "fk", "a", "b"),
+    "count_group_by": ("entity", "method", "fk", "ref_entity"),
+    "sum_mul_joined": ("entity", "method", "fk", "ref_entity", "child_field", "ref_field"),
+    "ensure_raise_with_comparison": ("method", "entity", "fk", "ref_entity",
+                                     "ref_field", "aggregate_field", "comparator",
+                                     "exception"),
+    "sum_compare_status": ("entity", "method", "fk", "ref_entity", "ref_field",
+                           "aggregate_field", "over_status"),
 }
 
 
@@ -313,11 +325,12 @@ def _normalize_rule(rule):
     for key in (
         "entity", "start_field", "end_field", "scope_field", "parent_entity",
         "parent_total_field", "child_entity", "fk_field", "class",
-        "method", "ref_entity", "ref_field", "fk", "a", "b",
+        "method", "ref_entity", "ref_field", "fk", "a", "b", "child_field",
+        "aggregate_field", "exception",
     ):
         if isinstance(rule.get(key), str) and rule[key]:
             if key in ("entity", "parent_entity", "child_entity",
-                       "class", "ref_entity"):
+                       "class", "ref_entity", "exception"):
                 rule[key] = _camel(rule[key])
             else:
                 rule[key] = _snake(rule[key])
