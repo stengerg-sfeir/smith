@@ -1,0 +1,37 @@
+{
+  "ident": "31",
+  "generated_dir": "generated/31",
+  "status": "no_mapped",
+  "n_intentions": 4,
+  "n_mapped": 0,
+  "n_unmapped": 4,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new customer with a unique customer ID, name, and contact information.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can create a new account for a customer with a unique account number and initial balance.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can deposit money into an account, increasing its balance.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can withdraw money from an account, decreasing its balance, but the withdrawal is rejected if it would make the balance negative.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

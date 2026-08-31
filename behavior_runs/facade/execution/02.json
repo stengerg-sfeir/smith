@@ -1,0 +1,63 @@
+{
+  "ident": "02",
+  "generated_dir": "generated/02",
+  "status": "pass",
+  "n_intentions": 5,
+  "n_mapped": 5,
+  "n_unmapped": 0,
+  "pass": 5,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "main",
+      "invocation": "python3 calculator.py 10 5 add",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "Result: 15.0\n",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "main",
+      "invocation": "python3 calculator.py 10 5 subtract",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "Result: 5.0\n",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "main",
+      "invocation": "python3 calculator.py 10 5 multiply",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "Result: 50.0\n",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "main",
+      "invocation": "python3 calculator.py 10 5 divide",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "Result: 2.0\n",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "main",
+      "invocation": "python3 calculator.py 10 0 divide",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "Error: Division by zero is not allowed.\n"
+    }
+  ],
+  "unmapped": []
+}

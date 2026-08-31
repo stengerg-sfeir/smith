@@ -1,0 +1,1 @@
+Create a Python 3.12 sales application. Products and sales must be persisted in SQLite. Provide CRUD operations for products and sales. The application must also provide a report showing total sales amount and number of sales per product.

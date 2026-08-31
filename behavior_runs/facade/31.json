@@ -1,0 +1,48 @@
+{
+  "ident": "31",
+  "prompt_file": "prompts/prompt_31.txt",
+  "generated_dir": "generated/31",
+  "prompt": "Create a Python 3.12 banking application managing customers and accounts. An account belongs to a customer and has a balance. Deposits increase the balance and withdrawals decrease it. A withdrawal must be rejected if it would make the balance negative.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new customer with a unique customer ID, name, and contact information.",
+      "cli_command": "",
+      "requires": "a customer ID, name, and contact information",
+      "observable": "the customer is added to the system and listed in the customer directory",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can create a new account for a customer with a unique account number and initial balance.",
+      "cli_command": "",
+      "requires": "a customer ID, account number, and initial balance",
+      "observable": "the account is created and appears in the list of accounts for that customer",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can deposit money into an account, increasing its balance.",
+      "cli_command": "",
+      "requires": "an account number and deposit amount",
+      "observable": "the account balance is updated and the deposit is confirmed",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can withdraw money from an account, decreasing its balance, but the withdrawal is rejected if it would make the balance negative.",
+      "cli_command": "",
+      "requires": "an account number and withdrawal amount",
+      "observable": "a successful withdrawal updates the balance; a negative balance attempt results in a rejection message",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

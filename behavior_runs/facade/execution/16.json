@@ -1,0 +1,42 @@
+{
+  "ident": "16",
+  "generated_dir": "generated/16",
+  "status": "pass",
+  "n_intentions": 4,
+  "n_mapped": 1,
+  "n_unmapped": 3,
+  "pass": 1,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I2",
+      "command": "list-active",
+      "invocation": "python3 cli.py list-active --page 1 --page-size 10",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new customer record with specified details.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing customer's details.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a customer record by their identifier.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

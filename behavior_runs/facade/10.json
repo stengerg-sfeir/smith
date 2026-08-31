@@ -1,0 +1,190 @@
+{
+  "ident": "10",
+  "prompt_file": "prompts/prompt_10.txt",
+  "generated_dir": "generated/10",
+  "prompt": "Create a Python 3.12 CLI application for managing notes. Organize the code into separate modules for the data model, persistence, business logic and CLI. Notes have a title, content and creation date. Provide create, list, update and delete operations using SQLite.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new note with a title, content, and it will be automatically assigned a creation date.",
+      "cli_command": "create note",
+      "requires": "a title and content for the note",
+      "observable": "The note is saved to the database and a confirmation message is displayed indicating success.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can list all existing notes, showing their title, content, and creation date.",
+      "cli_command": "list notes",
+      "requires": "none",
+      "observable": "A list of notes is displayed, each showing title, content, and creation date.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the content of an existing note by its title.",
+      "cli_command": "update note",
+      "requires": "a title and new content for the note",
+      "observable": "The note's content is updated in the database and a confirmation message is displayed.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a note by its title.",
+      "cli_command": "delete note",
+      "requires": "a title of the note to delete",
+      "observable": "The note is removed from the database and a confirmation message is displayed.",
+      "spec_level": "explicit"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "notes-create",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--content"
+            ],
+            "dest": "content",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_note"
+      },
+      {
+        "name": "notes-list",
+        "options": [
+          {
+            "names": [
+              "--title-filter"
+            ],
+            "dest": "title_filter",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-after"
+            ],
+            "dest": "created_after",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-before"
+            ],
+            "dest": "created_before",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_notes"
+      },
+      {
+        "name": "notes-update",
+        "options": [
+          {
+            "names": [
+              "--note-id"
+            ],
+            "dest": "note_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--content"
+            ],
+            "dest": "content",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_note"
+      },
+      {
+        "name": "notes-delete",
+        "options": [
+          {
+            "names": [
+              "--note-id"
+            ],
+            "dest": "note_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_note"
+      },
+      {
+        "name": "notes-search",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_notes"
+      },
+      {
+        "name": "notes-monthly",
+        "options": [
+          {
+            "names": [
+              "--year-month"
+            ],
+            "dest": "year_month",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_notes_by_month"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

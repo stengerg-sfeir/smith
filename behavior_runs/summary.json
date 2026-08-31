@@ -1,149 +1,116 @@
 {
-  "started_at": "2026-08-29T19:17:36.885646+00:00",
-  "finished_at": "2026-08-29T19:17:57.796675+00:00",
+  "started_at": "2026-08-31T04:40:35.941998+00:00",
+  "finished_at": "2026-08-31T04:40:36.082063+00:00",
   "prompts_dir": "/Users/gillesstenger/Documents/neurosymbolic/prompts",
   "generated_root": "/Users/gillesstenger/Documents/neurosymbolic/generated",
   "total": 1,
   "pass": 0,
   "pass_uncovered": 0,
-  "fail": 0,
+  "fail": 1,
   "no_generated_output": 0,
   "oracle_failed": 0,
-  "conformity_failed": 1,
+  "conformity_failed": 0,
+  "harness_error": 0,
   "results": [
     {
-      "prompt": "expenses",
-      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_expenses.txt",
-      "started_at": "2026-08-29T19:17:36.885646+00:00",
-      "generated_dir": "/Users/gillesstenger/Documents/neurosymbolic/generated/expenses",
+      "prompt": "28",
+      "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_28.txt",
+      "started_at": "2026-08-31T04:40:35.941998+00:00",
+      "generated_dir": "/Users/gillesstenger/Documents/neurosymbolic/generated/28",
       "output_exists": true,
-      "conformity": {
-        "conforms": false,
-        "structural_issues": [],
-        "prompt_issues": [
-          "prompt requires unique Category.name but the design has it non-unique"
-        ],
-        "requirement_issues": [
-          "field Category.name: spec requires unique but design is non-unique",
-          "field Expense.expense_date: type 'date' != required 'str'"
-        ],
-        "extraction_ok": true,
-        "requirements": [
-          {
-            "req": "entity Category",
-            "status": "yes"
-          },
-          {
-            "req": "field Category.id (int, pk)",
-            "status": "yes"
-          },
-          {
-            "req": "field Category.name (str, unique)",
-            "status": "no"
-          },
-          {
-            "req": "field Category.description (str)",
-            "status": "yes"
-          },
-          {
-            "req": "field Category.monthly_budget (int)",
-            "status": "yes"
-          },
-          {
-            "req": "field Category.icon (str)",
-            "status": "yes"
-          },
-          {
-            "req": "entity Expense",
-            "status": "yes"
-          },
-          {
-            "req": "field Expense.id (int, pk)",
-            "status": "yes"
-          },
-          {
-            "req": "field Expense.amount_cents (int)",
-            "status": "yes"
-          },
-          {
-            "req": "field Expense.description (str)",
-            "status": "yes"
-          },
-          {
-            "req": "field Expense.expense_date (str)",
-            "status": "no"
-          },
-          {
-            "req": "field Expense.category_id (int)",
-            "status": "yes"
-          },
-          {
-            "req": "field Expense.payment_method (str)",
-            "status": "yes"
-          },
-          {
-            "req": "field Expense.is_recurring (bool)",
-            "status": "yes"
-          },
-          {
-            "req": "entity Budget",
-            "status": "yes"
-          },
-          {
-            "req": "field Budget.id (int, pk)",
-            "status": "yes"
-          },
-          {
-            "req": "field Budget.category_id (int)",
-            "status": "yes"
-          },
-          {
-            "req": "field Budget.month (str)",
-            "status": "yes"
-          },
-          {
-            "req": "field Budget.amount_limit_cents (int)",
-            "status": "yes"
-          },
-          {
-            "req": "exception CategoryNotFoundError",
-            "status": "yes"
-          },
-          {
-            "req": "exception ExpenseNotFoundError",
-            "status": "yes"
-          },
-          {
-            "req": "exception BudgetExceededException",
-            "status": "yes"
-          },
-          {
-            "req": "repositories ExpenseRepository",
-            "status": "yes"
-          },
-          {
-            "req": "repositories CategoryRepository",
-            "status": "yes"
-          },
-          {
-            "req": "repositories BudgetRepository",
-            "status": "yes"
-          },
-          {
-            "req": "services ExpenseService",
-            "status": "yes"
-          }
-        ],
-        "issues": [
-          "prompt requires unique Category.name but the design has it non-unique",
-          "field Category.name: spec requires unique but design is non-unique",
-          "field Expense.expense_date: type 'date' != required 'str'"
-        ]
+      "test_spec": "/Users/gillesstenger/Documents/neurosymbolic/behavior_runs/28/test_spec.json",
+      "business_logic_coverage": "full",
+      "unexpressed_rules": [],
+      "exit_code": 1,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"tests\": [\n    {\n      \"id\": \"crud:Invoice\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_customer_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"crud:InvoiceLine\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_invoice_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"fk:fk_product_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:scn_1\",\n      \"status\": \"fail\",\n      \"detail\": \"error: AttributeError(\\\"'NoneType' object has no attribute 'total_amount'\\\")\"\n    },\n    {\n      \"id\": \"exceptions:exc_InvoiceNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_CustomerNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ProductNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_InvalidQuantityError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ValidationError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_InvoiceTotalCalculationError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    }\n  ],\n  \"coverage\": {\n    \"crud\": {\n      \"Invoice\": \"pass\",\n      \"InvoiceLine\": \"pass\"\n    },\n    \"fk\": {\n      \"fk_customer_id\": \"pass\",\n      \"fk_invoice_id\": \"pass\",\n      \"fk_product_id\": \"pass\"\n    },\n    \"business_rule\": {\n      \"scn_1\": \"fail\"\n    },\n    \"exceptions\": {\n      \"exc_InvoiceNotFoundError\": \"pass\",\n      \"exc_CustomerNotFoundError\": \"pass\",\n      \"exc_ProductNotFoundError\": \"pass\",\n      \"exc_InvalidQuantityError\": \"pass\",\n      \"exc_ValidationError\": \"pass\",\n      \"exc_InvoiceTotalCalculationError\": \"pass\"\n    }\n  },\n  \"build_errors\": [],\n  \"status\": \"fail\"\n}\n",
+      "status": "fail",
+      "tests": [
+        {
+          "id": "crud:Invoice",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "fk:fk_customer_id",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "crud:InvoiceLine",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "fk:fk_invoice_id",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "fk:fk_product_id",
+          "status": "pass",
+          "detail": "raised 'IntegrityError'"
+        },
+        {
+          "id": "business_rule:scn_1",
+          "status": "fail",
+          "detail": "error: AttributeError(\"'NoneType' object has no attribute 'total_amount'\")"
+        },
+        {
+          "id": "exceptions:exc_InvoiceNotFoundError",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "exceptions:exc_CustomerNotFoundError",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "exceptions:exc_ProductNotFoundError",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "exceptions:exc_InvalidQuantityError",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "exceptions:exc_ValidationError",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "id": "exceptions:exc_InvoiceTotalCalculationError",
+          "status": "pass",
+          "detail": ""
+        }
+      ],
+      "coverage": {
+        "crud": {
+          "Invoice": "pass",
+          "InvoiceLine": "pass"
+        },
+        "fk": {
+          "fk_customer_id": "pass",
+          "fk_invoice_id": "pass",
+          "fk_product_id": "pass"
+        },
+        "business_rule": {
+          "scn_1": "fail"
+        },
+        "exceptions": {
+          "exc_InvoiceNotFoundError": "pass",
+          "exc_CustomerNotFoundError": "pass",
+          "exc_ProductNotFoundError": "pass",
+          "exc_InvalidQuantityError": "pass",
+          "exc_ValidationError": "pass",
+          "exc_InvoiceTotalCalculationError": "pass"
+        }
       },
-      "status": "conformity_failed",
-      "tests": [],
-      "coverage": {},
-      "finished_at": "2026-08-29T19:17:57.796575+00:00"
+      "build_errors": [],
+      "finished_at": "2026-08-31T04:40:36.081948+00:00"
     }
   ]
 }

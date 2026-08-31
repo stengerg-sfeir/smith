@@ -1,0 +1,133 @@
+{
+  "ident": "inventory",
+  "generated_dir": "generated/inventory",
+  "status": "pass",
+  "n_intentions": 12,
+  "n_mapped": 12,
+  "n_unmapped": 0,
+  "pass": 12,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I9",
+      "command": "category-add",
+      "invocation": "python3 cli.py category-add --name Electronics --description 'High-tech gadgets' --threshold 10",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I1",
+      "command": "product-add",
+      "invocation": "python3 cli.py product-add --sku SKU123 --name 'Wireless Mouse' --category 1 --price 500 --stock 10",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "product-update",
+      "invocation": "python3 cli.py product-update --id 1 --name 'Gaming Mouse' --price 700 --category 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "product-list",
+      "invocation": "python3 cli.py product-list --category 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "product-list",
+      "invocation": "python3 cli.py product-list --low-only --category 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I6",
+      "command": "product-restock",
+      "invocation": "python3 cli.py product-restock --id 1 --qty 5",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I7",
+      "command": "report-low_stock",
+      "invocation": "python3 cli.py report-low_stock",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I8",
+      "command": "report-value",
+      "invocation": "python3 cli.py report-value",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I10",
+      "command": "category-list",
+      "invocation": "python3 cli.py category-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I11",
+      "command": "category-update",
+      "invocation": "python3 cli.py category-update --id 1 --name Gadgets --description 'Smart devices' --threshold 15",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "product-delete",
+      "invocation": "python3 cli.py product-delete --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I12",
+      "command": "category-delete",
+      "invocation": "python3 cli.py category-delete --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": []
+}

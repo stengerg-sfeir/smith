@@ -1,0 +1,43 @@
+{
+  "ident": "09",
+  "generated_dir": "generated/09",
+  "status": "no_mapped",
+  "n_intentions": 5,
+  "n_mapped": 0,
+  "n_unmapped": 5,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new employee record with a valid email, age between 18 and 70, and positive salary.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a list of all employees.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can retrieve a specific employee by their name or email.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update an existing employee's name, email, age, or salary.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete an employee record by name or email.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

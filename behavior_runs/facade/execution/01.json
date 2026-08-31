@@ -1,0 +1,19 @@
+{
+  "ident": "01",
+  "generated_dir": "generated/01",
+  "status": "no_mapped",
+  "n_intentions": 1,
+  "n_mapped": 0,
+  "n_unmapped": 1,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can run the application and see 'Hello, World!' printed to the console.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

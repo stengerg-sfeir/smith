@@ -1,0 +1,24 @@
+{
+  "ident": "01",
+  "prompt_file": "prompts/prompt_01.txt",
+  "generated_dir": "generated/01",
+  "prompt": "Create a Python 3.12 application that prints \"Hello, World!\" when executed. Organize the application as a small Python package with a main entry point.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can run the application and see 'Hello, World!' printed to the console.",
+      "cli_command": "",
+      "requires": "",
+      "observable": "The output 'Hello, World!' is printed to the standard output.",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

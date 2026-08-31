@@ -1,0 +1,31 @@
+{
+  "ident": "26",
+  "generated_dir": "generated/26",
+  "status": "no_mapped",
+  "n_intentions": 3,
+  "n_mapped": 0,
+  "n_unmapped": 3,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a loan for a book by a member.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can close an existing loan for a book.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can check which books are currently available for borrowing.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

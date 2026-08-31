@@ -1,0 +1,277 @@
+{
+  "ident": "29",
+  "prompt_file": "prompts/prompt_29.txt",
+  "generated_dir": "generated/29",
+  "prompt": "Create a Python 3.12 application for managing customers and orders. Organize the application into separate modules for models, repositories, services and CLI. The service layer must contain the business rules and repositories must contain persistence logic.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new customer record with their name, email, and phone number.",
+      "cli_command": "",
+      "requires": "a customer with name, email, phone number",
+      "observable": "a new customer record is saved in the database or storage",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a customer's details by their unique identifier.",
+      "cli_command": "",
+      "requires": "a customer ID",
+      "observable": "the customer's name, email, and phone number are displayed in the output",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing customer's information such as name, email, or phone number.",
+      "cli_command": "",
+      "requires": "a customer ID and updated name, email, or phone number",
+      "observable": "the customer's updated information is saved and reflected in the system",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a customer record by their unique identifier.",
+      "cli_command": "",
+      "requires": "a customer ID",
+      "observable": "the customer record is removed from the system",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can create a new order with a customer ID, order date, and list of items.",
+      "cli_command": "",
+      "requires": "a customer ID, order date, and list of items (e.g., product name and quantity)",
+      "observable": "a new order is saved in the system with the specified details",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can retrieve an order by its unique identifier.",
+      "cli_command": "",
+      "requires": "an order ID",
+      "observable": "the order details (customer ID, date, items) are displayed",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can list all orders for a specific customer.",
+      "cli_command": "",
+      "requires": "a customer ID",
+      "observable": "a list of all orders associated with that customer is displayed",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I8",
+      "text": "I can update an existing order's status (e.g., pending, shipped, completed).",
+      "cli_command": "",
+      "requires": "an order ID and a new status",
+      "observable": "the order status is updated and reflected in the system",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I9",
+      "text": "I can delete an order by its unique identifier.",
+      "cli_command": "",
+      "requires": "an order ID",
+      "observable": "the order record is removed from the system",
+      "spec_level": "vague"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "manage-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_customer"
+      },
+      {
+        "name": "retrieve-by_email",
+        "options": [
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_by_email"
+      },
+      {
+        "name": "orders-list",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--from-date"
+            ],
+            "dest": "from_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--to-date"
+            ],
+            "dest": "to_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_orders"
+      },
+      {
+        "name": "orders-with_details",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_with_orders"
+      },
+      {
+        "name": "summary-spend",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_total_spent"
+      },
+      {
+        "name": "summary-order_summary",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_order_summary"
+      },
+      {
+        "name": "search-by_prefix",
+        "options": [
+          {
+            "names": [
+              "--prefix"
+            ],
+            "dest": "prefix",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customers_by_name_prefix"
+      },
+      {
+        "name": "update-phone",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_customer_phone"
+      },
+      {
+        "name": "count-active",
+        "options": [],
+        "arguments": [],
+        "target": "get_active_customers_count"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

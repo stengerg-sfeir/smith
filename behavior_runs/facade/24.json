@@ -1,0 +1,281 @@
+{
+  "ident": "24",
+  "prompt_file": "prompts/prompt_24.txt",
+  "generated_dir": "generated/24",
+  "prompt": "Create a Python 3.12 project management application. A project contains multiple tasks. Each task belongs to one project and has a title, description, status and priority. Users must be able to create, update, delete and list projects and tasks.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can list all projects.",
+      "cli_command": "",
+      "requires": "",
+      "observable": "A list of project names or project details is displayed.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can create a new project.",
+      "cli_command": "",
+      "requires": "a project name",
+      "observable": "The project is created and listed in the output or updated project list.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can delete a project.",
+      "cli_command": "",
+      "requires": "a project name",
+      "observable": "The project is removed from the list, and confirmation is shown.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can list all tasks in a project.",
+      "cli_command": "",
+      "requires": "a project name",
+      "observable": "A list of tasks with title, description, status, and priority is displayed.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can create a new task in a project.",
+      "cli_command": "",
+      "requires": "a project name, task title, description, status, priority",
+      "observable": "The task is created and appears in the list of tasks for that project.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can update a task's status or priority.",
+      "cli_command": "",
+      "requires": "a project name, task title, new status or priority",
+      "observable": "The task's status or priority is updated, and the updated task is shown in the list.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can delete a task from a project.",
+      "cli_command": "",
+      "requires": "a project name, task title",
+      "observable": "The task is removed from the project's task list.",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "project-create",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_project"
+      },
+      {
+        "name": "project-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_projects"
+      },
+      {
+        "name": "project-update",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_project"
+      },
+      {
+        "name": "project-delete",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_project"
+      },
+      {
+        "name": "task-list",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--priority"
+            ],
+            "dest": "priority",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_task"
+      },
+      {
+        "name": "task-search",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_tasks_by_title"
+      },
+      {
+        "name": "project-summary",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status-filter"
+            ],
+            "dest": "status_filter",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--priority-filter"
+            ],
+            "dest": "priority_filter",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_project_tasks_summary"
+      },
+      {
+        "name": "project-stats",
+        "options": [],
+        "arguments": [],
+        "target": "get_task_stats_by_project"
+      },
+      {
+        "name": "project-completion_rate",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_project_completion_rate"
+      },
+      {
+        "name": "project-task_distribution",
+        "options": [],
+        "arguments": [],
+        "target": "get_project_task_distribution"
+      },
+      {
+        "name": "project-total_status",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_tasks_by_status"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

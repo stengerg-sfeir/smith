@@ -1,0 +1,3 @@
+Create a CLI tool that reads a CSV file and outputs JSON. The tool should accept the input file path and an optional output file path. If no output path is given, print to stdout. Include error handling for missing files and malformed CSV.
+
+CRITICAL: Read the CSV header row to determine column names dynamically. Do NOT assume specific column names like "title" or "name". Convert each row to a JSON object using the actual headers as keys.

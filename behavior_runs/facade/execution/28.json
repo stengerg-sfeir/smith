@@ -1,0 +1,49 @@
+{
+  "ident": "28",
+  "generated_dir": "generated/28",
+  "status": "no_mapped",
+  "n_intentions": 6,
+  "n_mapped": 0,
+  "n_unmapped": 6,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new invoice for a customer with multiple line items.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can view the details of an existing invoice, including the customer name and all line items.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can add a product to an invoice line with a specified quantity.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove a product line from an invoice.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can calculate the total amount of an invoice from its line items.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can list all invoices with their customer names and totals.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

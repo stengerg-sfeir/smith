@@ -1,0 +1,261 @@
+{
+  "ident": "05",
+  "prompt_file": "prompts/prompt_05.txt",
+  "generated_dir": "generated/05",
+  "prompt": "Create a Python 3.12 application for managing contacts. A contact has a name, email address and phone number. Provide operations to create, list, update and delete contacts. Store the data in SQLite.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new contact with a name, email address, and phone number.",
+      "cli_command": "",
+      "requires": "a name, email address, and phone number",
+      "observable": "Confirmation message indicating the contact was created successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can list all existing contacts with their name, email, and phone number.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "A list of contacts displayed with name, email, and phone number",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing contact's name, email address, or phone number.",
+      "cli_command": "",
+      "requires": "a contact identifier (e.g., name or ID) and at least one of: name, email, phone number",
+      "observable": "Confirmation message indicating the contact was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete an existing contact by name or identifier.",
+      "cli_command": "",
+      "requires": "a contact identifier (e.g., name or ID)",
+      "observable": "Confirmation message indicating the contact was deleted successfully",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "contact-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_contact"
+      },
+      {
+        "name": "contact-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_contacts"
+      },
+      {
+        "name": "contact-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_contact"
+      },
+      {
+        "name": "contact-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_contact"
+      },
+      {
+        "name": "contact-search",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--case-sensitive"
+            ],
+            "dest": "case_sensitive",
+            "type": "str",
+            "required": false,
+            "flag": true
+          }
+        ],
+        "arguments": [],
+        "target": "search_contacts"
+      },
+      {
+        "name": "find_by_email-by_email",
+        "options": [
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_contact_by_email"
+      },
+      {
+        "name": "find_by_phone-by_phone",
+        "options": [
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_contact_by_phone"
+      },
+      {
+        "name": "filter-by_domain",
+        "options": [
+          {
+            "names": [
+              "--domain"
+            ],
+            "dest": "domain",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_contacts_with_email_domain"
+      },
+      {
+        "name": "filter-by_prefix",
+        "options": [
+          {
+            "names": [
+              "--prefix"
+            ],
+            "dest": "prefix",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_contacts_by_name_prefix"
+      },
+      {
+        "name": "stats-most_emails",
+        "options": [],
+        "arguments": [],
+        "target": "get_contact_with_most_emails"
+      },
+      {
+        "name": "stats-most_phones",
+        "options": [],
+        "arguments": [],
+        "target": "get_contact_with_most_phones"
+      },
+      {
+        "name": "filter-no_email",
+        "options": [],
+        "arguments": [],
+        "target": "get_contacts_with_no_email"
+      },
+      {
+        "name": "filter-no_phone",
+        "options": [],
+        "arguments": [],
+        "target": "get_contacts_with_no_phone"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

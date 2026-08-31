@@ -1,0 +1,56 @@
+{
+  "ident": "cli_tool",
+  "generated_dir": "generated/cli_tool",
+  "status": "pass",
+  "n_intentions": 5,
+  "n_mapped": 3,
+  "n_unmapped": 2,
+  "pass": 3,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "main",
+      "invocation": "python3 csv_to_json.py /Users/gillesstenger/Documents/neurosymbolic/behavior_runs/facade/fixtures/people_csv.csv",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "[\n  {\n    \"name\": \"Alice\",\n    \"age\": \"30\",\n    \"city\": \"Paris\"\n  },\n  {\n    \"name\": \"Bob\",\n    \"age\": \"25\",\n    \"city\": \"Lyon\"\n  }\n]\n",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "main",
+      "invocation": "python3 csv_to_json.py /Users/gillesstenger/Documents/neurosymbolic/behavior_runs/facade/fixtures/products_csv.csv --output output.json",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "Data successfully written to output.json\n",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "main",
+      "invocation": "python3 csv_to_json.py /Users/gillesstenger/Documents/neurosymbolic/behavior_runs/facade/fixtures/books_csv.csv",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "[\n  {\n    \"id\": \"1\",\n    \"title\": \"The Hobbit\",\n    \"author\": \"Tolkien\"\n  },\n  {\n    \"id\": \"2\",\n    \"title\": \"Dune\",\n    \"author\": \"Herbert\"\n  }\n]\n",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I4",
+      "text": "I get an error if the input CSV file does not exist.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I get an error if the CSV file has a malformed format (e.g., invalid delimiter, missing header, malformed row).",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

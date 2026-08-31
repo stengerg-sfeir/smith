@@ -1,0 +1,63 @@
+{
+  "ident": "multi_module",
+  "generated_dir": "generated/multi_module",
+  "status": "pass",
+  "n_intentions": 5,
+  "n_mapped": 5,
+  "n_unmapped": 0,
+  "pass": 5,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "manage-add",
+      "invocation": "python3 cli.py manage-add --title 'Complete project proposal' --description 'Finalize the project proposal document and submit to stakeholders.' --status pending",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "manage-list",
+      "invocation": "python3 cli.py manage-list --limit 10 --offset 0",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "manage-update",
+      "invocation": "python3 cli.py manage-update --title 'Review project timeline' --description 'Review and adjust the project timeline based on feedback.' --status in-progress --task-id 123",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "view-show",
+      "invocation": "python3 cli.py view-show --task-id 789",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "manage-delete",
+      "invocation": "python3 cli.py manage-delete --task-id 456",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": []
+}

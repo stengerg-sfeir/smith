@@ -1,0 +1,48 @@
+{
+  "ident": "06",
+  "generated_dir": "generated/06",
+  "status": "pass",
+  "n_intentions": 5,
+  "n_mapped": 1,
+  "n_unmapped": 4,
+  "pass": 1,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I3",
+      "command": "get-by_name",
+      "invocation": "python3 cli.py get-by_name --name Laptop",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new product with a name, description, price, and quantity.",
+      "status": "unmapped",
+      "reason": "option --price expects int, got 'testing'; option --quantity expects int, got 'testing'"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can read a list of all products with their name, description, price, and quantity.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update the price or quantity of an existing product.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete a product by its name or ID.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

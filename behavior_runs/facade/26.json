@@ -1,0 +1,40 @@
+{
+  "ident": "26",
+  "prompt_file": "prompts/prompt_26.txt",
+  "generated_dir": "generated/26",
+  "prompt": "Create a Python 3.12 library application managing books, members and loans. A member can borrow multiple books, but a book can have at most one active loan. Users must be able to create and close loans and determine which books are currently available.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a loan for a book by a member.",
+      "cli_command": "",
+      "requires": "a book (by ISBN or title), a member (by ID or name)",
+      "observable": "Confirmation message indicating the loan has been successfully created and the book is now loaned out.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can close an existing loan for a book.",
+      "cli_command": "",
+      "requires": "a loan ID or book and member details to identify the loan",
+      "observable": "Confirmation message indicating the loan has been successfully closed and the book is now available.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can check which books are currently available for borrowing.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "A list of books that are not currently loaned out, showing title and ISBN (or other identifying fields).",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

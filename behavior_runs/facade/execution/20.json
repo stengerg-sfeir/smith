@@ -1,0 +1,80 @@
+{
+  "ident": "20",
+  "generated_dir": "generated/20",
+  "status": "pass",
+  "n_intentions": 7,
+  "n_mapped": 6,
+  "n_unmapped": 1,
+  "pass": 6,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "crud-create",
+      "invocation": "python3 cli.py crud-create --name Laptop --price 1000",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "sale-crud-create",
+      "invocation": "python3 cli.py sale-crud-create --product-id 1 --quantity 2 --date 2023-10-01",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "report-per_product",
+      "invocation": "python3 cli.py report-per_product",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "crud-update",
+      "invocation": "python3 cli.py crud-update",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I6",
+      "command": "report-by_product",
+      "invocation": "python3 cli.py report-by_product --product-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I7",
+      "command": "report-total",
+      "invocation": "python3 cli.py report-total",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I4",
+      "text": "I can remove a product from the inventory",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

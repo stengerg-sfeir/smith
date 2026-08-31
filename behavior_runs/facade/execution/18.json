@@ -1,0 +1,62 @@
+{
+  "ident": "18",
+  "generated_dir": "generated/18",
+  "status": "fail",
+  "n_intentions": 6,
+  "n_mapped": 3,
+  "n_unmapped": 3,
+  "pass": 2,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "create-add",
+      "invocation": "python3 cli.py create-add --first-name John --last-name Doe --email john.doe@example.com --phone 555-1234 --address '123 Main St'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "contact-export",
+      "invocation": "python3 cli.py contact-export --filename contacts_export.csv",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I6",
+      "command": "contact-import",
+      "invocation": "python3 cli.py contact-import --filename contacts_import.csv",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/18/cli.py\", line 72, in contact_import\n    result = svc.import_from_csv(filename=filename)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/18/contact_service.py\", line 70, in import_from_csv\n    raise e\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/18/contact_service.py\", line 68, in import_from_csv\n    return self.contact_repo.import_from_csv(filename)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/18/contact_repository.py\", line 136, in import_from_csv\n    with open(filename, 'r') as f:\n         ~~~~^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'contacts_import.csv'\n"
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I2",
+      "text": "I can view all existing contacts in the contact database.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing contact's information in the database.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a contact from the database.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

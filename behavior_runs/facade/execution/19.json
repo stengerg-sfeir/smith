@@ -1,0 +1,80 @@
+{
+  "ident": "19",
+  "generated_dir": "generated/19",
+  "status": "pass",
+  "n_intentions": 7,
+  "n_mapped": 6,
+  "n_unmapped": 1,
+  "pass": 6,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "task-create",
+      "invocation": "python3 cli.py task-create --title 'Write project proposal' --description 'Draft initial outline for the new project' --status pending --priority medium --due-date 2023-12-01",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "task-count",
+      "invocation": "python3 cli.py task-count",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "task-update",
+      "invocation": "python3 cli.py task-update --task-id 1 --title 'Revise project proposal' --status in-progress --priority high",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "task-export",
+      "invocation": "python3 cli.py task-export",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I6",
+      "command": "task-import",
+      "invocation": "python3 cli.py task-import --json-file /Users/gillesstenger/Documents/neurosymbolic/behavior_runs/facade/fixtures/tasks_json.json",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "task-delete",
+      "invocation": "python3 cli.py task-delete --task-id 5",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I7",
+      "text": "The system validates the JSON input before importing tasks.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

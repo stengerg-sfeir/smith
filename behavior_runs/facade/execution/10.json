@@ -1,0 +1,50 @@
+{
+  "ident": "10",
+  "generated_dir": "generated/10",
+  "status": "pass",
+  "n_intentions": 4,
+  "n_mapped": 3,
+  "n_unmapped": 1,
+  "pass": 3,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "notes-create",
+      "invocation": "python3 cli.py notes-create --title 'My First Note' --content 'This is the content of my first note.'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "notes-list",
+      "invocation": "python3 cli.py notes-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "notes-update",
+      "invocation": "python3 cli.py notes-update --note-id 1 --content 'Updated content of the note.'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I4",
+      "text": "I can delete a note by its title.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

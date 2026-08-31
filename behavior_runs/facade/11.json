@@ -1,0 +1,64 @@
+{
+  "ident": "11",
+  "prompt_file": "prompts/prompt_11.txt",
+  "generated_dir": "generated/11",
+  "prompt": "Create a Python 3.12 library management application. The application manages books with title, author, ISBN and publication year. Users can create, list, update, search and delete books. The ISBN must be unique. Persist the data in SQLite.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new book with a title, author, ISBN, and publication year.",
+      "cli_command": "",
+      "requires": "a book with title, author, ISBN, and publication year",
+      "observable": "Confirmation message indicating the book was created successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can list all books in the library with their title, author, ISBN, and publication year.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "A list of all books displayed with title, author, ISBN, and publication year",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the details of an existing book, such as title, author, ISBN, or publication year.",
+      "cli_command": "",
+      "requires": "an existing book identified by ISBN, and new values for one or more fields",
+      "observable": "Confirmation message indicating the book was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can search for books by title, author, or ISBN.",
+      "cli_command": "",
+      "requires": "a search term (title, author, or ISBN)",
+      "observable": "A list of books matching the search term",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete a book from the library by its ISBN.",
+      "cli_command": "",
+      "requires": "an ISBN of an existing book",
+      "observable": "Confirmation message indicating the book was deleted successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I am prevented from creating a book with a duplicate ISBN.",
+      "cli_command": "",
+      "requires": "a book with an ISBN that already exists in the database",
+      "observable": "An error message indicating the ISBN is already in use",
+      "spec_level": "vague"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

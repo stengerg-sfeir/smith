@@ -1,0 +1,62 @@
+{
+  "ident": "38",
+  "generated_dir": "generated/38",
+  "status": "fail",
+  "n_intentions": 6,
+  "n_mapped": 3,
+  "n_unmapped": 3,
+  "pass": 2,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "authenticate-login",
+      "invocation": "python3 cli.py authenticate-login --email user@example.com --password password123",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "mmand.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/38/cli.py\", line 17, in authenticate_login\n    result = svc.authenticate_user(email=email, password=password)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/38/auth_service.py\", line 26, in authenticate_user\n    raise AuthenticationError('Invalid email or password')\nexceptions.AuthenticationError: Invalid email or password\n"
+    },
+    {
+      "intent_id": "I2",
+      "command": "documents-list",
+      "invocation": "python3 cli.py documents-list --user-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I6",
+      "command": "documents-check_access",
+      "invocation": "python3 cli.py documents-check_access --user-id 1 --document-id 101",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I3",
+      "text": "I can create a new document that belongs to me.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update an existing document that belongs to me.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete a document that belongs to me.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

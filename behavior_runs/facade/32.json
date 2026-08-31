@@ -1,0 +1,64 @@
+{
+  "ident": "32",
+  "prompt_file": "prompts/prompt_32.txt",
+  "generated_dir": "generated/32",
+  "prompt": "Create a Python 3.12 order management application. An order starts in the `pending` state and can become `confirmed`, `shipped` or `cancelled`. A cancelled order cannot be shipped, and a shipped order cannot be cancelled. Implement the allowed state transitions explicitly.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new order with a specified customer name, items, and total amount.",
+      "cli_command": "",
+      "requires": "a customer name, a list of items with quantities, and a total amount",
+      "observable": "The order is created and appears in the pending state in the order list.",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can confirm an order, which changes its state from pending to confirmed.",
+      "cli_command": "",
+      "requires": "an order ID that is currently in the pending state",
+      "observable": "The order's state changes from 'pending' to 'confirmed' in the order list.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can ship an order, which changes its state from confirmed to shipped.",
+      "cli_command": "",
+      "requires": "an order ID that is currently in the confirmed state",
+      "observable": "The order's state changes from 'confirmed' to 'shipped' in the order list.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can cancel an order, which changes its state from pending to cancelled.",
+      "cli_command": "",
+      "requires": "an order ID that is currently in the pending state",
+      "observable": "The order's state changes from 'pending' to 'cancelled' in the order list.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I cannot ship an order that has been cancelled.",
+      "cli_command": "",
+      "requires": "an order that is in the cancelled state",
+      "observable": "An error message is returned indicating that shipping is not allowed for cancelled orders.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I cannot cancel an order that has already been shipped.",
+      "cli_command": "",
+      "requires": "an order that is in the shipped state",
+      "observable": "An error message is returned indicating that cancellation is not allowed for shipped orders.",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

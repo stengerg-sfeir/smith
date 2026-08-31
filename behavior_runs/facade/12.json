@@ -1,0 +1,185 @@
+{
+  "ident": "12",
+  "prompt_file": "prompts/prompt_12.txt",
+  "generated_dir": "generated/12",
+  "prompt": "Create a Python 3.12 customer management application. Customers have a name, email and phone number. Email addresses must be unique. Provide CRUD operations, search by name and filtering by email domain. Use SQLite persistence.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new customer with a name, email, and phone number.",
+      "cli_command": "",
+      "requires": "a customer with name, email, and phone number",
+      "observable": "confirmation message indicating the customer was created successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a list of all customers.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a list of all customers with their name, email, and phone number",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can retrieve a specific customer by their name.",
+      "cli_command": "",
+      "requires": "a customer name",
+      "observable": "the details of the customer with the given name",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update an existing customer's name, email, or phone number.",
+      "cli_command": "",
+      "requires": "a customer name and at least one of: new name, new email, new phone number",
+      "observable": "confirmation message indicating the customer was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete a customer by their name.",
+      "cli_command": "",
+      "requires": "a customer name",
+      "observable": "confirmation message indicating the customer was deleted successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can search for customers by name.",
+      "cli_command": "",
+      "requires": "a name to search for",
+      "observable": "a list of customers whose name matches the search term",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can filter customers by email domain.",
+      "cli_command": "",
+      "requires": "an email domain (e.g., example.com)",
+      "observable": "a list of customers whose email ends with the specified domain",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I8",
+      "text": "I cannot create a customer with a duplicate email address.",
+      "cli_command": "",
+      "requires": "a customer with an email that already exists in the database",
+      "observable": "an error message indicating the email is already in use",
+      "spec_level": "vague"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "customer-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_customer"
+      },
+      {
+        "name": "customer-list",
+        "options": [
+          {
+            "names": [
+              "--domain"
+            ],
+            "dest": "domain",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customers_by_domain"
+      },
+      {
+        "name": "customer-search",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_customers_by_name"
+      },
+      {
+        "name": "customer-filter",
+        "options": [
+          {
+            "names": [
+              "--domain"
+            ],
+            "dest": "domain",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "filter_customers_by_email_domain"
+      },
+      {
+        "name": "phone-prefix",
+        "options": [
+          {
+            "names": [
+              "--prefix"
+            ],
+            "dest": "prefix",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customers_with_phone_prefix"
+      },
+      {
+        "name": "stats-count",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_customers"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

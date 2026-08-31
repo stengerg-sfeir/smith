@@ -1,0 +1,367 @@
+{
+  "database_file": "app.db",
+  "entities": [
+    {
+      "name": "Task",
+      "table_name": "",
+      "fields": [
+        {
+          "name": "title",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "date",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": true,
+          "auto": "autoincrement",
+          "default": "None"
+        },
+        {
+          "name": "description",
+          "type": "str",
+          "nullable": true,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": "None"
+        }
+      ],
+      "unique_together": [],
+      "fks": []
+    }
+  ],
+  "exceptions": [
+    {
+      "name": "NotFoundError",
+      "trigger": "not_found"
+    },
+    {
+      "name": "ValidationError",
+      "trigger": "validation"
+    },
+    {
+      "name": "InvalidStatusError",
+      "trigger": "validation"
+    },
+    {
+      "name": "TaskAlreadyExistsError",
+      "trigger": "conflict"
+    }
+  ],
+  "repositories": [
+    {
+      "module": "task_repository",
+      "class": "TaskRepository",
+      "entity": "Task",
+      "methods": [
+        {
+          "name": "create",
+          "params": [
+            {
+              "name": "task",
+              "type": "Task"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_by_id",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "Optional[Task]"
+        },
+        {
+          "name": "get_all",
+          "params": [],
+          "returns": "List[Task]"
+        },
+        {
+          "name": "list",
+          "params": [
+            {
+              "name": "status",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "description",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "title",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "start_date",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "end_date",
+              "type": "Optional[Any]"
+            }
+          ],
+          "returns": "List[Task]"
+        },
+        {
+          "name": "update",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            },
+            {
+              "name": "data",
+              "type": "Dict[str, Any]"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "delete",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "find_by_status",
+          "params": [
+            {
+              "name": "status",
+              "type": "str"
+            }
+          ],
+          "returns": "List[Task]"
+        },
+        {
+          "name": "count_tasks_by_status",
+          "params": [
+            {
+              "name": "status",
+              "type": "str"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_tasks_with_creation_stats",
+          "params": [],
+          "returns": "Dict[str, Any]"
+        },
+        {
+          "name": "get_tasks_in_time_range",
+          "params": [
+            {
+              "name": "start_date",
+              "type": "datetime"
+            },
+            {
+              "name": "end_date",
+              "type": "datetime"
+            }
+          ],
+          "returns": "List[Task]"
+        },
+        {
+          "name": "get_tasks_with_status_distribution",
+          "params": [],
+          "returns": "Dict[str, int]"
+        }
+      ]
+    }
+  ],
+  "services": [
+    {
+      "module": "task_service",
+      "class": "TaskService",
+      "entity": "Task",
+      "methods": [
+        {
+          "name": "create_task",
+          "params": [
+            {
+              "name": "title",
+              "type": "str"
+            },
+            {
+              "name": "description",
+              "type": "Optional[str]"
+            },
+            {
+              "name": "status",
+              "type": "str"
+            }
+          ],
+          "returns": "Optional[Task]"
+        },
+        {
+          "name": "update_task",
+          "params": [
+            {
+              "name": "task_id",
+              "type": "int"
+            },
+            {
+              "name": "title",
+              "type": "Optional[str]"
+            },
+            {
+              "name": "description",
+              "type": "Optional[str]"
+            },
+            {
+              "name": "status",
+              "type": "Optional[str]"
+            }
+          ],
+          "returns": "Optional[Task]"
+        },
+        {
+          "name": "list_tasks",
+          "params": [
+            {
+              "name": "status",
+              "type": "Optional[str]"
+            },
+            {
+              "name": "limit",
+              "type": "Optional[int]"
+            },
+            {
+              "name": "offset",
+              "type": "Optional[int]"
+            }
+          ],
+          "returns": "List[Task]"
+        },
+        {
+          "name": "get_task_by_id",
+          "params": [
+            {
+              "name": "task_id",
+              "type": "int"
+            }
+          ],
+          "returns": "Optional[Task]"
+        },
+        {
+          "name": "delete_task",
+          "params": [
+            {
+              "name": "task_id",
+              "type": "int"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "get_status_distribution",
+          "params": [],
+          "returns": "Dict[str, int]"
+        },
+        {
+          "name": "export_tasks_to_csv",
+          "params": [
+            {
+              "name": "file_path",
+              "type": "str"
+            },
+            {
+              "name": "status_filter",
+              "type": "Optional[str]"
+            }
+          ],
+          "returns": "None"
+        }
+      ]
+    }
+  ],
+  "cli": {
+    "commands": [
+      {
+        "name": "cli",
+        "flags": []
+      },
+      {
+        "name": "manage_add",
+        "flags": [
+          "title",
+          "description",
+          "status"
+        ]
+      },
+      {
+        "name": "manage_list",
+        "flags": [
+          "status",
+          "limit",
+          "offset"
+        ]
+      },
+      {
+        "name": "manage_update",
+        "flags": [
+          "title",
+          "description",
+          "status",
+          "task_id"
+        ]
+      },
+      {
+        "name": "manage_delete",
+        "flags": [
+          "task_id"
+        ]
+      },
+      {
+        "name": "view_show",
+        "flags": [
+          "task_id"
+        ]
+      },
+      {
+        "name": "report_status_distribution",
+        "flags": []
+      },
+      {
+        "name": "task_export",
+        "flags": [
+          "file_path",
+          "status_filter"
+        ]
+      }
+    ]
+  },
+  "foreign_keys_enabled": true
+}

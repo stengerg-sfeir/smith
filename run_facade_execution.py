@@ -36,8 +36,8 @@ from behavior_tests.fixtures import FIXTURES
 
 NAMED = [
     "hello_world", "cli_tool", "inventory", "expenses",
-    "library_system", "multi_module", "20",
-]
+    "library_system", "multi_module",
+] + [f"{i:02d}" for i in range(1, 41)]
 
 
 def main(argv: list[str] | None = None) -> int:

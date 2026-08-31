@@ -1,0 +1,205 @@
+{
+  "ident": "18",
+  "prompt_file": "prompts/prompt_18.txt",
+  "generated_dir": "generated/18",
+  "prompt": "Create a Python 3.12 contact management application using SQLite. Provide normal CRUD operations and commands to export all contacts to CSV and import contacts from CSV. Invalid rows during import must be rejected without corrupting existing data.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can add a new contact to the contact database.",
+      "cli_command": "",
+      "requires": "a contact with name, phone number, email address, and optional notes",
+      "observable": "Confirmation message indicating the contact was successfully added to the database",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can view all existing contacts in the contact database.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "A list of all contacts displayed with their name, phone number, email, and notes",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing contact's information in the database.",
+      "cli_command": "",
+      "requires": "a contact identifier (e.g., ID) and updated fields (name, phone, email, notes)",
+      "observable": "Confirmation message indicating the contact was successfully updated",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a contact from the database.",
+      "cli_command": "",
+      "requires": "a contact identifier (e.g., ID)",
+      "observable": "Confirmation message indicating the contact was successfully deleted",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can export all contacts to a CSV file.",
+      "cli_command": "",
+      "requires": "an output file path (e.g., 'contacts.csv')",
+      "observable": "A CSV file is created at the specified path containing all contacts in a readable format",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can import contacts from a CSV file into the database.",
+      "cli_command": "",
+      "requires": "an input CSV file path",
+      "observable": "Contacts are successfully added to the database; any invalid rows are rejected and reported without corrupting existing data",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "create-add",
+        "options": [
+          {
+            "names": [
+              "--first-name"
+            ],
+            "dest": "first_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--address"
+            ],
+            "dest": "address",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_contact"
+      },
+      {
+        "name": "read-count_by_last_name",
+        "options": [],
+        "arguments": [],
+        "target": "get_contact_count_by_last_name"
+      },
+      {
+        "name": "read-by_email_domain",
+        "options": [
+          {
+            "names": [
+              "--domain"
+            ],
+            "dest": "domain",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_contacts_by_email_domain"
+      },
+      {
+        "name": "read-by_last_name_prefix",
+        "options": [
+          {
+            "names": [
+              "--prefix"
+            ],
+            "dest": "prefix",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_contacts_by_last_name_prefix"
+      },
+      {
+        "name": "read-invalid_emails",
+        "options": [],
+        "arguments": [],
+        "target": "get_contacts_with_invalid_email_format"
+      },
+      {
+        "name": "read-phone_and_email",
+        "options": [],
+        "arguments": [],
+        "target": "get_contacts_with_phone_and_email"
+      },
+      {
+        "name": "read-total_count",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_contact_count"
+      },
+      {
+        "name": "contact-export",
+        "options": [
+          {
+            "names": [
+              "--filename"
+            ],
+            "dest": "filename",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_to_csv"
+      },
+      {
+        "name": "contact-import",
+        "options": [
+          {
+            "names": [
+              "--filename"
+            ],
+            "dest": "filename",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "import_from_csv"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

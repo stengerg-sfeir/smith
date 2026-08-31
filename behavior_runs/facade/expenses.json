@@ -1,0 +1,570 @@
+{
+  "ident": "expenses",
+  "prompt_file": "prompts/prompt_expenses.txt",
+  "generated_dir": "generated/expenses",
+  "prompt": "Create a multi-module Python expense tracking system with the following features:\n\n1. **Category model** — id, name (unique), description, monthly_budget (optional int, stored as cents), icon (optional str)\n2. **Expense model** — id, amount_cents (int), description, expense_date (str, ISO date), category_id (FK), payment_method (cash/card/transfer), is_recurring (bool)\n3. **Budget model** — id, category_id (FK), month (str like \"2024-01\"), amount_limit_cents (int), UNIQUE(category_id, month)\n   → DDL: use table-level `UNIQUE(category_id, month)`, not inline `month TEXT UNIQUE`\n4. **ExpenseRepository** — SQLite storage with CRUD + filtering by date range, category, payment_method + monthly/yearly aggregation queries\n5. **CategoryRepository** — SQLite storage with CRUD + find expenses for a category\n6. **BudgetRepository** — SQLite storage with CRUD + find budgets by month + check if a category has exceeded its budget\n7. **ExpenseService** — business logic:\n   - list_expenses(category_id (Optional[int]), start_date (Optional[date]), end_date (Optional[date]), payment_method (Optional[str])): lists expenses filtered by optional category, date range, payment method — all params are optional, so passing no filters returns all expenses\n   - get_expense_by_id(id): returns a single expense by its ID\n   - add_expense: validates category exists, adds expense, checks if budget exceeded after insertion\n   - update_expense(id, data): updates an expense's fields\n   - delete_expense(id): deletes an expense by ID\n   - get_monthly_report(month): returns total spent, per-category breakdown, budget status (on_track/warning/exceeded) for a given \"YYYY-MM\" month\n   - get_yearly_summary(year): returns monthly totals, top spending categories, average monthly spend\n   - get_category_spending(category_id, start_date, end_date): returns aggregated spending for a category over a period\n   - export_to_csv(file_path, start_date, end_date): exports filtered expenses as CSV\n   - detect_recurring(): finds expenses with same amount/category recurring monthly and marks them\n8. **CLI interface using click** with nested command groups:\n   - `expense category add --name --description [--budget] [--icon]`\n   - `expense category list`\n   - `expense category update --id [--name] [--description] [--budget] [--icon]`\n   - `expense category delete --id`\n   - `budget list [--category] [--month]`\n   - `budget add --category-id --month --amount`\n   - `budget update --category-id --month [--amount]`\n   - `budget delete --category-id --month`\n   - `expense add --amount --description --category [--expense-date] [--method] [--recurring]`\n   - `expense list [--category] [--from-date] [--to-date] [--method]`\n   - `expense report monthly --month`\n   - `expense report yearly --year`\n   - `expense export --from-date --to-date --output`\n   - `expense recurring detect`\n\nUse type hints throughout. Use SQLite with foreign keys enabled. All monetary values must be stored as integers (cents) to avoid floating-point precision issues — convert to/from decimal for display. All IDs must be auto-incremented primary keys that are optional (default None) in the domain models. Implement proper error handling with custom exception classes: CategoryNotFoundError, ExpenseNotFoundError, BudgetExceededException.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can add a new expense to the system with a description, amount, category, and optional date, payment method, and recurring status.",
+      "cli_command": "expense add --amount --description --category [--expense-date] [--method] [--recurring]",
+      "requires": "an amount (in cents), a description, a category ID, optional expense date (ISO format), payment method (cash/card/transfer), and recurring flag (bool)",
+      "observable": "A new expense is listed in the expense list or returned by a query; the system confirms success via output or exit code.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can list all expenses or filter them by category, date range, or payment method.",
+      "cli_command": "expense list [--category] [--from-date] [--to-date] [--method]",
+      "requires": "optional category ID, start date (ISO), end date (ISO), payment method (cash/card/transfer)",
+      "observable": "A list of expenses is displayed, filtered by the provided criteria; if no filters, all expenses are shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can retrieve a specific expense by its ID.",
+      "cli_command": "expense list --id",
+      "requires": "an expense ID",
+      "observable": "The details of a single expense are displayed in the output.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update an existing expense's fields such as amount, description, date, payment method, or recurring status.",
+      "cli_command": "expense update --id [--name] [--description] [--budget] [--icon]",
+      "requires": "an expense ID and optional fields to update (amount, description, date, method, recurring)",
+      "observable": "The updated expense is reflected in the list or retrieved via ID; confirmation message is shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete an expense by its ID.",
+      "cli_command": "expense delete --id",
+      "requires": "an expense ID",
+      "observable": "The expense is removed from the list; confirmation message or success status is shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can add a new category with a name, description, optional monthly budget, and icon.",
+      "cli_command": "expense category add --name --description [--budget] [--icon]",
+      "requires": "a unique name, description, optional monthly budget (in cents), optional icon (string)",
+      "observable": "A new category is listed in the category list or returned by a query; confirmation message is shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can list all categories or filter by a specific category.",
+      "cli_command": "expense category list",
+      "requires": "none (returns all categories)",
+      "observable": "A list of categories is displayed with their names, descriptions, budgets, and icons.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I8",
+      "text": "I can update a category's name, description, budget, or icon.",
+      "cli_command": "expense category update --id [--name] [--description] [--budget] [--icon]",
+      "requires": "a category ID and optional fields to update",
+      "observable": "The updated category is reflected in the list; confirmation message is shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I9",
+      "text": "I can delete a category by its ID.",
+      "cli_command": "expense category delete --id",
+      "requires": "a category ID",
+      "observable": "The category is removed from the list; confirmation message is shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I10",
+      "text": "I can view all budgets or filter by category or month.",
+      "cli_command": "budget list [--category] [--month]",
+      "requires": "optional category ID and optional month (YYYY-MM)",
+      "observable": "A list of budgets is displayed, filtered by category and/or month.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I11",
+      "text": "I can add a monthly budget for a category with a specified amount in cents.",
+      "cli_command": "budget add --category-id --month --amount",
+      "requires": "a category ID, a month in YYYY-MM format, and an amount in cents",
+      "observable": "A new budget is added and listed in the budget list or returned by query.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I12",
+      "text": "I can update an existing budget's amount for a given category and month.",
+      "cli_command": "budget update --category-id --month [--amount]",
+      "requires": "a category ID, a month in YYYY-MM format, and optional new amount in cents",
+      "observable": "The budget amount is updated and reflected in the list.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I13",
+      "text": "I can delete a budget for a specific category and month.",
+      "cli_command": "budget delete --category-id --month",
+      "requires": "a category ID and a month in YYYY-MM format",
+      "observable": "The budget is removed from the list; confirmation message is shown.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I14",
+      "text": "I can generate a monthly spending report showing total spending, per-category breakdown, and budget status (on track, warning, exceeded).",
+      "cli_command": "expense report monthly --month",
+      "requires": "a month in YYYY-MM format",
+      "observable": "A detailed report is displayed showing total spending, category-wise spending, and budget status (on_track/warning/exceeded).",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I15",
+      "text": "I can generate a yearly summary report showing monthly totals, top spending categories, and average monthly spend.",
+      "cli_command": "expense report yearly --year",
+      "requires": "a year in YYYY format",
+      "observable": "A summary report is displayed with monthly totals, top categories, and average monthly spend.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I16",
+      "text": "I can export a filtered list of expenses to a CSV file.",
+      "cli_command": "expense export --from-date --to-date --output",
+      "requires": "start date (ISO), end date (ISO), output file path",
+      "observable": "A CSV file is generated at the specified path with the filtered expenses.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I17",
+      "text": "I can detect and identify recurring expenses (same amount and category recurring monthly) and mark them.",
+      "cli_command": "expense recurring detect",
+      "requires": "none (runs automatically)",
+      "observable": "A list of recurring expenses is identified and marked in the system or displayed in output.",
+      "spec_level": "explicit"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "category-add",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--budget"
+            ],
+            "dest": "budget",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--icon"
+            ],
+            "dest": "icon",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_category"
+      },
+      {
+        "name": "category-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_category"
+      },
+      {
+        "name": "category-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--budget"
+            ],
+            "dest": "budget",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--icon"
+            ],
+            "dest": "icon",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_category"
+      },
+      {
+        "name": "category-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_category"
+      },
+      {
+        "name": "budget-list",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--month"
+            ],
+            "dest": "month",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_budget"
+      },
+      {
+        "name": "budget-add",
+        "options": [
+          {
+            "names": [
+              "--category-id"
+            ],
+            "dest": "category_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--month"
+            ],
+            "dest": "month",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--amount"
+            ],
+            "dest": "amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_budget"
+      },
+      {
+        "name": "budget-update",
+        "options": [
+          {
+            "names": [
+              "--category-id"
+            ],
+            "dest": "category_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--month"
+            ],
+            "dest": "month",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--amount"
+            ],
+            "dest": "amount",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_budget"
+      },
+      {
+        "name": "budget-delete",
+        "options": [
+          {
+            "names": [
+              "--category-id"
+            ],
+            "dest": "category_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--month"
+            ],
+            "dest": "month",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_budget"
+      },
+      {
+        "name": "expense-add",
+        "options": [
+          {
+            "names": [
+              "--amount"
+            ],
+            "dest": "amount",
+            "type": "int",
+            "required": true,
+            "flag": false,
+            "field": "amount_cents"
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": true,
+            "flag": false,
+            "field": "description"
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "int",
+            "required": true,
+            "flag": false,
+            "field": "category_id"
+          },
+          {
+            "names": [
+              "--expense-date"
+            ],
+            "dest": "expense_date",
+            "type": "str",
+            "required": false,
+            "flag": false,
+            "field": "expense_date"
+          },
+          {
+            "names": [
+              "--method"
+            ],
+            "dest": "method",
+            "type": "str",
+            "required": false,
+            "flag": false,
+            "field": "payment_method"
+          },
+          {
+            "names": [
+              "--recurring"
+            ],
+            "dest": "recurring",
+            "type": "str",
+            "required": false,
+            "flag": true,
+            "field": "is_recurring"
+          }
+        ],
+        "arguments": [],
+        "target": "add_expense"
+      },
+      {
+        "name": "expense-list",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--from-date"
+            ],
+            "dest": "from_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--to-date"
+            ],
+            "dest": "to_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--method"
+            ],
+            "dest": "method",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_expenses"
+      },
+      {
+        "name": "report-monthly",
+        "options": [
+          {
+            "names": [
+              "--month"
+            ],
+            "dest": "month",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_monthly_report"
+      },
+      {
+        "name": "report-yearly",
+        "options": [
+          {
+            "names": [
+              "--year"
+            ],
+            "dest": "year",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_yearly_summary"
+      },
+      {
+        "name": "expense-export",
+        "options": [
+          {
+            "names": [
+              "--from-date"
+            ],
+            "dest": "from_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--to-date"
+            ],
+            "dest": "to_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--output"
+            ],
+            "dest": "output",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_to_csv"
+      },
+      {
+        "name": "recurring-detect",
+        "options": [],
+        "arguments": [],
+        "target": "detect_recurring"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

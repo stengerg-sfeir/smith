@@ -1,0 +1,203 @@
+{
+  "ident": "06",
+  "prompt_file": "prompts/prompt_06.txt",
+  "generated_dir": "generated/06",
+  "prompt": "Create a Python 3.12 application for managing products. Each product has a name, description, price and quantity. Provide CRUD operations and persist the data in SQLite.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new product with a name, description, price, and quantity.",
+      "cli_command": "",
+      "requires": "a product with name, description, price, and quantity",
+      "observable": "confirmation message indicating the product was created successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can read a list of all products with their name, description, price, and quantity.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a list of products displayed with name, description, price, and quantity",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can read a specific product by its name or ID.",
+      "cli_command": "",
+      "requires": "a product name or ID",
+      "observable": "the details of the requested product displayed",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update the price or quantity of an existing product.",
+      "cli_command": "",
+      "requires": "a product name or ID, and new price or quantity",
+      "observable": "confirmation message indicating the product was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete a product by its name or ID.",
+      "cli_command": "",
+      "requires": "a product name or ID",
+      "observable": "confirmation message indicating the product was deleted successfully",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "product-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--quantity"
+            ],
+            "dest": "quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_product"
+      },
+      {
+        "name": "get-by_name",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_product_by_name"
+      },
+      {
+        "name": "get-count",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_count"
+      },
+      {
+        "name": "get-highest_price",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_with_highest_price"
+      },
+      {
+        "name": "get-lowest_price",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_with_lowest_price"
+      },
+      {
+        "name": "get-by_category",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_by_category"
+      },
+      {
+        "name": "get-by_price_range",
+        "options": [
+          {
+            "names": [
+              "--min-price"
+            ],
+            "dest": "min_price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-price"
+            ],
+            "dest": "max_price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_by_price_range"
+      },
+      {
+        "name": "get-low_stock",
+        "options": [],
+        "arguments": [],
+        "target": "get_products_with_low_stock"
+      },
+      {
+        "name": "get-total_value",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_value_of_inventory"
+      },
+      {
+        "name": "search-query",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_products"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

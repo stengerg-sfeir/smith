@@ -1,0 +1,72 @@
+{
+  "ident": "24",
+  "generated_dir": "generated/24",
+  "status": "pass",
+  "n_intentions": 7,
+  "n_mapped": 4,
+  "n_unmapped": 3,
+  "pass": 4,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I2",
+      "command": "project-create",
+      "invocation": "python3 cli.py project-create --title 'New Project' --description 'A sample project for demonstration'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I1",
+      "command": "project-list",
+      "invocation": "python3 cli.py project-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "task-list",
+      "invocation": "python3 cli.py task-list --project-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "project-delete",
+      "invocation": "python3 cli.py project-delete --project-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I5",
+      "text": "I can create a new task in a project.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can update a task's status or priority.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can delete a task from a project.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

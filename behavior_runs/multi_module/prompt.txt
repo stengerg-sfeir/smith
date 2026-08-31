@@ -1,0 +1,6 @@
+Create a multi-module Python project for a task management system. The system should have:
+1. A Task model with id, title, description, status (todo/in_progress/done), and created_at.
+2. A TaskRepository that stores tasks in a SQLite database and supports CRUD operations.
+3. A TaskService with business logic for creating, updating, and listing tasks with filtering by status.
+4. A CLI interface using click that exposes commands: add, list, update, delete, and show.
+Use type hints throughout. Follow clean architecture with proper separation of concerns.

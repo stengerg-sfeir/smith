@@ -1,0 +1,251 @@
+{
+  "ident": "13",
+  "prompt_file": "prompts/prompt_13.txt",
+  "generated_dir": "generated/13",
+  "prompt": "Create a Python 3.12 inventory application. Products have a SKU, name, category, price and stock quantity. SKUs must be unique. Provide CRUD operations, product search, category filtering and low-stock reporting.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can add a new product to the inventory with a unique SKU, name, category, price, and stock quantity.",
+      "cli_command": "",
+      "requires": "a product with sku, name, category, price, stock",
+      "observable": "Confirmation message indicating the product was added successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a list of all products in the inventory.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "A list of all products with their SKU, name, category, price, and stock quantity",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the stock quantity of an existing product by its SKU.",
+      "cli_command": "",
+      "requires": "a product SKU and a new stock quantity",
+      "observable": "Confirmation message indicating the stock was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove a product from the inventory by its SKU.",
+      "cli_command": "",
+      "requires": "a product SKU",
+      "observable": "Confirmation message indicating the product was removed successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can search for products by name or SKU.",
+      "cli_command": "",
+      "requires": "a search term (name or SKU)",
+      "observable": "A list of products matching the search term",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can filter products by category.",
+      "cli_command": "",
+      "requires": "a category name",
+      "observable": "A list of products belonging to the specified category",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can view a report of products that are below a defined low-stock threshold.",
+      "cli_command": "",
+      "requires": "a low-stock threshold (e.g., stock quantity below this value)",
+      "observable": "A list of products with stock below the threshold",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "read-list",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_products"
+      },
+      {
+        "name": "read-by_sku",
+        "options": [
+          {
+            "names": [
+              "--sku"
+            ],
+            "dest": "sku",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_product_by_sku"
+      },
+      {
+        "name": "read-by_category",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_by_category"
+      },
+      {
+        "name": "read-low_stock",
+        "options": [],
+        "arguments": [],
+        "target": "get_low_stock_products"
+      },
+      {
+        "name": "read-count_by_category",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_count_by_category"
+      },
+      {
+        "name": "write-create",
+        "options": [
+          {
+            "names": [
+              "--sku"
+            ],
+            "dest": "sku",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--stock-quantity"
+            ],
+            "dest": "stock_quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_product"
+      },
+      {
+        "name": "write-update_stock",
+        "options": [
+          {
+            "names": [
+              "--sku"
+            ],
+            "dest": "sku",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--new-stock"
+            ],
+            "dest": "new_stock",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_product_stock"
+      },
+      {
+        "name": "write-delete",
+        "options": [
+          {
+            "names": [
+              "--sku"
+            ],
+            "dest": "sku",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_product"
+      },
+      {
+        "name": "product-export",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_products_to_csv"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

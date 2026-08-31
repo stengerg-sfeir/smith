@@ -1,0 +1,60 @@
+{
+  "ident": "33",
+  "generated_dir": "generated/33",
+  "status": "pass",
+  "n_intentions": 5,
+  "n_mapped": 4,
+  "n_unmapped": 1,
+  "pass": 4,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "customer-create",
+      "invocation": "python3 cli.py customer-create --first-name John --last-name Doe --email john.doe@example.com --phone 555-1234",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "get-active",
+      "invocation": "python3 cli.py get-active",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "get-recent",
+      "invocation": "python3 cli.py get-recent",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "customer-delete",
+      "invocation": "python3 cli.py customer-delete --customer-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I2",
+      "text": "I can update an existing customer's details such as name, email, or phone number.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

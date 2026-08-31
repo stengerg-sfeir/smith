@@ -1,0 +1,49 @@
+{
+  "ident": "22",
+  "generated_dir": "generated/22",
+  "status": "no_mapped",
+  "n_intentions": 6,
+  "n_mapped": 0,
+  "n_unmapped": 6,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new order with one or more products, each with a specified quantity and unit price.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a specific order by its unique identifier.",
+      "status": "unmapped",
+      "reason": "command 'get' not in facade"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the quantity or unit price of a product in an existing order.",
+      "status": "unmapped",
+      "reason": "command 'update' not in facade"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete an existing order.",
+      "status": "unmapped",
+      "reason": "command 'delete' not in facade"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can view a list of all orders.",
+      "status": "unmapped",
+      "reason": "command 'list' not in facade"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can calculate the total amount of an order based on the sum of (quantity × unit price) for each item.",
+      "status": "unmapped",
+      "reason": "command 'calculate' not in facade"
+    }
+  ]
+}

@@ -1,0 +1,269 @@
+{
+  "ident": "25",
+  "prompt_file": "prompts/prompt_25.txt",
+  "generated_dir": "generated/25",
+  "prompt": "Create a Python 3.12 employee management application. Employees belong to departments. Each department can contain many employees. Provide CRUD operations and allow users to list employees belonging to a department.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can list all employees belonging to a specific department.",
+      "cli_command": "",
+      "requires": "a department name",
+      "observable": "A list of employees in the specified department is displayed in the terminal.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can add a new employee to a department.",
+      "cli_command": "",
+      "requires": "a department name, employee name, employee ID",
+      "observable": "Confirmation message indicating the employee was successfully added to the department.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing employee's details in a department.",
+      "cli_command": "",
+      "requires": "an employee ID, a field (e.g., name, email), a new value",
+      "observable": "Confirmation message indicating the employee's details were successfully updated.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove an employee from a department.",
+      "cli_command": "",
+      "requires": "an employee ID",
+      "observable": "Confirmation message indicating the employee was successfully removed from the department.",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "list-employees",
+        "options": [
+          {
+            "names": [
+              "--department-id"
+            ],
+            "dest": "department_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--active-only"
+            ],
+            "dest": "active_only",
+            "type": "str",
+            "required": false,
+            "flag": true
+          },
+          {
+            "names": [
+              "--min-hire-date"
+            ],
+            "dest": "min_hire_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-hire-date"
+            ],
+            "dest": "max_hire_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employees_by_department"
+      },
+      {
+        "name": "list-with_department_names",
+        "options": [
+          {
+            "names": [
+              "--department-id"
+            ],
+            "dest": "department_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--page"
+            ],
+            "dest": "page",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--page-size"
+            ],
+            "dest": "page_size",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_employees_with_department_names"
+      },
+      {
+        "name": "create-add",
+        "options": [
+          {
+            "names": [
+              "--first-name"
+            ],
+            "dest": "first_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--department-id"
+            ],
+            "dest": "department_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--hire-date"
+            ],
+            "dest": "hire_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_employee"
+      },
+      {
+        "name": "employee-export",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--department-id"
+            ],
+            "dest": "department_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--active-only"
+            ],
+            "dest": "active_only",
+            "type": "str",
+            "required": false,
+            "flag": true
+          }
+        ],
+        "arguments": [],
+        "target": "export_employees_to_csv"
+      },
+      {
+        "name": "find-duplicates",
+        "options": [
+          {
+            "names": [
+              "--department-id"
+            ],
+            "dest": "department_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "find_duplicate_employees_by_department"
+      },
+      {
+        "name": "employee-count",
+        "options": [
+          {
+            "names": [
+              "--department-id"
+            ],
+            "dest": "department_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employee_count_by_department"
+      },
+      {
+        "name": "employee-hired_in_period",
+        "options": [
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employees_hired_in_period"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

@@ -32,8 +32,8 @@ from pathlib import Path
 from behavior_tests.facade_discovery import discover_facade
 from behavior_tests.intents import extract_intentions
 
-# Named prompts the generator ships, plus prompt 20 (the under-specified one
-# added to complete the spectrum for review). prompt_20 maps to generated/20.
+# Named prompts the generator ships. Numeric prompts 01-40 are appended below
+# (each maps to prompts/prompt_XX.txt and generated/XX).
 NAMED = [
     ("hello_world", "prompt_hello_world.txt", "hello_world"),
     ("cli_tool", "prompt_cli_tool.txt", "cli_tool"),
@@ -41,7 +41,10 @@ NAMED = [
     ("expenses", "prompt_expenses.txt", "expenses"),
     ("library_system", "prompt_library_system.txt", "library_system"),
     ("multi_module", "prompt_multi_module.txt", "multi_module"),
-    ("20", "prompt_20.txt", "20"),
+]
+NAMED += [
+    (f"{i:02d}", f"prompt_{i:02d}.txt", f"{i:02d}")
+    for i in range(1, 41)
 ]
 
 

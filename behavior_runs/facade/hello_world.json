@@ -1,0 +1,31 @@
+{
+  "ident": "hello_world",
+  "prompt_file": "prompts/prompt_hello_world.txt",
+  "generated_dir": "generated/hello_world",
+  "prompt": "Create a simple Python script with a CLI entry point that prints \"Hello, World!\" with type hints.\nThe script should define a `main()` function and include the standard `if __name__ == \"__main__\": main()` guard.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can run the script from the command line to see the 'Hello, World!' message",
+      "cli_command": "python script.py",
+      "requires": "the script file named 'script.py' with the correct content",
+      "observable": "the output 'Hello, World!' printed to the console",
+      "spec_level": "explicit"
+    }
+  ],
+  "facade": {
+    "entry": "hello.py",
+    "kind": "click_command",
+    "commands": [
+      {
+        "name": "main",
+        "options": [],
+        "arguments": [],
+        "target": ""
+      }
+    ],
+    "invoker": "main"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

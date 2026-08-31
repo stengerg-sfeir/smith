@@ -1,0 +1,53 @@
+{
+  "ident": "14",
+  "generated_dir": "generated/14",
+  "status": "pass",
+  "n_intentions": 4,
+  "n_mapped": 4,
+  "n_unmapped": 0,
+  "pass": 4,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "project-create",
+      "invocation": "python3 cli.py project-create --name 'New Project' --description 'A description for the new project' --status active",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "project-update",
+      "invocation": "python3 cli.py project-update --project-id 1 --name 'Updated Project Name' --description 'Updated description'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "project-list",
+      "invocation": "python3 cli.py project-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "project-delete",
+      "invocation": "python3 cli.py project-delete --project-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": []
+}

@@ -1,0 +1,172 @@
+{
+  "ident": "expenses",
+  "generated_dir": "generated/expenses",
+  "status": "fail",
+  "n_intentions": 17,
+  "n_mapped": 14,
+  "n_unmapped": 3,
+  "pass": 13,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I6",
+      "command": "category-add",
+      "invocation": "python3 cli.py category-add --name Food --description 'Daily food expenses' --budget 500 --icon 🍽️",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I1",
+      "command": "expense-add",
+      "invocation": "python3 cli.py expense-add --amount 100 --description 'Grocery shopping' --category 1 --expense-date 2024-01-15 --method credit --recurring",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I11",
+      "command": "budget-add",
+      "invocation": "python3 cli.py budget-add --category-id 1 --month January --amount 1000",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "expense-list",
+      "invocation": "python3 cli.py expense-list --category 1 --from-date 2024-01-01 --to-date 2024-01-31 --method credit",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I7",
+      "command": "category-list",
+      "invocation": "python3 cli.py category-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I8",
+      "command": "category-update",
+      "invocation": "python3 cli.py category-update --id 1 --name Groceries --description 'Monthly grocery purchases' --budget 600 --icon 🛒",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I10",
+      "command": "budget-list",
+      "invocation": "python3 cli.py budget-list --category 1 --month January",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I12",
+      "command": "budget-update",
+      "invocation": "python3 cli.py budget-update --category-id 1 --month January --amount 1200",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I14",
+      "command": "report-monthly",
+      "invocation": "python3 cli.py report-monthly --month January",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I15",
+      "command": "report-yearly",
+      "invocation": "python3 cli.py report-yearly --year 2024",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I16",
+      "command": "expense-export",
+      "invocation": "python3 cli.py expense-export --from-date 2024-01-01 --to-date 2024-01-31 --output expenses_2024.csv",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I17",
+      "command": "recurring-detect",
+      "invocation": "python3 cli.py recurring-detect",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I9",
+      "command": "category-delete",
+      "invocation": "python3 cli.py category-delete --id 1",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/expenses/cli.py\", line 43, in category_delete\n    result = svc.delete_category(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/expenses/expense_service.py\", line 105, in delete_category\n    return self.category_repo.delete(id)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/expenses/category_repository.py\", line 81, in delete\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"DELETE FROM categories WHERE id = ?\", (id,)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.IntegrityError: FOREIGN KEY constraint failed\n"
+    },
+    {
+      "intent_id": "I13",
+      "command": "budget-delete",
+      "invocation": "python3 cli.py budget-delete --category-id 1 --month January",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I3",
+      "text": "I can retrieve a specific expense by its ID.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can update an existing expense's fields such as amount, description, date, payment method, or recurring status.",
+      "status": "unmapped",
+      "reason": "command 'expense-update' not in facade"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can delete an expense by its ID.",
+      "status": "unmapped",
+      "reason": "command 'expense-delete' not in facade"
+    }
+  ]
+}

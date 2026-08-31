@@ -1,0 +1,80 @@
+{
+  "ident": "29",
+  "generated_dir": "generated/29",
+  "status": "pass",
+  "n_intentions": 9,
+  "n_mapped": 3,
+  "n_unmapped": 6,
+  "pass": 3,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "manage-create",
+      "invocation": "python3 cli.py manage-create --name 'John Doe' --email john.doe@example.com --phone 555-1234",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "retrieve-by_email",
+      "invocation": "python3 cli.py retrieve-by_email --email john.doe@example.com",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I7",
+      "command": "orders-list",
+      "invocation": "python3 cli.py orders-list --customer-id 1 --status pending --from-date 2023-01-01 --to-date 2023-12-31",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing customer's information such as name, email, or phone number.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a customer record by their unique identifier.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can create a new order with a customer ID, order date, and list of items.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can retrieve an order by its unique identifier.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I8",
+      "text": "I can update an existing order's status (e.g., pending, shipped, completed).",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I9",
+      "text": "I can delete an order by its unique identifier.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}

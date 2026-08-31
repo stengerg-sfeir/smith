@@ -500,53 +500,290 @@
     }
   ],
   "foreign_keys_enabled": true,
-  "business_rules": [
+  "scenarios": [
     {
-      "id": "unique_sku",
-      "kind": "unique_pair",
-      "entity": "Product",
-      "fields": [
-        "sku"
-      ]
+      "requirement_id": "1",
+      "setup": [
+        {
+          "entity": "Category",
+          "ref": "cat",
+          "fields": {
+            "name": "Electronics",
+            "reorder_threshold": 5
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p1",
+          "fields": {
+            "sku": "ELEC-001",
+            "name": "Laptop",
+            "category_id": "@cat",
+            "price_cents": 1000,
+            "stock_qty": 3
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p2",
+          "fields": {
+            "sku": "ELEC-002",
+            "name": "Mouse",
+            "category_id": "@cat",
+            "price_cents": 25,
+            "stock_qty": 7
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p3",
+          "fields": {
+            "sku": "ELEC-003",
+            "name": "Keyboard",
+            "category_id": "@cat",
+            "price_cents": 50,
+            "stock_qty": 10
+          }
+        }
+      ],
+      "action": {
+        "method": "low_stock_report",
+        "args": []
+      },
+      "assertion": "len([p for p in result if p.stock_qty < @cat.reorder_threshold]) == 1",
+      "rationale": "Only products with stock_qty below the category's reorder_threshold (5) should be included. Only p1 (stock_qty=3) meets this condition, so the report should contain exactly one product.",
+      "semantic": "fully"
     },
     {
-      "id": "unique_category_name",
-      "kind": "unique_pair",
-      "entity": "Category",
-      "fields": [
-        "name"
-      ]
+      "requirement_id": "2",
+      "setup": [
+        {
+          "entity": "Category",
+          "ref": "cat",
+          "fields": {
+            "name": "Electronics",
+            "description": "Electronic devices",
+            "reorder_threshold": 10
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p1",
+          "fields": {
+            "sku": "ELEC-001",
+            "name": "Laptop",
+            "category_id": "@cat",
+            "price_cents": 1000,
+            "stock_qty": 5
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p2",
+          "fields": {
+            "sku": "ELEC-002",
+            "name": "Mouse",
+            "category_id": "@cat",
+            "price_cents": 25,
+            "stock_qty": 10
+          }
+        }
+      ],
+      "action": {
+        "method": "stock_value_by_category",
+        "args": []
+      },
+      "assertion": "sum(result.values()) == @p1.price_cents * @p1.stock_qty + @p2.price_cents * @p2.stock_qty",
+      "rationale": "The total stock value by category is the sum of each product's price_cents multiplied by its stock_qty. Here, 1000*5 + 25*10 = 5250.",
+      "semantic": "fully"
     },
     {
-      "id": "stock_value_by_category",
-      "kind": "aggregate_mul_sum",
-      "entity": "Product",
-      "method": "stock_value_by_category",
-      "fk": "category_id",
-      "a": "price_cents",
-      "b": "stock_qty"
+      "requirement_id": "3",
+      "setup": [
+        {
+          "entity": "Category",
+          "ref": "cat",
+          "fields": {
+            "name": "Electronics",
+            "description": "Electronic devices",
+            "reorder_threshold": 10
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "prod",
+          "fields": {
+            "sku": "ELEC-001",
+            "name": "Laptop",
+            "category_id": "@cat",
+            "price_cents": 1000,
+            "stock_qty": 5,
+            "low_active": false
+          }
+        }
+      ],
+      "action": {
+        "method": "list_products",
+        "args": [
+          "@cat.id",
+          false
+        ]
+      },
+      "assertion": "result == []",
+      "rationale": "A product with low_active set to false should not appear in product lists when low_only is false (i.e., default behavior). The list_products method should exclude inactive products unless explicitly requested with low_only=true.",
+      "semantic": "fully"
     },
     {
-      "id": "category_exists_check",
-      "kind": "ensure_raise",
-      "method": "add_product",
-      "ref_entity": "Category",
-      "ref_field": "id",
-      "fk": "category_id",
-      "a": "category_id"
+      "requirement_id": "5",
+      "setup": [
+        {
+          "entity": "Category",
+          "ref": "cat",
+          "fields": {
+            "name": "Electronics",
+            "reorder_threshold": 5
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p1",
+          "fields": {
+            "sku": "ELEC-001",
+            "name": "Laptop",
+            "category_id": "@cat",
+            "price_cents": 1000,
+            "stock_qty": 3
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p2",
+          "fields": {
+            "sku": "ELEC-002",
+            "name": "Mouse",
+            "category_id": "@cat",
+            "price_cents": 25,
+            "stock_qty": 6
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p3",
+          "fields": {
+            "sku": "ELEC-003",
+            "name": "Keyboard",
+            "category_id": "@cat",
+            "price_cents": 50,
+            "stock_qty": 1
+          }
+        }
+      ],
+      "action": {
+        "method": "list_products",
+        "args": [
+          "@cat.id",
+          true
+        ]
+      },
+      "assertion": "len(result) == 2 and all(@p1.stock_qty < @cat.reorder_threshold for p1 in result) and all(p.sku != 'ELEC-002' for p in result)",
+      "rationale": "Only products with stock_qty below the reorder_threshold (5) should be returned. Product ELEC-001 (stock=3) and ELEC-003 (stock=1) meet this condition, while ELEC-002 (stock=6) does not. Thus, only two products should appear in the list when low_only is true.",
+      "semantic": "fully"
     },
     {
-      "id": "category_exists_in_list",
-      "kind": "ensure_raise",
-      "method": "list_products",
-      "ref_entity": "Category",
-      "ref_field": "id",
-      "fk": "category_id"
+      "requirement_id": "8",
+      "setup": [
+        {
+          "entity": "Category",
+          "ref": "cat",
+          "fields": {
+            "name": "Electronics",
+            "description": "Electronic devices",
+            "reorder_threshold": 10
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "prod",
+          "fields": {
+            "sku": "ELEC-001",
+            "name": "Smartphone",
+            "category_id": "@cat",
+            "price_cents": 999,
+            "stock_qty": 5,
+            "low_active": false
+          }
+        }
+      ],
+      "action": {
+        "method": "get_product_by_id",
+        "args": [
+          "@prod.id"
+        ]
+      },
+      "assertion": "result.price_cents == @prod.price_cents",
+      "rationale": "The requirement mandates storing price as integer cents to avoid floating-point errors; the test verifies that the retrieved product's price_cents field is stored and returned as an integer value, matching the input.",
+      "semantic": "fully"
+    },
+    {
+      "requirement_id": "11",
+      "setup": [
+        {
+          "entity": "Category",
+          "ref": "cat",
+          "fields": {
+            "name": "Electronics",
+            "reorder_threshold": 10
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p1",
+          "fields": {
+            "sku": "ELEC-001",
+            "name": "Laptop",
+            "category_id": "@cat",
+            "price_cents": 1000,
+            "stock_qty": 5
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p2",
+          "fields": {
+            "sku": "ELEC-002",
+            "name": "Mouse",
+            "category_id": "@cat",
+            "price_cents": 25,
+            "stock_qty": 15
+          }
+        },
+        {
+          "entity": "Product",
+          "ref": "p3",
+          "fields": {
+            "sku": "ELEC-003",
+            "name": "Keyboard",
+            "category_id": "@cat",
+            "price_cents": 50,
+            "stock_qty": 20
+          }
+        }
+      ],
+      "action": {
+        "method": "low_stock_report",
+        "args": []
+      },
+      "assertion": "all(p.stock_qty < @cat.reorder_threshold for p in result) and len(result) == 1",
+      "rationale": "Only products with stock_qty < reorder_threshold (10) should be included. Only p1 (stock_qty=5) meets this condition, so the report should contain exactly one product.",
+      "semantic": "fully"
     }
   ],
-  "business_logic_coverage": "full",
+  "business_logic_coverage": "partial",
   "unexpressed_rules": [
-    "Rule stock_below_reorder_threshold (filter_lt): incomplete rule or target not present in the generated design",
-    "Rule product_low_active_default (no_stub): incomplete rule or target not present in the generated design"
+    "requirement 4: structural: setup[3].p3: FK 'category_id' must be a @handle reference, got 999",
+    "requirement 6: structural: setup[2].p2: duplicate unique value for Product.sku (same as p1); action: method 'product_repository._product_repository.list_products' not declared on any service/repository",
+    "requirement 7: structural: setup[2].cat3: duplicate unique value for Category.name (same as cat1)",
+    "requirement 9: structural: action: method 'product_repository._product_repository.get_product_by_id' not declared on any service/repository",
+    "requirement 10: structural: action: method 'inventory_service._inventory_service.add_product' not declared on any service/repository"
   ]
 }

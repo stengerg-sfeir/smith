@@ -1,0 +1,15 @@
+{
+  "batch": 1,
+  "idents": [
+    "hello_world",
+    "cli_tool",
+    "inventory",
+    "expenses",
+    "library_system"
+  ],
+  "stages_exit": {
+    "intents": 0,
+    "execution": 0
+  },
+  "written_at": "2026-08-30T21:30:09.536692+00:00"
+}

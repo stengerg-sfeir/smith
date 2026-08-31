@@ -1,0 +1,24 @@
+{
+  "ident": "34",
+  "prompt_file": "prompts/prompt_34.txt",
+  "generated_dir": "generated/34",
+  "prompt": "Create a Python 3.12 order application. Creating an order must create the order and all its order lines atomically. If any order line is invalid, neither the order nor any of its lines should remain in the database.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new order with one or more order lines.",
+      "cli_command": "",
+      "requires": "a list of order lines, each with product SKU, quantity, and price",
+      "observable": "the order is created in the database, and all order lines are included; if any line is invalid, the order and lines are not created at all",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

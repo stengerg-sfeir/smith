@@ -1,0 +1,213 @@
+{
+  "ident": "37",
+  "prompt_file": "prompts/prompt_37.txt",
+  "generated_dir": "generated/37",
+  "prompt": "Create a Python 3.12 project management application with projects and tasks. Deleting a project must also remove its tasks. The operation must be atomic.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can delete a project, and all of its associated tasks are automatically removed.",
+      "cli_command": "",
+      "requires": "a project name that exists in the project list",
+      "observable": "The project and all its tasks are removed from the system; a confirmation message is displayed indicating successful deletion.",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "project-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_project"
+      },
+      {
+        "name": "project-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_project"
+      },
+      {
+        "name": "project-list",
+        "options": [
+          {
+            "names": [
+              "--status-filter"
+            ],
+            "dest": "status_filter",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--priority-filter"
+            ],
+            "dest": "priority_filter",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--due-date-range"
+            ],
+            "dest": "due_date_range",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_projects_with_task_count"
+      },
+      {
+        "name": "project-get_tasks_summary",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_project_tasks_summary"
+      },
+      {
+        "name": "project-get_overdue_tasks",
+        "options": [],
+        "arguments": [],
+        "target": "get_overdue_tasks_count_by_project"
+      },
+      {
+        "name": "project-get_completion_rate",
+        "options": [
+          {
+            "names": [
+              "--project-id"
+            ],
+            "dest": "project_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_project_completion_rate"
+      },
+      {
+        "name": "project-get_trend",
+        "options": [
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--interval"
+            ],
+            "dest": "interval",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_project_creation_trend"
+      },
+      {
+        "name": "project-get_with_tasks",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_project_with_tasks"
+      },
+      {
+        "name": "project-search",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--limit"
+            ],
+            "dest": "limit",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_projects_by_name"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

@@ -1,0 +1,274 @@
+{
+  "ident": "21",
+  "prompt_file": "prompts/prompt_21.txt",
+  "generated_dir": "generated/21",
+  "prompt": "Create a Python 3.12 order management application. Customers can have multiple orders. Each order belongs to exactly one customer and has a date and status. Provide CRUD operations for customers and orders and allow users to list all orders belonging to a customer.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new customer.",
+      "cli_command": "",
+      "requires": "a customer name and optional contact information",
+      "observable": "the customer is added to the system and listed in the customer directory",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a list of all customers.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a list of all customers is displayed",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can create a new order for a customer.",
+      "cli_command": "",
+      "requires": "a customer identifier (e.g., name or ID), order date, and order status",
+      "observable": "the order is created and appears in the list of orders for that customer",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can retrieve a list of all orders belonging to a specific customer.",
+      "cli_command": "",
+      "requires": "a customer identifier (e.g., name or ID)",
+      "observable": "a list of orders for that customer is displayed, including order date and status",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can update the status of an existing order.",
+      "cli_command": "",
+      "requires": "an order identifier and a new status (e.g., 'pending', 'shipped')",
+      "observable": "the order status is updated and reflected in the list of orders for that customer",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can delete an existing order.",
+      "cli_command": "",
+      "requires": "an order identifier",
+      "observable": "the order is removed from the list of orders for that customer",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can update a customer's information.",
+      "cli_command": "",
+      "requires": "a customer identifier and updated information (e.g., name, contact)",
+      "observable": "the customer's details are updated and reflected in the list of customers",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I8",
+      "text": "I can delete a customer.",
+      "cli_command": "",
+      "requires": "a customer identifier",
+      "observable": "the customer is removed from the system and all associated orders are no longer linked to them",
+      "spec_level": "vague"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "orders-list",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_orders"
+      },
+      {
+        "name": "customer-create",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--order-date"
+            ],
+            "dest": "order_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_order"
+      },
+      {
+        "name": "customer-update_status",
+        "options": [
+          {
+            "names": [
+              "--order-id"
+            ],
+            "dest": "order_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--new-status"
+            ],
+            "dest": "new_status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_order_status"
+      },
+      {
+        "name": "customer-count_by_status",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_order_count_by_status"
+      },
+      {
+        "name": "customer-total_orders_and_revenue",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_total_orders_and_revenue"
+      },
+      {
+        "name": "orders-by_status_and_date_range",
+        "options": [
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_orders_by_status_and_date_range"
+      },
+      {
+        "name": "orders-export",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_orders_to_csv"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

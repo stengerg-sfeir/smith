@@ -1,0 +1,231 @@
+{
+  "ident": "multi_module",
+  "prompt_file": "prompts/prompt_multi_module.txt",
+  "generated_dir": "generated/multi_module",
+  "prompt": "Create a multi-module Python project for a task management system. The system should have:\n1. A Task model with id, title, description, status (todo/in_progress/done), and created_at.\n2. A TaskRepository that stores tasks in a SQLite database and supports CRUD operations.\n3. A TaskService with business logic for creating, updating, and listing tasks with filtering by status.\n4. A CLI interface using click that exposes commands: add, list, update, delete, and show.\nUse type hints throughout. Follow clean architecture with proper separation of concerns.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can add a new task to the task management system.",
+      "cli_command": "add",
+      "requires": "a task title, description, and initial status (todo/in_progress/done)",
+      "observable": "The task is displayed in the list of tasks, with the specified title, description, and status.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can view a list of all tasks in the system.",
+      "cli_command": "list",
+      "requires": "none",
+      "observable": "A list of all tasks is displayed, showing task id, title, description, status, and created_at timestamp.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the status of an existing task.",
+      "cli_command": "update",
+      "requires": "a task id and a new status (todo/in_progress/done)",
+      "observable": "The task's status is updated, and the updated task is shown in the list or confirmed as updated.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a task from the system.",
+      "cli_command": "delete",
+      "requires": "a task id",
+      "observable": "The task is removed from the list, and confirmation is provided.",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can view detailed information about a specific task.",
+      "cli_command": "show",
+      "requires": "a task id",
+      "observable": "The full details of the specified task (id, title, description, status, created_at) are displayed.",
+      "spec_level": "explicit"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "manage-add",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_task"
+      },
+      {
+        "name": "manage-list",
+        "options": [
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--limit"
+            ],
+            "dest": "limit",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--offset"
+            ],
+            "dest": "offset",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_tasks"
+      },
+      {
+        "name": "manage-update",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--task-id"
+            ],
+            "dest": "task_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_task"
+      },
+      {
+        "name": "manage-delete",
+        "options": [
+          {
+            "names": [
+              "--task-id"
+            ],
+            "dest": "task_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_task"
+      },
+      {
+        "name": "view-show",
+        "options": [
+          {
+            "names": [
+              "--task-id"
+            ],
+            "dest": "task_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_task_by_id"
+      },
+      {
+        "name": "report-status_distribution",
+        "options": [],
+        "arguments": [],
+        "target": "get_status_distribution"
+      },
+      {
+        "name": "task-export",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status-filter"
+            ],
+            "dest": "status_filter",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_tasks_to_csv"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

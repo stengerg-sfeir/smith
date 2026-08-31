@@ -21,12 +21,19 @@ sys.path.insert(0, GENERATED_ROOT)
 RESULT = {"tests": [], "coverage": {}}
 
 TEST_SPEC = {'database_file': 'app.db',
- 'entities': [{'name': 'Category',
+ 'entities': [{'name': 'Product',
                'table_name': '',
                'fields': [{'name': 'name',
                            'type': 'str',
                            'nullable': False,
-                           'unique': True,
+                           'unique': False,
+                           'primary_key': False,
+                           'auto': None,
+                           'default': None},
+                          {'name': 'price',
+                           'type': 'float',
+                           'nullable': False,
+                           'unique': False,
                            'primary_key': False,
                            'auto': None,
                            'default': None},
@@ -36,55 +43,27 @@ TEST_SPEC = {'database_file': 'app.db',
                            'unique': False,
                            'primary_key': True,
                            'auto': 'autoincrement',
-                           'default': 'None'},
-                          {'name': 'description',
-                           'type': 'str',
-                           'nullable': True,
-                           'unique': False,
-                           'primary_key': False,
-                           'auto': None,
-                           'default': 'None'},
-                          {'name': 'reorder_threshold',
-                           'type': 'int',
-                           'nullable': True,
-                           'unique': False,
-                           'primary_key': False,
-                           'auto': None,
                            'default': 'None'}],
-               'unique_together': [['name']],
+               'unique_together': [],
                'fks': []},
-              {'name': 'Product',
+              {'name': 'Sale',
                'table_name': '',
-               'fields': [{'name': 'sku',
-                           'type': 'str',
-                           'nullable': False,
-                           'unique': True,
-                           'primary_key': False,
-                           'auto': None,
-                           'default': None},
-                          {'name': 'name',
-                           'type': 'str',
-                           'nullable': False,
-                           'unique': False,
-                           'primary_key': False,
-                           'auto': None,
-                           'default': None},
-                          {'name': 'category_id',
+               'fields': [{'name': 'product_id',
                            'type': 'int',
                            'nullable': False,
                            'unique': False,
                            'primary_key': False,
                            'auto': None,
                            'default': None},
-                          {'name': 'price_cents',
+                          {'name': 'quantity',
                            'type': 'int',
                            'nullable': False,
                            'unique': False,
                            'primary_key': False,
                            'auto': None,
                            'default': None},
-                          {'name': 'stock_qty',
-                           'type': 'int',
+                          {'name': 'sale_date',
+                           'type': 'datetime',
                            'nullable': False,
                            'unique': False,
                            'primary_key': False,
@@ -96,44 +75,14 @@ TEST_SPEC = {'database_file': 'app.db',
                            'unique': False,
                            'primary_key': True,
                            'auto': 'autoincrement',
-                           'default': 'None'},
-                          {'name': 'low_active',
-                           'type': 'bool',
-                           'nullable': True,
-                           'unique': False,
-                           'primary_key': False,
-                           'auto': None,
                            'default': 'None'}],
-               'unique_together': [['sku']],
-               'fks': [{'field': 'category_id', 'ref': 'Category'}]}],
- 'exceptions': [{'name': 'CategoryNotFoundError', 'trigger': 'not_found'},
-                {'name': 'ProductNotFoundError', 'trigger': 'not_found'}],
- 'repositories': [{'module': 'category_repository',
-                   'class': 'CategoryRepository',
-                   'entity': 'Category',
-                   'methods': [{'name': 'create',
-                                'params': [{'name': 'category', 'type': 'Category'}],
-                                'returns': 'int'},
-                               {'name': 'get_by_id',
-                                'params': [{'name': 'id', 'type': 'int'}],
-                                'returns': 'Optional[Category]'},
-                               {'name': 'get_all', 'params': [], 'returns': 'List[Category]'},
-                               {'name': 'list',
-                                'params': [{'name': 'description', 'type': 'Optional[Any]'},
-                                           {'name': 'name', 'type': 'Optional[Any]'},
-                                           {'name': 'reorder_threshold', 'type': 'Optional[Any]'}],
-                                'returns': 'List[Category]'},
-                               {'name': 'update',
-                                'params': [{'name': 'id', 'type': 'int'},
-                                           {'name': 'data', 'type': 'Dict[str, Any]'}],
-                                'returns': 'bool'},
-                               {'name': 'delete',
-                                'params': [{'name': 'id', 'type': 'int'}],
-                                'returns': 'bool'},
-                               {'name': 'find_products_by_category',
-                                'params': [{'name': 'category_id', 'type': 'int'}],
-                                'returns': 'list[Product]'}]},
-                  {'module': 'product_repository',
+               'unique_together': [],
+               'fks': [{'field': 'product_id', 'ref': 'Product'}]}],
+ 'exceptions': [{'name': 'NotFoundError', 'trigger': 'not_found'},
+                {'name': 'ValidationError', 'trigger': 'validation'},
+                {'name': 'DatabaseError', 'trigger': 'custom'},
+                {'name': 'SalesReportError', 'trigger': 'custom'}],
+ 'repositories': [{'module': 'product_repository',
                    'class': 'ProductRepository',
                    'entity': 'Product',
                    'methods': [{'name': 'create',
@@ -144,12 +93,8 @@ TEST_SPEC = {'database_file': 'app.db',
                                 'returns': 'Optional[Product]'},
                                {'name': 'get_all', 'params': [], 'returns': 'List[Product]'},
                                {'name': 'list',
-                                'params': [{'name': 'category_id', 'type': 'Optional[Any]'},
-                                           {'name': 'low_only', 'type': 'Optional[Any]'},
-                                           {'name': 'name', 'type': 'Optional[Any]'},
-                                           {'name': 'price_cents', 'type': 'Optional[Any]'},
-                                           {'name': 'sku', 'type': 'Optional[Any]'},
-                                           {'name': 'stock_qty', 'type': 'Optional[Any]'}],
+                                'params': [{'name': 'name', 'type': 'Optional[Any]'},
+                                           {'name': 'price', 'type': 'Optional[Any]'}],
                                 'returns': 'List[Product]'},
                                {'name': 'update',
                                 'params': [{'name': 'id', 'type': 'int'},
@@ -158,244 +103,112 @@ TEST_SPEC = {'database_file': 'app.db',
                                {'name': 'delete',
                                 'params': [{'name': 'id', 'type': 'int'}],
                                 'returns': 'bool'},
-                               {'name': 'find_products_by_category',
-                                'params': [{'name': 'category_id', 'type': 'int'}],
-                                'returns': 'list[Product]'},
-                               {'name': 'find_low_stock_products',
-                                'params': [{'name': 'category_id', 'type': 'int'}],
-                                'returns': 'list[Product]'},
-                               {'name': 'aggregate_stock_value_by_category',
+                               {'name': 'get_sales_report_by_product',
+                                'params': [{'name': 'product_id', 'type': 'int'}],
+                                'returns': 'dict'},
+                               {'name': 'get_total_sales_amount', 'params': [], 'returns': 'float'},
+                               {'name': 'get_sales_count_per_product',
                                 'params': [],
-                                'returns': 'dict[str, int]'}]}],
- 'services': [{'module': 'inventory_service',
-               'class': 'InventoryService',
-               'entity': 'Inventory',
-               'methods': [{'name': 'add_product',
-                            'params': [{'name': 'sku', 'type': 'str'},
-                                       {'name': 'name', 'type': 'str'},
-                                       {'name': 'category_id', 'type': 'int'},
-                                       {'name': 'price_cents', 'type': 'int'},
-                                       {'name': 'stock_qty', 'type': 'int'}],
+                                'returns': 'dict'},
+                               {'name': 'get_sales_with_product_names',
+                                'params': [{'name': 'start_date', 'type': 'datetime'},
+                                           {'name': 'end_date', 'type': 'datetime'}],
+                                'returns': 'list'}]},
+                  {'module': 'sale_repository',
+                   'class': 'SaleRepository',
+                   'entity': 'Sale',
+                   'methods': [{'name': 'create',
+                                'params': [{'name': 'sale', 'type': 'Sale'}],
+                                'returns': 'int'},
+                               {'name': 'get_by_id',
+                                'params': [{'name': 'id', 'type': 'int'}],
+                                'returns': 'Optional[Sale]'},
+                               {'name': 'get_all', 'params': [], 'returns': 'List[Sale]'},
+                               {'name': 'list',
+                                'params': [{'name': 'product_id', 'type': 'Optional[Any]'},
+                                           {'name': 'sale_date_from', 'type': 'Optional[Any]'},
+                                           {'name': 'sale_date_to', 'type': 'Optional[Any]'},
+                                           {'name': 'quantity', 'type': 'Optional[Any]'},
+                                           {'name': 'sale_date', 'type': 'Optional[Any]'}],
+                                'returns': 'List[Sale]'},
+                               {'name': 'update',
+                                'params': [{'name': 'id', 'type': 'int'},
+                                           {'name': 'data', 'type': 'Dict[str, Any]'}],
+                                'returns': 'bool'},
+                               {'name': 'delete',
+                                'params': [{'name': 'id', 'type': 'int'}],
+                                'returns': 'bool'},
+                               {'name': 'get_sales_report_by_product',
+                                'params': [{'name': 'product_id', 'type': 'int'}],
+                                'returns': 'dict'},
+                               {'name': 'get_total_sales_amount', 'params': [], 'returns': 'float'},
+                               {'name': 'get_sales_count_per_product',
+                                'params': [],
+                                'returns': 'dict'},
+                               {'name': 'get_sales_with_product_names',
+                                'params': [{'name': 'start_date', 'type': 'datetime'},
+                                           {'name': 'end_date', 'type': 'datetime'}],
+                                'returns': 'list'}]}],
+ 'services': [{'module': 'sales_report_service',
+               'class': 'SalesReportService',
+               'entity': 'SalesReport',
+               'methods': [{'name': 'get_total_sales_amount', 'params': [], 'returns': 'float'},
+                           {'name': 'get_sales_count_per_product', 'params': [], 'returns': 'dict'},
+                           {'name': 'get_sales_report_by_product',
+                            'params': [{'name': 'product_id', 'type': 'int'}],
+                            'returns': 'dict'},
+                           {'name': 'export_sales_report_to_csv',
+                            'params': [{'name': 'file_path', 'type': 'str'}],
                             'returns': 'None'},
-                           {'name': 'update_product',
-                            'params': [{'name': 'id', 'type': 'int'},
-                                       {'name': 'data', 'type': 'Dict[str, Any]'}],
-                            'returns': 'None'},
-                           {'name': 'delete_product',
-                            'params': [{'name': 'id', 'type': 'int'}],
-                            'returns': 'None'},
-                           {'name': 'get_product_by_id',
-                            'params': [{'name': 'id', 'type': 'int'}],
-                            'returns': 'Optional[Product]'},
-                           {'name': 'list_products',
-                            'params': [{'name': 'category_id', 'type': 'Optional[int]'},
-                                       {'name': 'low_only', 'type': 'Optional[bool]'}],
-                            'returns': 'List[Product]'},
-                           {'name': 'restock',
-                            'params': [{'name': 'id', 'type': 'int'},
-                                       {'name': 'qty', 'type': 'int'}],
-                            'returns': 'None'},
-                           {'name': 'low_stock_report', 'params': [], 'returns': 'List[Product]'},
-                           {'name': 'stock_value_by_category',
+                           {'name': 'find_duplicate_sales_by_product',
                             'params': [],
-                            'returns': 'Dict[str, int]'},
-                           {'name': 'add_category',
+                            'returns': 'list'},
+                           {'name': 'get_sales_with_product_names',
+                            'params': [{'name': 'start_date', 'type': 'datetime'},
+                                       {'name': 'end_date', 'type': 'datetime'}],
+                            'returns': 'list'},
+                           {'name': 'get_sales_with_low_quantity_threshold',
+                            'params': [{'name': 'threshold', 'type': 'float'}],
+                            'returns': 'list'},
+                           {'name': 'add_product',
                             'params': [{'name': 'name', 'type': 'str'},
-                                       {'name': 'description', 'type': 'str'},
-                                       {'name': 'reorder_threshold', 'type': 'int'}],
+                                       {'name': 'price', 'type': 'str'}],
                             'returns': 'int'},
-                           {'name': 'list_category', 'params': [], 'returns': 'List[Category]'},
-                           {'name': 'update_category',
-                            'params': [{'name': 'id', 'type': 'int'},
-                                       {'name': 'name', 'type': 'str'},
-                                       {'name': 'description', 'type': 'str'},
-                                       {'name': 'reorder_threshold', 'type': 'int'}],
-                            'returns': 'bool'},
-                           {'name': 'delete_category',
-                            'params': [{'name': 'id', 'type': 'int'}],
-                            'returns': 'bool'}]}],
+                           {'name': 'add_sale',
+                            'params': [{'name': 'product_id', 'type': 'int'},
+                                       {'name': 'quantity', 'type': 'int'},
+                                       {'name': 'sale_date', 'type': 'str'}],
+                            'returns': 'int'}]}],
  'foreign_keys_enabled': True,
- 'scenarios': [{'requirement_id': '1',
-                'setup': [{'entity': 'Category',
-                           'ref': 'cat',
-                           'fields': {'name': 'Electronics', 'reorder_threshold': 5}},
-                          {'entity': 'Product',
-                           'ref': 'p1',
-                           'fields': {'sku': 'ELEC-001',
-                                      'name': 'Laptop',
-                                      'category_id': '@cat',
-                                      'price_cents': 1000,
-                                      'stock_qty': 3}},
-                          {'entity': 'Product',
-                           'ref': 'p2',
-                           'fields': {'sku': 'ELEC-002',
-                                      'name': 'Mouse',
-                                      'category_id': '@cat',
-                                      'price_cents': 25,
-                                      'stock_qty': 7}},
-                          {'entity': 'Product',
-                           'ref': 'p3',
-                           'fields': {'sku': 'ELEC-003',
-                                      'name': 'Keyboard',
-                                      'category_id': '@cat',
-                                      'price_cents': 50,
-                                      'stock_qty': 10}}],
-                'action': {'method': 'low_stock_report', 'args': []},
-                'assertion': 'len([p for p in result if p.stock_qty < @cat.reorder_threshold]) == '
-                             '1',
-                'rationale': "Only products with stock_qty below the category's reorder_threshold "
-                             '(5) should be included. Only p1 (stock_qty=3) meets this condition, '
-                             'so the report should contain exactly one product.',
-                'semantic': 'fully'},
-               {'requirement_id': '2',
-                'setup': [{'entity': 'Category',
-                           'ref': 'cat',
-                           'fields': {'name': 'Electronics',
-                                      'description': 'Electronic devices',
-                                      'reorder_threshold': 10}},
-                          {'entity': 'Product',
-                           'ref': 'p1',
-                           'fields': {'sku': 'ELEC-001',
-                                      'name': 'Laptop',
-                                      'category_id': '@cat',
-                                      'price_cents': 1000,
-                                      'stock_qty': 5}},
-                          {'entity': 'Product',
-                           'ref': 'p2',
-                           'fields': {'sku': 'ELEC-002',
-                                      'name': 'Mouse',
-                                      'category_id': '@cat',
-                                      'price_cents': 25,
-                                      'stock_qty': 10}}],
-                'action': {'method': 'stock_value_by_category', 'args': []},
-                'assertion': 'sum(result.values()) == @p1.price_cents * @p1.stock_qty + '
-                             '@p2.price_cents * @p2.stock_qty',
-                'rationale': "The total stock value by category is the sum of each product's "
-                             'price_cents multiplied by its stock_qty. Here, 1000*5 + 25*10 = '
-                             '5250.',
-                'semantic': 'fully'},
-               {'requirement_id': '3',
-                'setup': [{'entity': 'Category',
-                           'ref': 'cat',
-                           'fields': {'name': 'Electronics',
-                                      'description': 'Electronic devices',
-                                      'reorder_threshold': 10}},
-                          {'entity': 'Product',
-                           'ref': 'prod',
-                           'fields': {'sku': 'ELEC-001',
-                                      'name': 'Laptop',
-                                      'category_id': '@cat',
-                                      'price_cents': 1000,
-                                      'stock_qty': 5,
-                                      'low_active': False}}],
-                'action': {'method': 'list_products', 'args': ['@cat.id', False]},
-                'assertion': 'result == []',
-                'rationale': 'A product with low_active set to false should not appear in product '
-                             'lists when low_only is false (i.e., default behavior). The '
-                             'list_products method should exclude inactive products unless '
-                             'explicitly requested with low_only=true.',
-                'semantic': 'fully'},
-               {'requirement_id': '5',
-                'setup': [{'entity': 'Category',
-                           'ref': 'cat',
-                           'fields': {'name': 'Electronics', 'reorder_threshold': 5}},
-                          {'entity': 'Product',
-                           'ref': 'p1',
-                           'fields': {'sku': 'ELEC-001',
-                                      'name': 'Laptop',
-                                      'category_id': '@cat',
-                                      'price_cents': 1000,
-                                      'stock_qty': 3}},
-                          {'entity': 'Product',
-                           'ref': 'p2',
-                           'fields': {'sku': 'ELEC-002',
-                                      'name': 'Mouse',
-                                      'category_id': '@cat',
-                                      'price_cents': 25,
-                                      'stock_qty': 6}},
-                          {'entity': 'Product',
-                           'ref': 'p3',
-                           'fields': {'sku': 'ELEC-003',
-                                      'name': 'Keyboard',
-                                      'category_id': '@cat',
-                                      'price_cents': 50,
-                                      'stock_qty': 1}}],
-                'action': {'method': 'list_products', 'args': ['@cat.id', True]},
-                'assertion': 'len(result) == 2 and all(@p1.stock_qty < @cat.reorder_threshold for '
-                             "p1 in result) and all(p.sku != 'ELEC-002' for p in result)",
-                'rationale': 'Only products with stock_qty below the reorder_threshold (5) should '
-                             'be returned. Product ELEC-001 (stock=3) and ELEC-003 (stock=1) meet '
-                             'this condition, while ELEC-002 (stock=6) does not. Thus, only two '
-                             'products should appear in the list when low_only is true.',
-                'semantic': 'fully'},
-               {'requirement_id': '8',
-                'setup': [{'entity': 'Category',
-                           'ref': 'cat',
-                           'fields': {'name': 'Electronics',
-                                      'description': 'Electronic devices',
-                                      'reorder_threshold': 10}},
-                          {'entity': 'Product',
-                           'ref': 'prod',
-                           'fields': {'sku': 'ELEC-001',
-                                      'name': 'Smartphone',
-                                      'category_id': '@cat',
-                                      'price_cents': 999,
-                                      'stock_qty': 5,
-                                      'low_active': False}}],
-                'action': {'method': 'get_product_by_id', 'args': ['@prod.id']},
-                'assertion': 'result.price_cents == @prod.price_cents',
-                'rationale': 'The requirement mandates storing price as integer cents to avoid '
-                             'floating-point errors; the test verifies that the retrieved '
-                             "product's price_cents field is stored and returned as an integer "
-                             'value, matching the input.',
-                'semantic': 'fully'},
-               {'requirement_id': '11',
-                'setup': [{'entity': 'Category',
-                           'ref': 'cat',
-                           'fields': {'name': 'Electronics', 'reorder_threshold': 10}},
-                          {'entity': 'Product',
-                           'ref': 'p1',
-                           'fields': {'sku': 'ELEC-001',
-                                      'name': 'Laptop',
-                                      'category_id': '@cat',
-                                      'price_cents': 1000,
-                                      'stock_qty': 5}},
-                          {'entity': 'Product',
-                           'ref': 'p2',
-                           'fields': {'sku': 'ELEC-002',
-                                      'name': 'Mouse',
-                                      'category_id': '@cat',
-                                      'price_cents': 25,
-                                      'stock_qty': 15}},
-                          {'entity': 'Product',
-                           'ref': 'p3',
-                           'fields': {'sku': 'ELEC-003',
-                                      'name': 'Keyboard',
-                                      'category_id': '@cat',
-                                      'price_cents': 50,
-                                      'stock_qty': 20}}],
-                'action': {'method': 'low_stock_report', 'args': []},
-                'assertion': 'all(p.stock_qty < @cat.reorder_threshold for p in result) and '
-                             'len(result) == 1',
-                'rationale': 'Only products with stock_qty < reorder_threshold (10) should be '
-                             'included. Only p1 (stock_qty=5) meets this condition, so the report '
-                             'should contain exactly one product.',
-                'semantic': 'fully'}],
+ 'business_rules': [{'id': 'sales_count_per_product_count_group_by',
+                     'kind': 'count_group_by',
+                     'entity': 'Sale',
+                     'method': 'get_sales_count_per_product',
+                     'fk': 'product_id',
+                     'exception': 'None',
+                     'over_status': 'None',
+                     'ref_entity': 'Product'}],
  'business_logic_coverage': 'partial',
- 'unexpressed_rules': ["requirement 4: structural: setup[3].p3: FK 'category_id' must be a @handle "
-                       'reference, got 999',
-                       'requirement 6: structural: setup[2].p2: duplicate unique value for '
-                       'Product.sku (same as p1); action: method '
-                       "'product_repository._product_repository.list_products' not declared on any "
-                       'service/repository',
-                       'requirement 7: structural: setup[2].cat3: duplicate unique value for '
-                       'Category.name (same as cat1)',
-                       'requirement 9: structural: action: method '
-                       "'product_repository._product_repository.get_product_by_id' not declared on "
-                       'any service/repository',
-                       'requirement 10: structural: action: method '
-                       "'inventory_service._inventory_service.add_product' not declared on any "
-                       'service/repository']}
+ 'unexpressed_rules': ['The report showing total sales amount and number of sales per product '
+                       'requires a method that computes total sales amount as sum of (quantity * '
+                       'product.price), which is best modeled as sum_mul_joined. However, the '
+                       'specification does not explicitly state the method or the fields involved, '
+                       'so it is not fully expressible with the given rule kinds unless we infer '
+                       "it. Since the rule kind 'sum_mul_joined' requires the method to return a "
+                       'scalar sum of (child_field * ref_field), and the specification only says '
+                       "'total sales amount' and 'number of sales per product', we must assume the "
+                       'method exists and is named appropriately. However, the specification does '
+                       'not specify the exact method name or the product price field, so this rule '
+                       'cannot be fully expressed without additional detail. Thus, it is not '
+                       'expressible with the given constraints.',
+                       "The requirement for a report showing 'number of sales per product' implies "
+                       'a grouped count, which is covered by count_group_by. However, the '
+                       'specification does not explicitly state the method name or the grouping '
+                       'field (product_id), so it is not fully expressible without assuming names. '
+                       'Since the rule kind requires the method name and field, and these are not '
+                       'specified, this rule is not fully expressible.',
+                       'Rule total_sales_amount_sum_mul_joined (sum_mul_joined): incomplete rule '
+                       'or target not present in the generated design']}
 
 # --- recording -------------------------------------------------------------
 
@@ -423,10 +236,6 @@ def _classify_error(exc):
         # Ambiguous, but the harness builds args from the real signature, so a
         # TypeError most often reflects our own reflection/arg mismatch or an
         # app-internal one. Conservative toward surfacing harness bugs.
-        return "tester"
-    if name == "SyntaxError":
-        # A syntax error in a generated assertion/expression is a harness bug
-        # (our test code), never a bug in the app under test.
         return "tester"
     # AttributeError (missing method/field), DB integrity/programming errors and
     # NotImplementedError all point at the generated application.
@@ -1723,322 +1532,6 @@ def _test_sum_compare_status(rule, spec):
     except Exception as exc:
         _record_error("business_rule", test_name, exc)
 
-# --- scenario-based business rules (redesign) ------------------------------
-
-def _resolve_scn_ref(s, refs, ref_vals):
-    """Resolve a '@handle' / '@handle.field' reference to a concrete value.
-
-    ``refs`` maps a handle to that row's id; ``ref_vals`` maps a handle to the
-    field values that were seeded. A non-@ string is returned unchanged.
-    """
-    import re as _re
-    if not isinstance(s, str):
-        return s
-    s = s.strip()
-    m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)[.]([A-Za-z_][A-Za-z0-9_]*)", s)
-    if m:
-        handle = m.group(1)
-        field = m.group(2)
-        if field == "id":
-            return refs.get(handle)
-        return ref_vals.get(handle, {}).get(field)
-    m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)", s)
-    if m:
-        return refs.get(m.group(1))
-    return s
-
-def _seed_auto_parent(ref_ent, spec, db, idx):
-    """Create one support parent row for an FK the scenario did not seed."""
-    repo = _repo_for(ref_ent)
-    model = _find_cls("models", ref_ent["name"])
-    if repo is not None and model is not None:
-        fkv = _resolved_fk_values(ref_ent, spec, db)
-        inst = _seed_entity_val(model, ref_ent, fk_values=fkv, index=idx)
-        created = _call(repo(db), "create", inst)
-        return created if isinstance(created, int) else getattr(created, "id", None)
-    return _seed_row_for(ref_ent, spec, db)
-
-def _run_scenario_setup(scenario, spec, db):
-    """Seed every setup row; return ``(refs, ref_vals)``.
-
-    ``refs`` maps each setup handle to the created row's id. ``ref_vals`` maps
-    a handle to the field values that were seeded (so an expected expression
-    can read ``@handle.field``). FK values are resolved from earlier handles,
-    or auto-created with a distinct index when a scenario omitted them.
-    """
-    refs = {}
-    ref_vals = {}
-    auto_idx = [0]
-    for row in scenario.get("setup", []) or []:
-        ent = next((e for e in spec.get("entities", [])
-                    if e["name"] == row.get("entity")), None)
-        if ent is None:
-            raise ValueError("setup: unknown entity %s" % row.get("entity"))
-        model_cls = _find_cls("models", ent["name"])
-        if model_cls is None:
-            raise ValueError("setup: model %s not found" % ent["name"])
-        provided = dict(row.get("fields", {}) or {})
-        vals = {}
-        fkv = {}
-        fk_names = {fk.get("field") for fk in ent.get("fks", [])}
-        for fname, fval in provided.items():
-            if isinstance(fval, str) and fval.startswith("@"):
-                resolved = _resolve_scn_ref(fval, refs, ref_vals)
-                vals[fname] = resolved
-                if fname in fk_names:
-                    fkv[fname] = resolved
-            else:
-                vals[fname] = fval
-        for fk in ent.get("fks", []):
-            fkf = fk.get("field")
-            if fkf not in fkv and fkf not in vals:
-                auto_idx[0] += 1
-                ref_ent = next((e for e in spec.get("entities", [])
-                                if e["name"] == fk.get("ref")), None)
-                if ref_ent is not None:
-                    fkv[fkf] = _seed_auto_parent(ref_ent, spec, db, auto_idx[0])
-        kw = {}
-        for f in ent.get("fields", []):
-            name = f.get("name")
-            if name == "id":
-                continue
-            if name in vals:
-                kw[name] = vals[name]
-            elif name in fkv:
-                kw[name] = fkv[name]
-            else:
-                kw[name] = _type_sample(f)
-        inst = model_cls(**kw)
-        repo = _repo_for(ent)
-        if repo is not None:
-            created = _call(repo(db), "create", inst)
-            rid = created if isinstance(created, int) else getattr(created, "id", None)
-        else:
-            # Direct-SQL fallback: a row the repo layer does not expose, but a
-            # child FK needs a real id for. Seed via the generic helper.
-            rid = _seed_row_for(ent, spec, db)
-        refs[row.get("ref")] = rid
-        ref_vals[row.get("ref")] = vals
-    return refs, ref_vals
-
-def _eval_arith(s, refs, ref_vals):
-    """Evaluate a small arithmetic expression over '@handle.field' refs.
-
-    Supports numbers, + - * / and parentheses. Values come from ``ref_vals``
-    (the seeded field values) or ``refs`` (the row id for a bare '@handle').
-    This is how `expected` is computed from the setup rather than hardcoded.
-    """
-    s = s.replace(" ", "")
-    if s == "":
-        return None
-    pos = [0]
-    def parse_expr():
-        return parse_add()
-    def parse_add():
-        left = parse_mul()
-        while pos[0] < len(s) and s[pos[0]] in "+-":
-            op = s[pos[0]]
-            pos[0] += 1
-            right = parse_mul()
-            left = left + right if op == "+" else left - right
-        return left
-    def parse_mul():
-        left = parse_atom()
-        while pos[0] < len(s) and s[pos[0]] in "*/":
-            op = s[pos[0]]
-            pos[0] += 1
-            right = parse_atom()
-            left = left * right if op == "*" else left / right
-        return left
-    def parse_atom():
-        if pos[0] < len(s) and s[pos[0]] == "(":
-            pos[0] += 1
-            v = parse_expr()
-            pos[0] += 1  # skip ')'
-            return v
-        if s[pos[0]] == "@":
-            start = pos[0]
-            pos[0] += 1
-            while pos[0] < len(s) and (s[pos[0]].isalnum() or s[pos[0]] in "_."):
-                pos[0] += 1
-            tok = s[start:pos[0]]
-            return _resolve_scn_ref(tok, refs, ref_vals)
-        start = pos[0]
-        while pos[0] < len(s) and (s[pos[0]].isdigit() or s[pos[0]] == "."):
-            pos[0] += 1
-        tok = s[start:pos[0]]
-        return float(tok) if "." in tok else int(tok)
-    return parse_expr()
-
-def _eval_expr(expr, refs, ref_vals):
-    """Recursively evaluate an `expected` expression (scalar, list, or dict)."""
-    if isinstance(expr, bool):
-        return expr
-    if isinstance(expr, (int, float)):
-        return expr
-    if isinstance(expr, str):
-        e = expr.strip()
-        if not e:
-            return None
-        import re as _re
-        m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)[.]([A-Za-z_][A-Za-z0-9_]*)", e)
-        if m:
-            handle = m.group(1)
-            field = m.group(2)
-            if field == "id":
-                return refs.get(handle)
-            return ref_vals.get(handle, {}).get(field)
-        m = _re.fullmatch(r"@([A-Za-z_][A-Za-z0-9_]*)", e)
-        if m:
-            return refs.get(m.group(1))
-        try:
-            return float(e) if "." in e else int(e)
-        except ValueError:
-            pass
-        return _eval_arith(e, refs, ref_vals)
-    if isinstance(expr, list):
-        return [_eval_expr(x, refs, ref_vals) for x in expr]
-    if isinstance(expr, dict):
-        return {_eval_expr(k, refs, ref_vals): _eval_expr(v, refs, ref_vals)
-                for k, v in expr.items()}
-    return expr
-
-def _substitute_refs(expr, refs, ref_vals):
-    """Replace '@handle' / '@handle.field' tokens in a Python assertion with
-    the real seeded values (the row id for a bare '@handle' / '@handle.id',
-    the seeded field value otherwise). Other tokens are left untouched."""
-    import re as _re
-    def repl(m):
-        handle = m.group(1)
-        field = m.group(2)
-        if field is None or field == "id":
-            return repr(refs.get(handle))
-        return repr(ref_vals.get(handle, {}).get(field))
-    return _re.sub(r"@([A-Za-z_][A-Za-z0-9_]*)(?:[.]([A-Za-z_][A-Za-z0-9_]*))?", repl, expr)
-
-def _run_python_assertion(assertion, result, refs, ref_vals):
-    """Evaluate a Python boolean assertion against the real seeded values.
-
-    Substitutes '@handle'/'@handle.field' with the concrete seeded values, then
-    evaluates the expression with `result` bound. `len` and `raises` are
-    provided in the eval namespace so `len(result) == 2` and `raises(X)` work.
-    """
-    import re as _re
-    expr = _substitute_refs(assertion, refs, ref_vals)
-    # Normalize common JS-style operators the model occasionally emits so the
-    # assertion runs instead of surfacing a spurious harness error. gap-free
-    # validation rejects these upstream; this is only a safety net.
-    expr = _re.sub(r"\s*&&\s*", " and ", expr)
-    expr = _re.sub(r"\s*\|\|\s*", " or ", expr)
-    expr = _re.sub(r"(?<![=<>!])!\s*", " not ", expr)
-    namespace = {
-        "result": result,
-        "len": len,
-        "str": str,
-        "int": int,
-        "float": float,
-        "bool": bool,
-        "abs": abs,
-        "min": min,
-        "max": max,
-        "sum": sum,
-        "all": all,
-        "any": any,
-        "sorted": sorted,
-        "dict": dict,
-        "list": list,
-        "set": set,
-        "raises": None,  # replaced below for the raises case
-    }
-    # A 'raises(ExceptionName)' assertion is evaluated specially.
-    import re as _re
-    m = _re.fullmatch(r"raises[(]\s*([A-Za-z_][A-Za-z0-9_]*)\s*[)]\s*", expr or "")
-    if m:
-        return ("raises", m.group(1))
-    return ("bool", bool(eval(expr, {"__builtins__": {}}, namespace)))
-
-def _test_scenario(scenario, spec):
-    """Run one generated test: seed setup, call action, run the assertion."""
-    test_name = "scn_%s" % scenario.get("requirement_id", "?")
-    try:
-        db = _db_setup()
-        refs, ref_vals = _run_scenario_setup(scenario, spec, db)
-        action = scenario.get("action", {}) or {}
-        method_name = action.get("method")
-        cls_name = action.get("class")
-        owner = None
-        if cls_name:
-            for obj in spec.get("services", []) + spec.get("repositories", []):
-                if obj.get("class") == cls_name:
-                    owner = _find_cls(obj.get("module", ""), cls_name)
-                    break
-            if owner is None:
-                owner = _find_cls(action.get("module", ""), cls_name)
-        if owner is None:
-            ent_name = (scenario.get("setup") or [{}])[0].get("entity")
-            ent = next((e for e in spec.get("entities", [])
-                        if e["name"] == ent_name), None)
-            if ent is not None:
-                owner = _service_for(ent) or _repo_for(ent)
-        if owner is None:
-            _record("business_rule", test_name, False,
-                    "owner for %s not found" % method_name)
-            return
-        inst = owner(db)
-        method = getattr(inst, method_name, None)
-        if method is None:
-            _record("business_rule", test_name, False,
-                    "method %s not found" % method_name)
-            return
-        args = []
-        for a in action.get("args", []) or []:
-            if isinstance(a, str) and a.startswith("@"):
-                args.append(_eval_expr(a, refs, ref_vals))
-            else:
-                args.append(a)
-        raised = None
-        result = None
-        try:
-            result = method(*args)
-        except Exception as exc:
-            raised = exc
-        assertion = scenario.get("assertion", "") or ""
-        if not assertion.strip():
-            _record("business_rule", test_name, True,
-                    "not testable: %s" % scenario.get("rationale", ""))
-            return
-        kind, payload = _run_python_assertion(assertion, result, refs, ref_vals)
-        if kind == "raises":
-            if raised is not None:
-                exp_name = payload
-                try:
-                    exc_mod = _import("exceptions")
-                    exp_cls = getattr(exc_mod, exp_name, None)
-                except Exception:
-                    exp_cls = None
-                if exp_cls is not None and isinstance(raised, exp_cls):
-                    _record("business_rule", test_name, True,
-                            "raised %r" % type(raised).__name__)
-                elif exp_cls is None:
-                    _record("business_rule", test_name, True,
-                            "raised %r (exception %s not importable, taken as satisfied)"
-                            % (type(raised).__name__, exp_name))
-                else:
-                    _record("business_rule", test_name, False,
-                            "raised %r expected %s"
-                            % (type(raised).__name__, exp_name))
-            else:
-                _record("business_rule", test_name, False, "did not raise")
-            return
-        if raised is not None:
-            _record("business_rule", test_name, False, "error: %r" % (raised,))
-            return
-        ok = bool(payload)
-        _record("business_rule", test_name, ok,
-                "" if ok else "assertion %r failed (result=%r)" % (assertion, result))
-    except Exception as exc:
-        _record_error("business_rule", test_name, exc)
-
 # --- exceptions ------------------------------------------------------------
 
 def _test_exception(exc, spec):
@@ -2115,11 +1608,6 @@ def _run_all():
         executor = EXECUTOR_DISPATCH.get(kind)
         if executor is not None and executor in globals():
             globals()[executor](rule, spec)
-    # Scenario-based business rules (redesign): one deterministic scenario per
-    # extracted requirement. A scenario either passes/fails on its own assertion
-    # or (kind=not_testable) records "not testable" as a pass with the reason.
-    for scenario in spec.get("scenarios", []) or []:
-        _test_scenario(scenario, spec)
     for exc in spec.get("exceptions", []):
         _test_exception(exc, spec)
 

@@ -1,0 +1,1172 @@
+{
+  "database_file": "app.db",
+  "entities": [
+    {
+      "name": "Book",
+      "table_name": "",
+      "fields": [
+        {
+          "name": "title",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "isbn",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "published_year",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "available_copies",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": true,
+          "auto": "autoincrement",
+          "default": "None"
+        },
+        {
+          "name": "author_id",
+          "type": "int",
+          "nullable": true,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": "None"
+        }
+      ],
+      "unique_together": [],
+      "fks": [
+        {
+          "field": "author_id",
+          "ref": "Author"
+        }
+      ]
+    },
+    {
+      "name": "Author",
+      "table_name": "",
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": true,
+          "auto": "autoincrement",
+          "default": "None"
+        },
+        {
+          "name": "birth_year",
+          "type": "int",
+          "nullable": true,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": "None"
+        },
+        {
+          "name": "biography",
+          "type": "str",
+          "nullable": true,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": "None"
+        }
+      ],
+      "unique_together": [],
+      "fks": []
+    },
+    {
+      "name": "Member",
+      "table_name": "",
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "email",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": true,
+          "auto": "autoincrement",
+          "default": "None"
+        },
+        {
+          "name": "membership_date",
+          "type": "date",
+          "nullable": true,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": "None"
+        }
+      ],
+      "unique_together": [],
+      "fks": []
+    },
+    {
+      "name": "Loan",
+      "table_name": "",
+      "fields": [
+        {
+          "name": "book_id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "member_id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "loan_date",
+          "type": "date",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "due_date",
+          "type": "date",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": "str",
+          "nullable": false,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": false,
+          "primary_key": true,
+          "auto": "autoincrement",
+          "default": "None"
+        },
+        {
+          "name": "return_date",
+          "type": "date",
+          "nullable": true,
+          "unique": false,
+          "primary_key": false,
+          "auto": null,
+          "default": "None"
+        }
+      ],
+      "unique_together": [],
+      "fks": [
+        {
+          "field": "book_id",
+          "ref": "Book"
+        },
+        {
+          "field": "member_id",
+          "ref": "Member"
+        }
+      ]
+    }
+  ],
+  "exceptions": [
+    {
+      "name": "NotFoundError",
+      "trigger": "not_found"
+    },
+    {
+      "name": "ValidationError",
+      "trigger": "validation"
+    },
+    {
+      "name": "LoanAlreadyReturnedError",
+      "trigger": "custom"
+    },
+    {
+      "name": "BookNotAvailableError",
+      "trigger": "custom"
+    },
+    {
+      "name": "InvalidLoanStatusError",
+      "trigger": "validation"
+    },
+    {
+      "name": "MemberNotActiveError",
+      "trigger": "custom"
+    },
+    {
+      "name": "InvalidQueryError",
+      "trigger": "validation"
+    },
+    {
+      "name": "DuplicateEmailError",
+      "trigger": "conflict"
+    },
+    {
+      "name": "InvalidBookIdError",
+      "trigger": "validation"
+    },
+    {
+      "name": "InvalidMemberIdError",
+      "trigger": "validation"
+    },
+    {
+      "name": "InvalidLoanIdError",
+      "trigger": "validation"
+    },
+    {
+      "name": "OverdueLoanError",
+      "trigger": "custom"
+    }
+  ],
+  "repositories": [
+    {
+      "module": "author_repository",
+      "class": "AuthorRepository",
+      "entity": "Author",
+      "methods": [
+        {
+          "name": "create",
+          "params": [
+            {
+              "name": "author",
+              "type": "Author"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_by_id",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "Optional[Author]"
+        },
+        {
+          "name": "get_all",
+          "params": [],
+          "returns": "List[Author]"
+        },
+        {
+          "name": "list",
+          "params": [
+            {
+              "name": "name",
+              "type": "Optional[Any]"
+            }
+          ],
+          "returns": "List[Author]"
+        },
+        {
+          "name": "update",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            },
+            {
+              "name": "data",
+              "type": "Dict[str, Any]"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "delete",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "find_books_by_author",
+          "params": [
+            {
+              "name": "author_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "get_author_books_count",
+          "params": [
+            {
+              "name": "author_id",
+              "type": "int"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_author_with_most_books",
+          "params": [],
+          "returns": "Optional[Author]"
+        },
+        {
+          "name": "get_books_by_author_and_year_range",
+          "params": [
+            {
+              "name": "author_id",
+              "type": "int"
+            },
+            {
+              "name": "start_year",
+              "type": "int"
+            },
+            {
+              "name": "end_year",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "get_books_by_author_and_copies_range",
+          "params": [
+            {
+              "name": "author_id",
+              "type": "int"
+            },
+            {
+              "name": "min_copies",
+              "type": "int"
+            },
+            {
+              "name": "max_copies",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        }
+      ]
+    },
+    {
+      "module": "book_repository",
+      "class": "BookRepository",
+      "entity": "Book",
+      "methods": [
+        {
+          "name": "create",
+          "params": [
+            {
+              "name": "book",
+              "type": "Book"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_by_id",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "Optional[Book]"
+        },
+        {
+          "name": "get_all",
+          "params": [],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "list",
+          "params": [
+            {
+              "name": "title",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "available_copies",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "author_id",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "isbn",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "published_year",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "max_copies",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "available_only",
+              "type": "Optional[Any]"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "update",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            },
+            {
+              "name": "data",
+              "type": "Dict[str, Any]"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "delete",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "find_by_isbn",
+          "params": [
+            {
+              "name": "isbn",
+              "type": "str"
+            }
+          ],
+          "returns": "Optional[Book]"
+        },
+        {
+          "name": "find_by_title",
+          "params": [
+            {
+              "name": "title",
+              "type": "str"
+            }
+          ],
+          "returns": "Optional[Book]"
+        },
+        {
+          "name": "find_by_author",
+          "params": [
+            {
+              "name": "author_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "filter_by_available_copies",
+          "params": [
+            {
+              "name": "min_copies",
+              "type": "int"
+            },
+            {
+              "name": "max_copies",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "search_books",
+          "params": [
+            {
+              "name": "query",
+              "type": "str"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "get_total_available_copies",
+          "params": [],
+          "returns": "int"
+        },
+        {
+          "name": "get_books_by_year_range",
+          "params": [
+            {
+              "name": "start_year",
+              "type": "int"
+            },
+            {
+              "name": "end_year",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "get_books_with_lowest_copies",
+          "params": [
+            {
+              "name": "limit",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Book]"
+        }
+      ]
+    },
+    {
+      "module": "loan_repository",
+      "class": "LoanRepository",
+      "entity": "Loan",
+      "methods": [
+        {
+          "name": "create",
+          "params": [
+            {
+              "name": "loan",
+              "type": "Loan"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_by_id",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "Optional[Loan]"
+        },
+        {
+          "name": "get_all",
+          "params": [],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "list",
+          "params": [
+            {
+              "name": "status",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "due_date",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "return_date",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "book_id",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "member_id",
+              "type": "Optional[Any]"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "update",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            },
+            {
+              "name": "data",
+              "type": "Dict[str, Any]"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "delete",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "find_active_loans",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "Optional[int]"
+            },
+            {
+              "name": "book_id",
+              "type": "Optional[int]"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "find_overdue_loans",
+          "params": [],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "find_by_member_id",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "find_by_book_id",
+          "params": [
+            {
+              "name": "book_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_total_active_loans",
+          "params": [],
+          "returns": "int"
+        },
+        {
+          "name": "get_total_overdue_loans",
+          "params": [],
+          "returns": "int"
+        },
+        {
+          "name": "get_loans_by_status",
+          "params": [
+            {
+              "name": "status",
+              "type": "str"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_loans_with_return_date_range",
+          "params": [
+            {
+              "name": "start_date",
+              "type": "datetime"
+            },
+            {
+              "name": "end_date",
+              "type": "datetime"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_loans_by_member_and_book",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            },
+            {
+              "name": "book_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_loan_history_for_member",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_book_loan_history",
+          "params": [
+            {
+              "name": "book_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_loans_with_due_date_range",
+          "params": [
+            {
+              "name": "start_date",
+              "type": "datetime"
+            },
+            {
+              "name": "end_date",
+              "type": "datetime"
+            }
+          ],
+          "returns": "List[Loan]"
+        }
+      ]
+    },
+    {
+      "module": "member_repository",
+      "class": "MemberRepository",
+      "entity": "Member",
+      "methods": [
+        {
+          "name": "create",
+          "params": [
+            {
+              "name": "member",
+              "type": "Member"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "get_by_id",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "Optional[Member]"
+        },
+        {
+          "name": "get_all",
+          "params": [],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "list",
+          "params": [
+            {
+              "name": "is_active",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "email",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "name",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "start_date",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "end_date",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "start_year",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "end_year",
+              "type": "Optional[Any]"
+            },
+            {
+              "name": "active_only",
+              "type": "Optional[Any]"
+            }
+          ],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "update",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            },
+            {
+              "name": "data",
+              "type": "Dict[str, Any]"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "delete",
+          "params": [
+            {
+              "name": "id",
+              "type": "int"
+            }
+          ],
+          "returns": "bool"
+        },
+        {
+          "name": "find_by_email",
+          "params": [
+            {
+              "name": "email",
+              "type": "str"
+            }
+          ],
+          "returns": "Optional[Member]"
+        },
+        {
+          "name": "find_active_members",
+          "params": [],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "find_inactive_members",
+          "params": [],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "get_total_active_members",
+          "params": [],
+          "returns": "int"
+        },
+        {
+          "name": "get_total_inactive_members",
+          "params": [],
+          "returns": "int"
+        },
+        {
+          "name": "get_members_by_name_prefix",
+          "params": [
+            {
+              "name": "prefix",
+              "type": "str"
+            }
+          ],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "get_members_with_membership_date_range",
+          "params": [
+            {
+              "name": "start_date",
+              "type": "date"
+            },
+            {
+              "name": "end_date",
+              "type": "date"
+            }
+          ],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "get_member_loan_history",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "get_book_loan_history_by_member",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        }
+      ]
+    }
+  ],
+  "services": [
+    {
+      "module": "library_service",
+      "class": "LibraryService",
+      "entity": "Library",
+      "methods": [
+        {
+          "name": "borrow_book",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            },
+            {
+              "name": "book_id",
+              "type": "int"
+            }
+          ],
+          "returns": "None"
+        },
+        {
+          "name": "return_book",
+          "params": [
+            {
+              "name": "loan_id",
+              "type": "int"
+            }
+          ],
+          "returns": "None"
+        },
+        {
+          "name": "get_overdue_loans",
+          "params": [],
+          "returns": "List[Loan]"
+        },
+        {
+          "name": "renew_membership",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            }
+          ],
+          "returns": "None"
+        },
+        {
+          "name": "search_books",
+          "params": [
+            {
+              "name": "query",
+              "type": "str"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "add_book",
+          "params": [
+            {
+              "name": "title",
+              "type": "str"
+            },
+            {
+              "name": "isbn",
+              "type": "str"
+            },
+            {
+              "name": "author_id",
+              "type": "int"
+            },
+            {
+              "name": "published_year",
+              "type": "int"
+            },
+            {
+              "name": "available_copies",
+              "type": "int"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "list_book",
+          "params": [
+            {
+              "name": "author_id",
+              "type": "int"
+            },
+            {
+              "name": "available_only",
+              "type": "bool"
+            }
+          ],
+          "returns": "List[Book]"
+        },
+        {
+          "name": "add_member",
+          "params": [
+            {
+              "name": "name",
+              "type": "str"
+            },
+            {
+              "name": "email",
+              "type": "str"
+            }
+          ],
+          "returns": "int"
+        },
+        {
+          "name": "list_member",
+          "params": [
+            {
+              "name": "active_only",
+              "type": "bool"
+            }
+          ],
+          "returns": "List[Member]"
+        },
+        {
+          "name": "get_member_history",
+          "params": [
+            {
+              "name": "member_id",
+              "type": "int"
+            }
+          ],
+          "returns": "List[Loan]"
+        }
+      ]
+    }
+  ],
+  "cli": {
+    "commands": [
+      {
+        "name": "cli",
+        "flags": []
+      },
+      {
+        "name": "book_add",
+        "flags": [
+          "title",
+          "isbn",
+          "author_id",
+          "published_year",
+          "copies"
+        ]
+      },
+      {
+        "name": "book_list",
+        "flags": [
+          "author",
+          "available_only"
+        ]
+      },
+      {
+        "name": "book_search",
+        "flags": [
+          "query"
+        ]
+      },
+      {
+        "name": "member_add",
+        "flags": [
+          "name",
+          "email"
+        ]
+      },
+      {
+        "name": "member_list",
+        "flags": [
+          "active_only"
+        ]
+      },
+      {
+        "name": "library_borrow",
+        "flags": [
+          "member_id",
+          "book_id"
+        ]
+      },
+      {
+        "name": "library_return",
+        "flags": [
+          "loan_id"
+        ]
+      },
+      {
+        "name": "library_overdue",
+        "flags": []
+      },
+      {
+        "name": "member_history",
+        "flags": [
+          "member_id"
+        ]
+      }
+    ]
+  },
+  "foreign_keys_enabled": true
+}

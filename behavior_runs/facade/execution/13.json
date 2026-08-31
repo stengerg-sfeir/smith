@@ -1,0 +1,76 @@
+{
+  "ident": "13",
+  "generated_dir": "generated/13",
+  "status": "fail",
+  "n_intentions": 7,
+  "n_mapped": 5,
+  "n_unmapped": 2,
+  "pass": 4,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "write-create",
+      "invocation": "python3 cli.py write-create --sku PROD123 --name 'Wireless Mouse' --category Electronics --price 25 --stock-quantity 50",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "read-list",
+      "invocation": "python3 cli.py read-list --category All",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/13/cli.py\", line 17, in read_list\n    result = svc.search_products(query=query, category=category)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/13/product_service.py\", line 37, in search_products\n    return self.product_repo.search_products(query, category)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/13/product_repository.py\", line 115, in search_products\n    (\"%\" + query + \"%\", \"%\" + query + \"%\", \"%\" + query + \"%\", category)\n     ~~~~^~~~~~~\nTypeError: can only concatenate str (not \"NoneType\") to str\n"
+    },
+    {
+      "intent_id": "I3",
+      "command": "write-update_stock",
+      "invocation": "python3 cli.py write-update_stock --sku PROD123 --new-stock 75",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "read-list",
+      "invocation": "python3 cli.py read-list --query Mouse",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "write-delete",
+      "invocation": "python3 cli.py write-delete --sku PROD999",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I6",
+      "text": "I can filter products by category.",
+      "status": "unmapped",
+      "reason": "command 'read-by-category' not in facade"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can view a report of products that are below a defined low-stock threshold.",
+      "status": "unmapped",
+      "reason": "command 'read-low-stock' not in facade"
+    }
+  ]
+}

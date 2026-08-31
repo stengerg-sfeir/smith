@@ -1,0 +1,83 @@
+{
+  "ident": "cli_tool",
+  "prompt_file": "prompts/prompt_cli_tool.txt",
+  "generated_dir": "generated/cli_tool",
+  "prompt": "Create a CLI tool that reads a CSV file and outputs JSON. The tool should accept the input file path and an optional output file path. If no output path is given, print to stdout. Include error handling for missing files and malformed CSV.\n\nCRITICAL: Read the CSV header row to determine column names dynamically. Do NOT assume specific column names like \"title\" or \"name\". Convert each row to a JSON object using the actual headers as keys.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can convert a CSV file into JSON format using the actual column headers from the CSV file.",
+      "cli_command": "csv-to-json <input-file-path> [output-file-path]",
+      "requires": "a valid CSV file with a header row",
+      "observable": "JSON output with keys matching the CSV headers, one object per row",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can specify an output file path to save the JSON output to a file instead of printing to stdout.",
+      "cli_command": "csv-to-json <input-file-path> <output-file-path>",
+      "requires": "a valid input CSV file and a valid output file path",
+      "observable": "the JSON data is written to the specified output file",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can have the tool print JSON output to stdout when no output file path is provided.",
+      "cli_command": "csv-to-json <input-file-path>",
+      "requires": "a valid CSV file",
+      "observable": "JSON output is printed to the terminal",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I get an error if the input CSV file does not exist.",
+      "cli_command": "csv-to-json <non-existent-file-path>",
+      "requires": "a non-existent file path",
+      "observable": "an error message indicating the file is missing",
+      "spec_level": "explicit"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I get an error if the CSV file has a malformed format (e.g., invalid delimiter, missing header, malformed row).",
+      "cli_command": "csv-to-json <malformed-csv-file>",
+      "requires": "a CSV file with malformed content or structure",
+      "observable": "an error message indicating the CSV is malformed",
+      "spec_level": "explicit"
+    }
+  ],
+  "facade": {
+    "entry": "csv_to_json.py",
+    "kind": "click_command",
+    "commands": [
+      {
+        "name": "main",
+        "options": [
+          {
+            "names": [
+              "--output",
+              "output_file"
+            ],
+            "dest": "output",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [
+          {
+            "names": [
+              "input_file"
+            ],
+            "dest": "input_file",
+            "type": "str",
+            "required": true
+          }
+        ],
+        "target": ""
+      }
+    ],
+    "invoker": "main"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

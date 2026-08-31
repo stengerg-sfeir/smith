@@ -1,0 +1,130 @@
+{
+  "ident": "07",
+  "prompt_file": "prompts/prompt_07.txt",
+  "generated_dir": "generated/07",
+  "prompt": "Create a Python 3.12 application for managing books. Users can create, list, update and delete books. Users must also be able to search books by title. Persist the books in SQLite.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new book in the library system.",
+      "cli_command": "",
+      "requires": "a book title, author, ISBN, publication year, genre",
+      "observable": "The book is added to the list of books and persists in the database.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can list all books currently in the library system.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "A list of all books is displayed, showing title, author, ISBN, publication year, genre.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the details of an existing book.",
+      "cli_command": "",
+      "requires": "a book title (to identify), new title, author, ISBN, publication year, genre",
+      "observable": "The book's details are updated and the updated list reflects the change.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can delete a book from the library system.",
+      "cli_command": "",
+      "requires": "a book title (to identify)",
+      "observable": "The book is removed from the list and the database is updated.",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can search for books by title.",
+      "cli_command": "",
+      "requires": "a search term (title substring)",
+      "observable": "A list of books matching the title is displayed.",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "manage-create",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--author"
+            ],
+            "dest": "author",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--isbn"
+            ],
+            "dest": "isbn",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year"
+            ],
+            "dest": "publication_year",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--genre"
+            ],
+            "dest": "genre",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--pages"
+            ],
+            "dest": "pages",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_book"
+      },
+      {
+        "name": "book-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_books"
+      },
+      {
+        "name": "book-report",
+        "options": [],
+        "arguments": [],
+        "target": "generate_genre_distribution_report"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

@@ -1,0 +1,64 @@
+{
+  "ident": "28",
+  "prompt_file": "prompts/prompt_28.txt",
+  "generated_dir": "generated/28",
+  "prompt": "Create a Python 3.12 invoicing application. An invoice belongs to a customer and contains multiple invoice lines. Each line references a product and quantity. The invoice total must be calculated from its lines.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can create a new invoice for a customer with multiple line items.",
+      "cli_command": "",
+      "requires": "a customer name, a list of products (with name and price), and quantities for each product",
+      "observable": "a new invoice is created and stored, with the total calculated from the line items",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can view the details of an existing invoice, including the customer name and all line items.",
+      "cli_command": "",
+      "requires": "an invoice identifier or reference",
+      "observable": "the invoice details are displayed, including customer name and each product with quantity and price",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can add a product to an invoice line with a specified quantity.",
+      "cli_command": "",
+      "requires": "an invoice identifier, a product name, and a quantity",
+      "observable": "the invoice line is updated with the new product and quantity, and the total is recalculated",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove a product line from an invoice.",
+      "cli_command": "",
+      "requires": "an invoice identifier and a product line identifier or index",
+      "observable": "the specified line is removed, and the invoice total is recalculated",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can calculate the total amount of an invoice from its line items.",
+      "cli_command": "",
+      "requires": "a list of invoice lines (each with product price and quantity)",
+      "observable": "the total amount is computed and returned as a number",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can list all invoices with their customer names and totals.",
+      "cli_command": "",
+      "requires": "none (list all existing invoices)",
+      "observable": "a list of invoices is displayed, showing customer name and total amount",
+      "spec_level": "vague"
+    }
+  ],
+  "facade": {
+    "entry": "",
+    "kind": "none",
+    "commands": [],
+    "invoker": ""
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

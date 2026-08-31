@@ -1,0 +1,261 @@
+{
+  "ident": "20",
+  "prompt_file": "prompts/prompt_20.txt",
+  "generated_dir": "generated/20",
+  "prompt": "Create a Python 3.12 sales application. Products and sales must be persisted in SQLite. Provide CRUD operations for products and sales. The application must also provide a report showing total sales amount and number of sales per product.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can add a new product to the inventory",
+      "cli_command": "",
+      "requires": "a product with sku, name, category, price, stock",
+      "observable": "confirmation message indicating the product was added successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can view all products in the inventory",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a list of all products with their sku, name, category, price, and stock",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing product's details",
+      "cli_command": "",
+      "requires": "a product with sku, name, category, price, stock",
+      "observable": "confirmation message indicating the product was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove a product from the inventory",
+      "cli_command": "",
+      "requires": "a product sku",
+      "observable": "confirmation message indicating the product was deleted successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can add a new sale record",
+      "cli_command": "",
+      "requires": "a sale with product sku and quantity",
+      "observable": "confirmation message indicating the sale was added successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can view all sales records",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a list of all sales with product sku, quantity, and sale timestamp",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I7",
+      "text": "I can generate a report showing total sales amount and number of sales per product",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a report displaying total sales amount and the count of sales per product",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "crud-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_product"
+      },
+      {
+        "name": "crud-read",
+        "options": [
+          {
+            "names": [
+              "--product-id"
+            ],
+            "dest": "product_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_sales_report_by_product"
+      },
+      {
+        "name": "crud-update",
+        "options": [],
+        "arguments": [],
+        "target": "get_sales_count_per_product"
+      },
+      {
+        "name": "sale-crud-create",
+        "options": [
+          {
+            "names": [
+              "--product-id"
+            ],
+            "dest": "product_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--quantity"
+            ],
+            "dest": "quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--date"
+            ],
+            "dest": "date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_sale"
+      },
+      {
+        "name": "sale-crud-update",
+        "options": [
+          {
+            "names": [
+              "--threshold"
+            ],
+            "dest": "threshold",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_sales_with_low_quantity_threshold"
+      },
+      {
+        "name": "report-total",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_sales_amount"
+      },
+      {
+        "name": "report-per_product",
+        "options": [],
+        "arguments": [],
+        "target": "get_sales_count_per_product"
+      },
+      {
+        "name": "report-by_product",
+        "options": [
+          {
+            "names": [
+              "--product-id"
+            ],
+            "dest": "product_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_sales_report_by_product"
+      },
+      {
+        "name": "report-period",
+        "options": [
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_sales_with_product_names"
+      },
+      {
+        "name": "report-low_quantity",
+        "options": [
+          {
+            "names": [
+              "--threshold"
+            ],
+            "dest": "threshold",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_sales_with_low_quantity_threshold"
+      },
+      {
+        "name": "report-export",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_sales_report_to_csv"
+      },
+      {
+        "name": "report-duplicates",
+        "options": [],
+        "arguments": [],
+        "target": "find_duplicate_sales_by_product"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

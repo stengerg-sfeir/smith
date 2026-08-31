@@ -1,0 +1,11 @@
+{
+  "database_file": "app.db",
+  "entities": [],
+  "exceptions": [],
+  "repositories": [],
+  "services": [],
+  "cli": {
+    "commands": []
+  },
+  "foreign_keys_enabled": false
+}

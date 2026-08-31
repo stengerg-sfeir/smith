@@ -1,0 +1,150 @@
+{
+  "ident": "17",
+  "prompt_file": "prompts/prompt_17.txt",
+  "generated_dir": "generated/17",
+  "prompt": "Create a Python 3.12 inventory application. Products have name, category, price and quantity. Users must be able to search by name, filter by category, specify a maximum price and specify a minimum quantity. All filters must be combinable.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can search for products by name",
+      "cli_command": "",
+      "requires": "a product name",
+      "observable": "a list of products matching the name",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can filter products by category",
+      "cli_command": "",
+      "requires": "a product category",
+      "observable": "a list of products in the specified category",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can specify a maximum price to filter products",
+      "cli_command": "",
+      "requires": "a maximum price value",
+      "observable": "a list of products with price less than or equal to the maximum price",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can specify a minimum quantity to filter products",
+      "cli_command": "",
+      "requires": "a minimum quantity value",
+      "observable": "a list of products with quantity greater than or equal to the minimum quantity",
+      "spec_level": "vague"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can combine multiple filters (name, category, maximum price, minimum quantity) in a single query",
+      "cli_command": "",
+      "requires": "a product name, a category, a maximum price, and a minimum quantity",
+      "observable": "a list of products matching all specified filters",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "products-search",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-price"
+            ],
+            "dest": "max_price",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--min-quantity"
+            ],
+            "dest": "min_quantity",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_products"
+      },
+      {
+        "name": "report-count",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_count"
+      },
+      {
+        "name": "report-summary",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_summary"
+      },
+      {
+        "name": "category_threshold-below_threshold",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_below_category_threshold"
+      },
+      {
+        "name": "export",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_products_to_csv"
+      },
+      {
+        "name": "diagnostic-duplicates",
+        "options": [],
+        "arguments": [],
+        "target": "find_duplicate_products"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

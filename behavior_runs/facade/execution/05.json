@@ -1,0 +1,53 @@
+{
+  "ident": "05",
+  "generated_dir": "generated/05",
+  "status": "pass",
+  "n_intentions": 4,
+  "n_mapped": 4,
+  "n_unmapped": 0,
+  "pass": 4,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "contact-create",
+      "invocation": "python3 cli.py contact-create --name 'Alice Johnson' --email alice.johnson@example.com --phone 555-1234",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "contact-list",
+      "invocation": "python3 cli.py contact-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "contact-update",
+      "invocation": "python3 cli.py contact-update --id 1 --name 'Bob Smith' --email bob.smith@company.com",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "contact-delete",
+      "invocation": "python3 cli.py contact-delete --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": []
+}

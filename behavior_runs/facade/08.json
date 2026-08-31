@@ -1,0 +1,264 @@
+{
+  "ident": "08",
+  "prompt_file": "prompts/prompt_08.txt",
+  "generated_dir": "generated/08",
+  "prompt": "Create a Python 3.12 inventory application. Products have a name, category, price and quantity. Provide CRUD operations. Users must be able to filter products by category and display products whose quantity is below a specified threshold.\n",
+  "intentions": [
+    {
+      "intent_id": "I1",
+      "text": "I can add a new product to the inventory with a name, category, price, and quantity.",
+      "cli_command": "",
+      "requires": "a product with name, category, price, and quantity",
+      "observable": "confirmation message indicating the product was added successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I2",
+      "text": "I can view all products in the inventory.",
+      "cli_command": "",
+      "requires": "none",
+      "observable": "a list of all products with their name, category, price, and quantity",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I3",
+      "text": "I can update the quantity of an existing product.",
+      "cli_command": "",
+      "requires": "a product name and a new quantity value",
+      "observable": "confirmation message indicating the quantity was updated successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove a product from the inventory by name.",
+      "cli_command": "",
+      "requires": "a product name",
+      "observable": "confirmation message indicating the product was removed successfully",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I5",
+      "text": "I can filter products by category.",
+      "cli_command": "",
+      "requires": "a category name",
+      "observable": "a list of products that belong to the specified category",
+      "spec_level": "partial"
+    },
+    {
+      "intent_id": "I6",
+      "text": "I can display products whose quantity is below a specified threshold.",
+      "cli_command": "",
+      "requires": "a quantity threshold value",
+      "observable": "a list of products with quantity less than the specified threshold",
+      "spec_level": "partial"
+    }
+  ],
+  "facade": {
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "product-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--quantity"
+            ],
+            "dest": "quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_product"
+      },
+      {
+        "name": "read-list",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--threshold"
+            ],
+            "dest": "threshold",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_product"
+      },
+      {
+        "name": "read-low_stock",
+        "options": [],
+        "arguments": [],
+        "target": "get_low_stock_products"
+      },
+      {
+        "name": "read-by_category",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_by_category"
+      },
+      {
+        "name": "read-by_price_range",
+        "options": [
+          {
+            "names": [
+              "--min-price"
+            ],
+            "dest": "min_price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-price"
+            ],
+            "dest": "max_price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_with_price_range"
+      },
+      {
+        "name": "product-update",
+        "options": [
+          {
+            "names": [
+              "--product-id"
+            ],
+            "dest": "product_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--quantity"
+            ],
+            "dest": "quantity",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_product"
+      },
+      {
+        "name": "product-delete",
+        "options": [
+          {
+            "names": [
+              "--product-id"
+            ],
+            "dest": "product_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_product"
+      },
+      {
+        "name": "stats-count_by_category",
+        "options": [
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_product_count_by_category"
+      }
+    ],
+    "invoker": "cli"
+  },
+  "generated_exists": true,
+  "status": "ok"
+}

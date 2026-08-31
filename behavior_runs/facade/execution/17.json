@@ -1,0 +1,63 @@
+{
+  "ident": "17",
+  "generated_dir": "generated/17",
+  "status": "pass",
+  "n_intentions": 5,
+  "n_mapped": 5,
+  "n_unmapped": 0,
+  "pass": 5,
+  "fail": 0,
+  "results": [
+    {
+      "intent_id": "I1",
+      "command": "products-search",
+      "invocation": "python3 cli.py products-search --name laptop",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I2",
+      "command": "products-search",
+      "invocation": "python3 cli.py products-search --category electronics",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "products-search",
+      "invocation": "python3 cli.py products-search --max-price 1000",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "products-search",
+      "invocation": "python3 cli.py products-search --min-quantity 10",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I5",
+      "command": "products-search",
+      "invocation": "python3 cli.py products-search --name laptop --category electronics --max-price 1000 --min-quantity 10",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": []
+}

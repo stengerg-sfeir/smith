@@ -1,0 +1,46 @@
+{
+  "ident": "25",
+  "generated_dir": "generated/25",
+  "status": "fail",
+  "n_intentions": 4,
+  "n_mapped": 2,
+  "n_unmapped": 2,
+  "pass": 1,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I2",
+      "command": "create-add",
+      "invocation": "python3 cli.py create-add --first-name Alice --last-name Smith --email alice.smith@example.com --department-id 3 --hire-date 2023-01-15",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "w/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/25/cli.py\", line 39, in create_add\n    result = svc.create_employee(first_name=first_name, last_name=last_name, email=email, department_id=department_id, hire_date=hire_date)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/25/employee_service.py\", line 25, in create_employee\n    raise InvalidDepartmentIdError(f'Department with id {department_id} not found')\nexceptions.InvalidDepartmentIdError: Department with id 3 not found\n"
+    },
+    {
+      "intent_id": "I1",
+      "command": "list-employees",
+      "invocation": "python3 cli.py list-employees --department-id 5",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I3",
+      "text": "I can update an existing employee's details in a department.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    },
+    {
+      "intent_id": "I4",
+      "text": "I can remove an employee from a department.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
+    }
+  ]
+}
