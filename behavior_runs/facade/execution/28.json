@@ -1,23 +1,38 @@
 {
   "ident": "28",
   "generated_dir": "generated/28",
-  "status": "no_mapped",
+  "status": "fail",
   "n_intentions": 6,
-  "n_mapped": 0,
-  "n_unmapped": 6,
-  "pass": 0,
-  "fail": 0,
-  "results": [],
+  "n_mapped": 2,
+  "n_unmapped": 4,
+  "pass": 1,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I2",
+      "command": "invoice-get",
+      "invocation": "python3 cli.py invoice-get --invoice-id 123",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I6",
+      "command": "invoice-summary",
+      "invocation": "python3 cli.py invoice-summary --customer-id 456",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "es/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/28/cli.py\", line 40, in invoice_summary\n    result = svc.get_customer_invoice_summary(customer_id=customer_id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/28/invoice_service.py\", line 58, in get_customer_invoice_summary\n    return self.invoice_repo.get_customer_invoice_summary(customer_id=customer_id)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'InvoiceRepository' object has no attribute 'get_customer_invoice_summary'\n"
+    }
+  ],
   "unmapped": [
     {
       "intent_id": "I1",
       "text": "I can create a new invoice for a customer with multiple line items.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I2",
-      "text": "I can view the details of an existing invoice, including the customer name and all line items.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     },
@@ -36,12 +51,6 @@
     {
       "intent_id": "I5",
       "text": "I can calculate the total amount of an invoice from its line items.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I6",
-      "text": "I can list all invoices with their customer names and totals.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     }

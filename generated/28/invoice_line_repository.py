@@ -37,7 +37,7 @@ class InvoiceLineRepository:
             ).fetchall()
             return [InvoiceLine(**dict(r)) for r in rows]
 
-    def list(self, invoice_id: Optional[Any] = None, product_id: Optional[Any] = None, quantity: Optional[Any] = None, unit_price: Optional[Any] = None, max_quantity: Optional[Any] = None, max_unit_price: Optional[Any] = None) -> List[InvoiceLine]:
+    def list(self, invoice_id: Optional[Any] = None, product_id: Optional[Any] = None, quantity: Optional[Any] = None, unit_price: Optional[Any] = None, max_price: Optional[Any] = None, max_quantity: Optional[Any] = None, max_unit_price: Optional[Any] = None) -> List[InvoiceLine]:
         with self.db.connect() as conn:
             query = "SELECT * FROM invoicelines WHERE 1=1"
             params: List[Any] = []
@@ -53,6 +53,9 @@ class InvoiceLineRepository:
             if unit_price is not None:
                 query += ' AND unit_price >= ?'
                 params.append(unit_price)
+            if max_price is not None:
+                query += ' AND unit_price <= ?'
+                params.append(max_price)
             if max_quantity is not None:
                 query += ' AND quantity <= ?'
                 params.append(max_quantity)

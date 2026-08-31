@@ -1,19 +1,23 @@
 {
   "ident": "34",
   "generated_dir": "generated/34",
-  "status": "no_mapped",
+  "status": "fail",
   "n_intentions": 1,
-  "n_mapped": 0,
-  "n_unmapped": 1,
+  "n_mapped": 1,
+  "n_unmapped": 0,
   "pass": 0,
-  "fail": 0,
-  "results": [],
-  "unmapped": [
+  "fail": 1,
+  "results": [
     {
       "intent_id": "I1",
-      "text": "I can create a new order with one or more order lines.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "create-order",
+      "invocation": "python3 cli.py create-order --order-data '{\"customer_name\": \"John Doe\", \"total\": 150.0}' --lines '[{\"product_id\": 101, \"quantity\": 2}, {\"product_id\": 102, \"quantity\": 1}]'",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "b_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/34/cli.py\", line 17, in create_order\n    result = svc.create_order_with_lines(order_data=order_data, order_lines=lines)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/34/order_service.py\", line 26, in create_order_with_lines\n    raise ValidationError('Invalid order lines provided')\nexceptions.ValidationError: Invalid order lines provided\n"
     }
-  ]
+  ],
+  "unmapped": []
 }

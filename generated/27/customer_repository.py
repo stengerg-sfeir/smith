@@ -37,7 +37,7 @@ class CustomerRepository:
             ).fetchall()
             return [Customer(**dict(r)) for r in rows]
 
-    def list(self, name: Optional[Any] = None, email: Optional[Any] = None, phone: Optional[Any] = None) -> List[Customer]:
+    def list(self, name: Optional[Any] = None, email: Optional[Any] = None, phone: Optional[Any] = None, min_capacity: Optional[Any] = None) -> List[Customer]:
         with self.db.connect() as conn:
             query = "SELECT * FROM customers WHERE 1=1"
             params: List[Any] = []
@@ -50,6 +50,9 @@ class CustomerRepository:
             if phone is not None:
                 query += ' AND phone = ?'
                 params.append(phone)
+            if min_capacity is not None:
+                query += ' AND id >= ?'
+                params.append(min_capacity)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Customer(**dict(r)) for r in rows]
 

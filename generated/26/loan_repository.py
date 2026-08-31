@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from database import Database
 from exceptions import LoanNotFoundError
-from models import Book, Loan
+from models import Loan
 
 
 class LoanRepository:
@@ -90,52 +90,55 @@ class LoanRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def get_loans_by_member_and_status(self, member_id: int, status: str) -> list[Loan]:
+    def get_loans_by_member(self, member_id: int) -> list[Loan]:
         return self.list(
             member_id=member_id,
-            status=status,
         )
 
-    def get_loans_with_overdue_dates(self) -> list[Loan]:
+    def get_loans_by_book(self, book_id: int) -> list[Loan]:
+        return self.list(
+            book_id=book_id,
+        )
+
+    def get_active_loans_count(self) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM loans",
+            ).fetchone()
+            return int(row["n"])
+
+    def get_overdue_loans(self) -> list[Loan]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM loans WHERE due_date IS NOT NULL AND due_date < date('now')"
             ).fetchall()
             return [Loan(**dict(r)) for r in rows]
 
-    def get_books_with_loans_and_due_dates(self) -> list[tuple[Book, Loan]]:
+    def get_loans_with_status(self, status: str) -> list[Loan]:
+        return self.list(
+            status=status,
+        )
+
+    def get_available_books_count(self) -> int:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT b.*, l.* FROM books b JOIN loans l ON b.id = l.book_id').fetchall()
-            return [(Book(**dict(row[:5])), Loan(**dict(row[5:]))) for row in rows]
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM loans",
+            ).fetchone()
+            return int(row["n"])
 
     def get_loans_by_date_range(self, start_date: datetime, end_date: datetime) -> list[Loan]:
         return []
 
-    def get_loans_with_return_dates_after(self, return_date_threshold: str) -> list[Loan]:
+    def get_total_loans_by_member(self) -> dict[str, int]:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM loans WHERE return_date >= ?', (return_date_threshold,)).fetchall()
-            return [Loan(**dict(row)) for row in rows]
+            rows = conn.execute('SELECT m.name, COUNT(l.id) AS loan_count FROM loans l JOIN members m ON l.member_id = m.id GROUP BY m.id, m.name').fetchall()
+        result: dict[str, int] = {}
+        for row in rows:
+            result[row[0]] = row[1]
+        return result
 
-    def get_loans_by_member_and_book_author(self, member_id: int, author: str) -> list[Loan]:
-        with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT r.* FROM loans r JOIN members o ON r.member_id = o.id WHERE o.id = ?",
-                (member_id,)
-            ).fetchall()
-            return [Loan(**dict(r)) for r in rows]
-
-    def get_total_active_loans_by_book(self) -> dict[int, int]:
-        with self.db.connect() as conn:
-            rows = conn.execute("SELECT l.book_id, COUNT(*) AS loan_count FROM loans l WHERE l.status = 'active' GROUP BY l.book_id").fetchall()
-            return {row[0]: row[1] for row in rows}
-
-    def get_loans_with_pending_return_status(self) -> list[Loan]:
-        with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM loans WHERE status = 'pending'").fetchall()
-            return [Loan(**dict(row)) for row in rows]
-
-    def get_loans_with_returned_after_due_date(self) -> list[Loan]:
-        with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM loans WHERE return_date > due_date AND status = 'returned'").fetchall()
-            return [Loan(**dict(row)) for row in rows]
+    def get_loans_with_return_date_after(self, return_date: datetime) -> list[Loan]:
+        return self.list(
+            return_date=return_date,
+        )
 

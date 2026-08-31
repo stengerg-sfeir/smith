@@ -46,10 +46,201 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "employee-create",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--age"
+            ],
+            "dest": "age",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--salary"
+            ],
+            "dest": "salary",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_employee"
+      },
+      {
+        "name": "get-by_email",
+        "options": [
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employee_by_email"
+      },
+      {
+        "name": "get-by_age_range",
+        "options": [
+          {
+            "names": [
+              "--min-age"
+            ],
+            "dest": "min_age",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-age"
+            ],
+            "dest": "max_age",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employees_by_age_range"
+      },
+      {
+        "name": "get-with_salary_above",
+        "options": [
+          {
+            "names": [
+              "--min-salary"
+            ],
+            "dest": "min_salary",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employees_with_salary_above"
+      },
+      {
+        "name": "get-with_salary_in_range",
+        "options": [
+          {
+            "names": [
+              "--min-salary"
+            ],
+            "dest": "min_salary",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-salary"
+            ],
+            "dest": "max_salary",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employees_with_salary_in_range"
+      },
+      {
+        "name": "get-with_valid_email_and_age_range",
+        "options": [
+          {
+            "names": [
+              "--min-age"
+            ],
+            "dest": "min_age",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-age"
+            ],
+            "dest": "max_age",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_employees_with_valid_email_and_age_range"
+      },
+      {
+        "name": "stats-age_group_count",
+        "options": [],
+        "arguments": [],
+        "target": "count_employees_by_age_group"
+      },
+      {
+        "name": "stats-average_salary",
+        "options": [],
+        "arguments": [],
+        "target": "get_average_salary"
+      },
+      {
+        "name": "stats-total_salary",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_salary_spent"
+      },
+      {
+        "name": "stats-above_average",
+        "options": [],
+        "arguments": [],
+        "target": "get_employees_with_higher_salary_than_average"
+      },
+      {
+        "name": "export-to_csv",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_employees_to_csv"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

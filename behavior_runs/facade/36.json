@@ -62,10 +62,86 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "category-summary",
+        "options": [],
+        "arguments": [],
+        "target": "get_category_product_summary"
+      },
+      {
+        "name": "product-count",
+        "options": [],
+        "arguments": [],
+        "target": "get_product_count_by_category"
+      },
+      {
+        "name": "product-by_category",
+        "options": [
+          {
+            "names": [
+              "--category-name"
+            ],
+            "dest": "category_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_by_category_name"
+      },
+      {
+        "name": "product-price_range",
+        "options": [
+          {
+            "names": [
+              "--min-price"
+            ],
+            "dest": "min_price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-price"
+            ],
+            "dest": "max_price",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_products_in_price_range"
+      },
+      {
+        "name": "product-details",
+        "options": [],
+        "arguments": [],
+        "target": "get_products_with_category_details"
+      },
+      {
+        "name": "product-search",
+        "options": [
+          {
+            "names": [
+              "--query"
+            ],
+            "dest": "query",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_products_by_name"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

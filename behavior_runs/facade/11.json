@@ -54,10 +54,114 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "book-create",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--author"
+            ],
+            "dest": "author",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--isbn"
+            ],
+            "dest": "isbn",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year"
+            ],
+            "dest": "publication_year",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_book"
+      },
+      {
+        "name": "book-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_all_books"
+      },
+      {
+        "name": "book-search",
+        "options": [
+          {
+            "names": [
+              "--term"
+            ],
+            "dest": "term",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "search_books_by_title_or_isbn"
+      },
+      {
+        "name": "book-delete",
+        "options": [
+          {
+            "names": [
+              "--isbn"
+            ],
+            "dest": "isbn",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_book"
+      },
+      {
+        "name": "book-stats",
+        "options": [
+          {
+            "names": [
+              "--top-n"
+            ],
+            "dest": "top_n",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_books_with_most_popular_authors"
+      },
+      {
+        "name": "book-count",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_books_count"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

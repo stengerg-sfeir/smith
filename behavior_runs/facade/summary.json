@@ -1,5 +1,5 @@
 {
-  "started_at": "2026-08-30T21:46:56.390952+00:00",
+  "started_at": "2026-08-31T08:31:20.840087+00:00",
   "total": 1,
   "results": [
     {
@@ -10,9 +10,9 @@
         "partial",
         "vague"
       ],
-      "facade_kind": "none",
-      "facade_commands": 0
+      "facade_kind": "click_group",
+      "facade_commands": 4
     }
   ],
-  "finished_at": "2026-08-30T21:47:02.304066+00:00"
+  "finished_at": "2026-08-31T08:31:26.331158+00:00"
 }

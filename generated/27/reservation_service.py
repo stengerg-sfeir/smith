@@ -8,6 +8,7 @@ from customer_repository import CustomerRepository
 from database import Database
 from models import Reservation, Room
 from reservation_repository import ReservationRepository
+from room_repository import RoomRepository
 
 
 class ReservationService:
@@ -15,6 +16,7 @@ class ReservationService:
         self.db = db
         self.customer_repo = CustomerRepository(db)
         self.reservation_repo = ReservationRepository(db)
+        self.room_repo = RoomRepository(db)
 
     def create_reservation(self, customer_id: int, room_id: int, start_date: datetime, end_date: datetime, status: str) -> int:
         reservation = Reservation(customer_id=customer_id, room_id=room_id, start_date=start_date, end_date=end_date, status=status)
@@ -32,12 +34,25 @@ class ReservationService:
     def list_reservations_overlapping_with_date(self, room_id: int, start_date: datetime, end_date: datetime) -> list[Reservation]:
         return self.reservation_repo.list_reservations_overlapping_with_date(room_id, start_date, end_date)
 
-    def get_overlapping_reservations_report(self, room_id: int, start_date: datetime, end_date: datetime) -> list[dict]:
-        return self.reservation_repo.get_overlapping_reservations_report(room_id, start_date, end_date)
+    def get_reservation_count_by_room(self) -> dict[str, int]:
+        return self.reservation_repo.get_reservation_count_by_room()
+
+    def get_reservations_by_status(self, status: str) -> list[Reservation]:
+        return self.reservation_repo.get_reservations_by_status(status)
+
+    def get_available_rooms_for_date_range(self, start_date: datetime, end_date: datetime) -> list[Room]:
+        return self.reservation_repo.get_available_rooms_for_date_range(start_date, end_date)
 
     def get_total_reservations_by_customer(self) -> dict[int, int]:
         return self.reservation_repo.get_total_reservations_by_customer()
 
-    def get_available_rooms_for_date_range(self, start_date: datetime, end_date: datetime) -> list[Room]:
-        return self.reservation_repo.get_available_rooms_for_date_range(start_date, end_date)
+    def get_overlapping_reservations_report(self, room_id: int, start_date: datetime, end_date: datetime) -> list[dict]:
+        return self.reservation_repo.get_overlapping_reservations_report(room_id, start_date, end_date)
+
+    def validate_reservation_overlap(self, reservation: Reservation) -> bool:
+        existing_reservations = self.reservation_repo.get_reservations_by_room(reservation.room_id)
+        for existing in existing_reservations:
+            if existing.start_date < reservation.end_date and existing.end_date > reservation.start_date:
+                return True
+        return False
 

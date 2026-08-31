@@ -1,41 +1,58 @@
 {
   "ident": "11",
   "generated_dir": "generated/11",
-  "status": "no_mapped",
+  "status": "pass",
   "n_intentions": 6,
-  "n_mapped": 0,
-  "n_unmapped": 6,
-  "pass": 0,
+  "n_mapped": 4,
+  "n_unmapped": 2,
+  "pass": 4,
   "fail": 0,
-  "results": [],
-  "unmapped": [
+  "results": [
     {
       "intent_id": "I1",
-      "text": "I can create a new book with a title, author, ISBN, and publication year.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "book-create",
+      "invocation": "python3 cli.py book-create --title 'The Great Gatsby' --author 'F. Scott Fitzgerald' --isbn 978-0-7475-3269-9 --publication-year 1925",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
     },
     {
       "intent_id": "I2",
-      "text": "I can list all books in the library with their title, author, ISBN, and publication year.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I3",
-      "text": "I can update the details of an existing book, such as title, author, ISBN, or publication year.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "book-list",
+      "invocation": "python3 cli.py book-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
     },
     {
       "intent_id": "I4",
-      "text": "I can search for books by title, author, or ISBN.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "book-search",
+      "invocation": "python3 cli.py book-search --term 'F. Scott Fitzgerald'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
     },
     {
       "intent_id": "I5",
-      "text": "I can delete a book from the library by its ISBN.",
+      "command": "book-delete",
+      "invocation": "python3 cli.py book-delete --isbn 978-0-7475-3269-9",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I3",
+      "text": "I can update the details of an existing book, such as title, author, ISBN, or publication year.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     },

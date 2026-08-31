@@ -1,20 +1,25 @@
 {
   "ident": "32",
   "generated_dir": "generated/32",
-  "status": "no_mapped",
+  "status": "fail",
   "n_intentions": 6,
-  "n_mapped": 0,
-  "n_unmapped": 6,
+  "n_mapped": 1,
+  "n_unmapped": 5,
   "pass": 0,
-  "fail": 0,
-  "results": [],
-  "unmapped": [
+  "fail": 1,
+  "results": [
     {
       "intent_id": "I1",
-      "text": "I can create a new order with a specified customer name, items, and total amount.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
+      "command": "order-create",
+      "invocation": "python3 cli.py order-create --customer-id 101 --total-amount 250",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "ger/Documents/neurosymbolic/generated/32/order_service.py\", line 26, in create_order\n    return self.order_repo.create(order)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_repository.py\", line 20, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO orders (customer_id, status, created_at, updated_at, total_amount) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (order.customer_id, order.status, order.created_at, order.updated_at, order.total_amount),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.OperationalError: no such table: main.customers\n"
+    }
+  ],
+  "unmapped": [
     {
       "intent_id": "I2",
       "text": "I can confirm an order, which changes its state from pending to confirmed.",

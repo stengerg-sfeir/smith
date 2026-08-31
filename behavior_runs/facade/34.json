@@ -14,10 +14,152 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "create-order",
+        "options": [
+          {
+            "names": [
+              "--order-data"
+            ],
+            "dest": "order_data",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--lines"
+            ],
+            "dest": "lines",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_order_with_lines"
+      },
+      {
+        "name": "get-by_id",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_order_by_id_with_lines"
+      },
+      {
+        "name": "list-filtered",
+        "options": [
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-after"
+            ],
+            "dest": "created_after",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-before"
+            ],
+            "dest": "created_before",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--product-id"
+            ],
+            "dest": "product_id",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_orders_with_filters"
+      },
+      {
+        "name": "report-product",
+        "options": [
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "generate_order_report_by_product"
+      },
+      {
+        "name": "validate-lines",
+        "options": [
+          {
+            "names": [
+              "--lines"
+            ],
+            "dest": "lines",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "validate_order_lines"
+      },
+      {
+        "name": "validate-line",
+        "options": [
+          {
+            "names": [
+              "--data"
+            ],
+            "dest": "data",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "validate_order_line_data"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

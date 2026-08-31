@@ -1,37 +1,46 @@
 {
   "ident": "36",
   "generated_dir": "generated/36",
-  "status": "no_mapped",
+  "status": "pass",
   "n_intentions": 7,
-  "n_mapped": 0,
-  "n_unmapped": 7,
-  "pass": 0,
+  "n_mapped": 2,
+  "n_unmapped": 5,
+  "pass": 2,
   "fail": 0,
-  "results": [],
+  "results": [
+    {
+      "intent_id": "I2",
+      "command": "category-summary",
+      "invocation": "python3 cli.py category-summary",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I3",
+      "command": "product-details",
+      "invocation": "python3 cli.py product-details",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
   "unmapped": [
     {
       "intent_id": "I1",
       "text": "I can create a new product with a name, SKU, price, and category.",
       "status": "unmapped",
-      "reason": "command 'create_product' not in facade"
-    },
-    {
-      "intent_id": "I2",
-      "text": "I can list all products in the system, grouped by category.",
-      "status": "unmapped",
-      "reason": "command 'list_products' not in facade"
-    },
-    {
-      "intent_id": "I3",
-      "text": "I can view details of a specific product by its SKU.",
-      "status": "unmapped",
-      "reason": "command 'view_product' not in facade"
+      "reason": "no facade command matched the intention"
     },
     {
       "intent_id": "I4",
       "text": "I can create a new category with a name.",
       "status": "unmapped",
-      "reason": "command 'create_category' not in facade"
+      "reason": "no facade command matched the intention"
     },
     {
       "intent_id": "I5",
@@ -43,13 +52,13 @@
       "intent_id": "I6",
       "text": "I can delete a category only if no products belong to it.",
       "status": "unmapped",
-      "reason": "command 'delete_category' not in facade"
+      "reason": "no facade command matched the intention"
     },
     {
       "intent_id": "I7",
       "text": "I can update a product's name, price, or category.",
       "status": "unmapped",
-      "reason": "command 'update_product' not in facade"
+      "reason": "no facade command matched the intention"
     }
   ]
 }

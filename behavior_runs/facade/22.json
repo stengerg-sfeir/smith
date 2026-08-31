@@ -54,10 +54,192 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "order-create",
+        "options": [
+          {
+            "names": [
+              "--customer-name"
+            ],
+            "dest": "customer_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--items"
+            ],
+            "dest": "items",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_order"
+      },
+      {
+        "name": "order-list",
+        "options": [
+          {
+            "names": [
+              "--customer-name"
+            ],
+            "dest": "customer_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_orders_by_customer"
+      },
+      {
+        "name": "get-total",
+        "options": [
+          {
+            "names": [
+              "--order-id"
+            ],
+            "dest": "order_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_order_total_amount"
+      },
+      {
+        "name": "get-items",
+        "options": [
+          {
+            "names": [
+              "--order-id"
+            ],
+            "dest": "order_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_order_with_items"
+      },
+      {
+        "name": "get-revenue",
+        "options": [
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_total_revenue_by_product"
+      },
+      {
+        "name": "get-popular",
+        "options": [],
+        "arguments": [],
+        "target": "get_most_popular_product"
+      },
+      {
+        "name": "get-over_limit",
+        "options": [
+          {
+            "names": [
+              "--min-quantity"
+            ],
+            "dest": "min_quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_orders_with_quantity_over_limit"
+      },
+      {
+        "name": "order-export",
+        "options": [
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--customer-name"
+            ],
+            "dest": "customer_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_orders_to_csv"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

@@ -1,13 +1,34 @@
 {
   "ident": "31",
   "generated_dir": "generated/31",
-  "status": "no_mapped",
+  "status": "fail",
   "n_intentions": 4,
-  "n_mapped": 0,
-  "n_unmapped": 4,
+  "n_mapped": 2,
+  "n_unmapped": 2,
   "pass": 0,
-  "fail": 0,
-  "results": [],
+  "fail": 2,
+  "results": [
+    {
+      "intent_id": "I3",
+      "command": "deposit-create",
+      "invocation": "python3 cli.py deposit-create --account-id 101 --amount 500",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "                      ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/cli.py\", line 17, in deposit_create\n    result = svc.create_deposit(account_id=account_id, amount=amount)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/account_service.py\", line 20, in create_deposit\n    return self.deposit_repo.create(deposit)\n           ^^^^^^^^^^^^^^^^^\nAttributeError: 'AccountService' object has no attribute 'deposit_repo'\n"
+    },
+    {
+      "intent_id": "I4",
+      "command": "withdrawal-create",
+      "invocation": "python3 cli.py withdrawal-create --account-id 101 --amount 200",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": " ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/cli.py\", line 25, in withdrawal_create\n    result = svc.create_withdrawal(account_id=account_id, amount=amount)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/account_service.py\", line 24, in create_withdrawal\n    return self.withdrawal_repo.create(withdrawal)\n           ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'AccountService' object has no attribute 'withdrawal_repo'\n"
+    }
+  ],
   "unmapped": [
     {
       "intent_id": "I1",
@@ -18,18 +39,6 @@
     {
       "intent_id": "I2",
       "text": "I can create a new account for a customer with a unique account number and initial balance.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I3",
-      "text": "I can deposit money into an account, increasing its balance.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I4",
-      "text": "I can withdraw money from an account, decreasing its balance, but the withdrawal is rejected if it would make the balance negative.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     }

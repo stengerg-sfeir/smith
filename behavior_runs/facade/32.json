@@ -54,10 +54,156 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "order-create",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--total-amount"
+            ],
+            "dest": "total_amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_order"
+      },
+      {
+        "name": "count-pending",
+        "options": [],
+        "arguments": [],
+        "target": "get_pending_orders_count"
+      },
+      {
+        "name": "count-confirmed",
+        "options": [],
+        "arguments": [],
+        "target": "get_confirmed_orders_count"
+      },
+      {
+        "name": "count-shipped",
+        "options": [],
+        "arguments": [],
+        "target": "get_shipped_orders_count"
+      },
+      {
+        "name": "count-cancelled",
+        "options": [],
+        "arguments": [],
+        "target": "get_cancelled_orders_count"
+      },
+      {
+        "name": "status-latest",
+        "options": [],
+        "arguments": [],
+        "target": "get_orders_with_latest_status_change"
+      },
+      {
+        "name": "status-total",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_orders_by_status"
+      },
+      {
+        "name": "status-range",
+        "options": [
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_orders_by_status_and_date_range"
+      },
+      {
+        "name": "status-amount",
+        "options": [
+          {
+            "names": [
+              "--min-amount"
+            ],
+            "dest": "min_amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-amount"
+            ],
+            "dest": "max_amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_orders_with_total_amount_range"
+      },
+      {
+        "name": "get-by_customer_and_status",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_order_by_customer_and_status"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

@@ -1,29 +1,38 @@
 {
   "ident": "09",
   "generated_dir": "generated/09",
-  "status": "no_mapped",
+  "status": "pass",
   "n_intentions": 5,
-  "n_mapped": 0,
-  "n_unmapped": 5,
-  "pass": 0,
+  "n_mapped": 2,
+  "n_unmapped": 3,
+  "pass": 2,
   "fail": 0,
-  "results": [],
-  "unmapped": [
+  "results": [
     {
       "intent_id": "I1",
-      "text": "I can create a new employee record with a valid email, age between 18 and 70, and positive salary.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I2",
-      "text": "I can retrieve a list of all employees.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "employee-create",
+      "invocation": "python3 cli.py employee-create --name 'Alice Johnson' --email alice.johnson@example.com --age 30 --salary 75000",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
     },
     {
       "intent_id": "I3",
-      "text": "I can retrieve a specific employee by their name or email.",
+      "command": "get-by_email",
+      "invocation": "python3 cli.py get-by_email --email alice.johnson@example.com",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    }
+  ],
+  "unmapped": [
+    {
+      "intent_id": "I2",
+      "text": "I can retrieve a list of all employees.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     },

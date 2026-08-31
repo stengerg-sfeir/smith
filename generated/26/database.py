@@ -60,14 +60,16 @@ def create_tables(conn: sqlite3.Connection) -> None:
             author TEXT NOT NULL,
             isbn TEXT NOT NULL,
             available BOOLEAN NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(isbn)
         );
 
         CREATE TABLE IF NOT EXISTS members (
             name TEXT NOT NULL,
             email TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone TEXT
+            phone TEXT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS loans (

@@ -153,3 +153,8 @@ class ReservationRepository:
             end_date=end_date,
         )
 
+
+    def get_reservations_by_room(self, *args, **kwargs):
+        return self.list_reservations_by_room(*args, **kwargs)
+
+

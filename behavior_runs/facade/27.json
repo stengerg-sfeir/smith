@@ -62,10 +62,248 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "reservation-create",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--room-id"
+            ],
+            "dest": "room_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_reservation"
+      },
+      {
+        "name": "reservation-get_by_id",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_reservation_by_id"
+      },
+      {
+        "name": "reservation-list_by_customer",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_reservations_by_customer"
+      },
+      {
+        "name": "reservation-list_by_room",
+        "options": [
+          {
+            "names": [
+              "--room-id"
+            ],
+            "dest": "room_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_reservations_by_room"
+      },
+      {
+        "name": "reservation-overlapping_with_date",
+        "options": [
+          {
+            "names": [
+              "--room-id"
+            ],
+            "dest": "room_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_reservations_overlapping_with_date"
+      },
+      {
+        "name": "reservation-count_by_room",
+        "options": [],
+        "arguments": [],
+        "target": "get_reservation_count_by_room"
+      },
+      {
+        "name": "reservation-by_status",
+        "options": [
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_reservations_by_status"
+      },
+      {
+        "name": "reservation-total_by_customer",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_reservations_by_customer"
+      },
+      {
+        "name": "reservation-available_for_date_range",
+        "options": [
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_available_rooms_for_date_range"
+      },
+      {
+        "name": "reservation-overlap_report",
+        "options": [
+          {
+            "names": [
+              "--room-id"
+            ],
+            "dest": "room_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--start-date"
+            ],
+            "dest": "start_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--end-date"
+            ],
+            "dest": "end_date",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_overlapping_reservations_report"
+      },
+      {
+        "name": "reservation-validate",
+        "options": [
+          {
+            "names": [
+              "--reservation"
+            ],
+            "dest": "reservation",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "validate_reservation_overlap"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

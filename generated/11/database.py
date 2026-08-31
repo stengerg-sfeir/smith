@@ -60,7 +60,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             author TEXT NOT NULL,
             isbn TEXT NOT NULL,
             publication_year INTEGER NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(isbn)
         );"""
     )
     conn.commit()

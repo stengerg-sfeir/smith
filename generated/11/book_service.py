@@ -61,3 +61,7 @@ class BookService:
         existing_book = self.book_repo.get_books_by_isbn(isbn)
         return existing_book is None
 
+    def add_book(self, title: str, author: str, isbn: str, publication_year: int) -> int:
+        book = Book(title=title, author=author, isbn=isbn, publication_year=publication_year)
+        return self.book_repo.create(book)
+

@@ -38,10 +38,167 @@
     }
   ],
   "facade": {
-    "entry": "",
-    "kind": "none",
-    "commands": [],
-    "invoker": ""
+    "entry": "cli.py",
+    "kind": "click_group",
+    "commands": [
+      {
+        "name": "deposit-create",
+        "options": [
+          {
+            "names": [
+              "--account-id"
+            ],
+            "dest": "account_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--amount"
+            ],
+            "dest": "amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_deposit"
+      },
+      {
+        "name": "withdrawal-create",
+        "options": [
+          {
+            "names": [
+              "--account-id"
+            ],
+            "dest": "account_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--amount"
+            ],
+            "dest": "amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "create_withdrawal"
+      },
+      {
+        "name": "balance-with_transaction_count",
+        "options": [
+          {
+            "names": [
+              "--account-id"
+            ],
+            "dest": "account_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_account_balance_with_transaction_count"
+      },
+      {
+        "name": "summary-customer",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--min-balance"
+            ],
+            "dest": "min_balance",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-balance"
+            ],
+            "dest": "max_balance",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_customer_accounts_summary"
+      },
+      {
+        "name": "export-transactions",
+        "options": [
+          {
+            "names": [
+              "--account-id"
+            ],
+            "dest": "account_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--file-path"
+            ],
+            "dest": "file_path",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "export_account_transactions_to_csv"
+      },
+      {
+        "name": "risk-negative_after_withdrawal",
+        "options": [
+          {
+            "names": [
+              "--account-id"
+            ],
+            "dest": "account_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--withdrawal-amount"
+            ],
+            "dest": "withdrawal_amount",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "find_accounts_with_negative_balance_after_withdrawal"
+      },
+      {
+        "name": "total-total_balance",
+        "options": [],
+        "arguments": [],
+        "target": "get_total_balance_by_customer"
+      }
+    ],
+    "invoker": "cli"
   },
   "generated_exists": true,
   "status": "ok"

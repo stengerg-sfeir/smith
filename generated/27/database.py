@@ -59,7 +59,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             name TEXT NOT NULL,
             email TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone TEXT
+            phone TEXT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS rooms (
@@ -67,7 +68,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             floor INTEGER NOT NULL,
             capacity INTEGER NOT NULL,
             room_type TEXT NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(room_number)
         );
 
         CREATE TABLE IF NOT EXISTS reservations (
@@ -84,7 +86,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def init_database(db_path: str = "reservation.db") -> sqlite3.Connection:
+def init_database(db_path: str = "app.db") -> sqlite3.Connection:
     """Initialize database with tables and return connection."""
     conn = get_db_connection(db_path)
     create_tables(conn)
