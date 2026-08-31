@@ -90,9 +90,9 @@ def _infer_manifest_kind(stem):
         return "exceptions"
     if "model" in stem:
         return "models"
-    if stem.endswith("_repository") or stem in ("repository", "repositories"):
     if "repository" in stem and ("interface" in stem or "abstract" in stem):
         return "repository_interface"
+    if stem.endswith("_repository") or stem in ("repository", "repositories"):
         return "repository"
     if stem.endswith("_service") or stem in ("service", "services"):
         return "service"
@@ -602,13 +602,13 @@ def _v_methods(d, label):
             if not isinstance(p.get("name"), str) or not _NAME_SNAKE.match(p.get("name")):
                 errs.append("%s.%s: bad param %r" % (label, nm, p.get("name")))
         errs.extend(_v_impl(m, label))
-    return errs
         calls = m.get("calls")
         if calls is not None and (
             not isinstance(calls, list)
             or not all(isinstance(call, str) and call.strip() for call in calls)
         ):
             errs.append("%s.%s: calls must be an array of non-empty strings" % (label, nm))
+    return errs
 
 
 # --- design-time inter-file feasibility -------------------------------------

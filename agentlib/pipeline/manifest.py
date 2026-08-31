@@ -17,6 +17,7 @@ from agentlib.pipeline.design import (
     _fmt_design_context,
     _design_cli,
 )
+from agentlib.pipeline.intents import extract_intentions, compute_needs_cli
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.generation.service_render import (
     _apply_filter_floors,
@@ -61,6 +62,25 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             print("    Manifest failed; generation aborted (no fallback)")
         return None, None
     manifest, db_file = _validate_manifest(layout)
+
+    # Intent-based CLI gate: if the LLM layout design omitted a command-line
+    # surface but the extracted user intentions describe data-management
+    # capabilities (CRUD / reports / exports), the app is a CLI application.
+    # Inject a cli spec so the deterministic design/render phase synthesizes
+    # one. Never inject when the manifest already declared a CLI; degrade
+    # gracefully (no CLI) when the intent oracle yields nothing.
+    if not any(s["kind"] == "cli" for s in manifest):
+        intentions = extract_intentions(prompt_text, verbose=verbose)
+        if compute_needs_cli(intentions):
+            manifest.append({
+                "file": "cli.py",
+                "role": "command-line interface",
+                "kind": "cli",
+                "entity": "",
+                "imports_from": [],
+            })
+            if verbose:
+                print("    Intent gate: CLI required — injecting cli.py")
 
     designs = []  # (path, kind, data)
     entities_by_class = {}

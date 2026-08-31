@@ -46,7 +46,7 @@ class ProductRepository:
                 query += ' AND category_id = ?'
                 params.append(category_id)
             if low_only is not None:
-                query += ' AND low_active = ?'
+                query += ' AND stock_qty <= ?'
                 params.append(low_only)
             if name is not None:
                 query += ' AND name = ?'
