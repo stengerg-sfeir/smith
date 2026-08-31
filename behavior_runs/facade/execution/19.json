@@ -61,7 +61,7 @@
     {
       "intent_id": "I4",
       "command": "task-delete",
-      "invocation": "python3 cli.py task-delete --task-id 5",
+      "invocation": "python3 cli.py task-delete --task-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,

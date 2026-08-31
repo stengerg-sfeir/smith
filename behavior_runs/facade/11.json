@@ -58,7 +58,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "book-create",
+        "name": "book-add",
         "options": [
           {
             "names": [
@@ -102,9 +102,98 @@
       },
       {
         "name": "book-list",
-        "options": [],
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--author"
+            ],
+            "dest": "author",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year"
+            ],
+            "dest": "publication_year",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year-end"
+            ],
+            "dest": "publication_year_end",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
         "arguments": [],
-        "target": "list_all_books"
+        "target": "list_book"
+      },
+      {
+        "name": "book-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--author"
+            ],
+            "dest": "author",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--isbn"
+            ],
+            "dest": "isbn",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year"
+            ],
+            "dest": "publication_year",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_book"
       },
       {
         "name": "book-search",
@@ -120,45 +209,23 @@
           }
         ],
         "arguments": [],
-        "target": "search_books_by_title_or_isbn"
+        "target": "search_book"
       },
       {
         "name": "book-delete",
         "options": [
           {
             "names": [
-              "--isbn"
+              "--id"
             ],
-            "dest": "isbn",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
         "target": "delete_book"
-      },
-      {
-        "name": "book-stats",
-        "options": [
-          {
-            "names": [
-              "--top-n"
-            ],
-            "dest": "top_n",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_books_with_most_popular_authors"
-      },
-      {
-        "name": "book-count",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_books_count"
       }
     ],
     "invoker": "cli"

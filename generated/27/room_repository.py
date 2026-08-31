@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from database import Database
-from models import Reservation, Room
+from models import Room
 
 
 class RoomRepository:
@@ -37,7 +37,7 @@ class RoomRepository:
             ).fetchall()
             return [Room(**dict(r)) for r in rows]
 
-    def list(self, room_number: Optional[Any] = None, floor: Optional[Any] = None, room_type: Optional[Any] = None, min_capacity: Optional[Any] = None) -> List[Room]:
+    def list(self, room_number: Optional[Any] = None, floor: Optional[Any] = None, room_type: Optional[Any] = None, capacity: Optional[Any] = None, max_capacity: Optional[Any] = None, min_capacity: Optional[Any] = None) -> List[Room]:
         with self.db.connect() as conn:
             query = "SELECT * FROM rooms WHERE 1=1"
             params: List[Any] = []
@@ -50,6 +50,12 @@ class RoomRepository:
             if room_type is not None:
                 query += ' AND room_type = ?'
                 params.append(room_type)
+            if capacity is not None:
+                query += ' AND capacity = ?'
+                params.append(capacity)
+            if max_capacity is not None:
+                query += ' AND capacity <= ?'
+                params.append(max_capacity)
             if min_capacity is not None:
                 query += ' AND capacity >= ?'
                 params.append(min_capacity)
@@ -83,13 +89,9 @@ class RoomRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def get_room_by_id(self, room_id: int) -> Optional[Room]:
-        with self.db.connect() as conn:
-            row = conn.execute('SELECT * FROM rooms WHERE id = ?', (room_id,)).fetchone()
-            return Room(**dict(row)) if row else None
-
-    def list_rooms_by_floor(self, floor: int) -> list[Room]:
+    def get_room_by_number_and_floor(self, room_number: str, floor: int) -> Optional[Room]:
         return self.list(
+            room_number=room_number,
             floor=floor,
         )
 
@@ -98,31 +100,40 @@ class RoomRepository:
             room_type=room_type,
         )
 
-    def get_available_room_count_by_floor(self, floor: int) -> int:
-        return self.list(
-            floor=floor,
-        )
-
-    def get_rooms_with_capacity_above(self, min_capacity: int) -> list[Room]:
+    def list_rooms_with_available_capacity(self, min_capacity: int, max_capacity: int) -> list[Room]:
         return self.list(
             min_capacity=min_capacity,
+            max_capacity=max_capacity,
         )
 
-    def get_rooms_with_overlapping_reservations(self, room_id: int, start_date: str, end_date: str) -> list[Reservation]:
+    def get_room_availability_for_date_range(self, room_id: int, start_date: str, end_date: str) -> bool:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT r.* FROM reservations r \n                   WHERE r.room_id = ? \n                   AND r.start_date < ? \n                   AND r.end_date > ?', (room_id, end_date, start_date)).fetchall()
-            return [Reservation(**dict(r)) for r in rows]
+            cursor = conn.execute('\n                SELECT 1 \n                FROM reservations \n                WHERE room_id = ? \n                AND start_date < ? \n                AND end_date > ?\n                ', (room_id, end_date, start_date))
+            return not cursor.fetchall()
 
-    def get_rooms_with_active_reservations(self) -> list[Room]:
+    def get_rooms_with_overlapping_reservations(self, start_date: str, end_date: str) -> list[Room]:
         with self.db.connect() as conn:
-            rows = conn.execute("SELECT r.*, rooms.* FROM reservations r \n                   JOIN rooms ON r.room_id = rooms.id \n                   WHERE r.status = 'active'").fetchall()
-            return [Room(**dict(r)) for r in rows]
+            cursor = conn.execute('\n                SELECT r.id, r.room_id, r.start_date, r.end_date, r.status, \n                rooms.room_number, rooms.room_type, rooms.capacity, rooms.floor\n                FROM reservations r\n                JOIN rooms ON r.room_id = rooms.id\n                WHERE r.start_date < ? AND r.end_date > ?\n                ', (end_date, start_date))
+            rows = cursor.fetchall()
+            return [Room(**dict(row)) for row in rows]
 
-    def get_rooms_by_room_number_pattern(self, pattern: str) -> list[Room]:
+    def get_rooms_by_floor_and_capacity_range(self, floor: int, min_capacity: int, max_capacity: int) -> list[Room]:
+        return self.list(
+            floor=floor,
+            min_capacity=min_capacity,
+            max_capacity=max_capacity,
+        )
+
+    def get_total_rooms_by_type(self) -> dict[str, int]:
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM rooms WHERE (room_number LIKE ? OR room_type LIKE ?)",
-                ("%" + pattern + "%", "%" + pattern + "%")
+                "SELECT room_id AS k, COUNT(*) AS n FROM reservations GROUP BY room_id ORDER BY n DESC"
             ).fetchall()
-            return [Room(**dict(r)) for r in rows]
+            return {r["k"]: int(r["n"]) for r in rows}
+
+    def get_rooms_with_pending_reservations(self) -> list[Room]:
+        with self.db.connect() as conn:
+            cursor = conn.execute("\n                SELECT r.id, r.room_id, r.start_date, r.end_date, r.status, \n                rooms.room_number, rooms.room_type, rooms.capacity, rooms.floor\n                FROM reservations r\n                JOIN rooms ON r.room_id = rooms.id\n                WHERE r.status = 'pending'\n                ")
+            rows = cursor.fetchall()
+            return [Room(**dict(row)) for row in rows]
 

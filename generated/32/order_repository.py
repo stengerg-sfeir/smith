@@ -38,7 +38,7 @@ class OrderRepository:
             ).fetchall()
             return [Order(**dict(r)) for r in rows]
 
-    def list(self, status: Optional[Any] = None, created_at: Optional[Any] = None, customer_id: Optional[Any] = None, total_amount: Optional[Any] = None, max_amount: Optional[Any] = None, min_amount: Optional[Any] = None) -> List[Order]:
+    def list(self, status: Optional[Any] = None, created_at: Optional[Any] = None, customer_id: Optional[Any] = None, total_amount: Optional[Any] = None) -> List[Order]:
         with self.db.connect() as conn:
             query = "SELECT * FROM orders WHERE 1=1"
             params: List[Any] = []
@@ -54,12 +54,6 @@ class OrderRepository:
             if total_amount is not None:
                 query += ' AND total_amount = ?'
                 params.append(total_amount)
-            if max_amount is not None:
-                query += ' AND total_amount <= ?'
-                params.append(max_amount)
-            if min_amount is not None:
-                query += ' AND total_amount >= ?'
-                params.append(min_amount)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Order(**dict(r)) for r in rows]
 
@@ -106,11 +100,10 @@ class OrderRepository:
             ).fetchall()
             return {r["k"]: float(r["v"] or 0) for r in rows}
 
-    def get_orders_with_customer_count(self) -> list[dict[str, any]]:
-        with self.db.connect() as conn:
-            query = '\n                SELECT \n                    o.id,\n                    o.customer_id,\n                    o.created_at,\n                    o.status,\n                    o.total_amount,\n                    o.updated_at,\n                    1 AS customer_count\n                FROM orders o\n            '
-            rows = conn.execute(query).fetchall()
-            return [dict(r) for r in rows]
+    def get_orders_with_customer_name(self, customer_id: int) -> list[Order]:
+        return self.list(
+            customer_id=customer_id,
+        )
 
     def get_pending_orders_count(self) -> int:
         with self.db.connect() as conn:
@@ -140,17 +133,23 @@ class OrderRepository:
             ).fetchone()
             return int(row["n"])
 
-    def get_orders_with_latest_status_change(self) -> list[Order]:
+    def get_order_report_by_month(self) -> dict[str, dict[str, int]]:
         with self.db.connect() as conn:
-            query = '\n                SELECT \n                    id,\n                    customer_id,\n                    created_at,\n                    status,\n                    total_amount,\n                    updated_at\n                FROM orders\n            '
-            row = conn.execute(query).fetchone()
-            if row is None:
-                return []
-            return [Order(**dict(row))]
+            rows = conn.execute('SELECT substr(created_at, 1, 7) as month, count(*) as count FROM orders GROUP BY substr(created_at, 1, 7)').fetchall()
+            report = {}
+            for row in rows:
+                month = row[0]
+                count = row[1]
+                report[month] = {'count': count}
+            return report
 
-    def get_orders_with_total_amount_range(self, min_amount: float, max_amount: float) -> list[Order]:
-        return self.list(
-            min_amount=min_amount,
-            max_amount=max_amount,
-        )
+    def get_orders_with_status_history(self, order_id: int) -> list[dict[str, any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute('SELECT o.id, o.customer_id, o.status, o.total_amount, o.created_at, o.updated_at FROM orders o WHERE o.id = ?', (order_id,)).fetchall()
+            if not rows:
+                raise OrderNotFoundError(f'Order with id {order_id} not found')
+            result = []
+            for row in rows:
+                result.append({'id': row[0], 'customer_id': row[1], 'status': row[2], 'total_amount': row[3], 'created_at': row[4], 'updated_at': row[5]})
+            return result
 

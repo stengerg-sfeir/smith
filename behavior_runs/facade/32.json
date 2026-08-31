@@ -58,7 +58,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "order-create",
+        "name": "order-add",
         "options": [
           {
             "names": [
@@ -66,6 +66,15 @@
             ],
             "dest": "customer_id",
             "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
             "required": true,
             "flag": false
           },
@@ -74,133 +83,77 @@
               "--total-amount"
             ],
             "dest": "total_amount",
-            "type": "int",
+            "type": "str",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "create_order"
+        "target": "add_order"
       },
       {
-        "name": "count-pending",
-        "options": [],
-        "arguments": [],
-        "target": "get_pending_orders_count"
-      },
-      {
-        "name": "count-confirmed",
-        "options": [],
-        "arguments": [],
-        "target": "get_confirmed_orders_count"
-      },
-      {
-        "name": "count-shipped",
-        "options": [],
-        "arguments": [],
-        "target": "get_shipped_orders_count"
-      },
-      {
-        "name": "count-cancelled",
-        "options": [],
-        "arguments": [],
-        "target": "get_cancelled_orders_count"
-      },
-      {
-        "name": "status-latest",
-        "options": [],
-        "arguments": [],
-        "target": "get_orders_with_latest_status_change"
-      },
-      {
-        "name": "status-total",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_orders_by_status"
-      },
-      {
-        "name": "status-range",
+        "name": "order-confirm",
         "options": [
           {
             "names": [
-              "--status"
+              "--id"
             ],
-            "dest": "status",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--start-date"
-            ],
-            "dest": "start_date",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--end-date"
-            ],
-            "dest": "end_date",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_orders_by_status_and_date_range"
+        "target": "confirm_order"
       },
       {
-        "name": "status-amount",
+        "name": "order-ship",
         "options": [
           {
             "names": [
-              "--min-amount"
+              "--id"
             ],
-            "dest": "min_amount",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--max-amount"
-            ],
-            "dest": "max_amount",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_orders_with_total_amount_range"
+        "target": "ship_order"
       },
       {
-        "name": "get-by_customer_and_status",
+        "name": "order-cancel",
         "options": [
           {
             "names": [
-              "--customer-id"
+              "--id"
             ],
-            "dest": "customer_id",
+            "dest": "id",
             "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--status"
-            ],
-            "dest": "status",
-            "type": "str",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_order_by_customer_and_status"
+        "target": "cancel_order"
+      },
+      {
+        "name": "order-check",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "check_order"
       }
     ],
     "invoker": "cli"

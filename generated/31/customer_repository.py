@@ -37,7 +37,7 @@ class CustomerRepository:
             ).fetchall()
             return [Customer(**dict(r)) for r in rows]
 
-    def list(self, name: Optional[Any] = None, email: Optional[Any] = None, phone: Optional[Any] = None, max_capacity: Optional[Any] = None, min_capacity: Optional[Any] = None) -> List[Customer]:
+    def list(self, name: Optional[Any] = None, email: Optional[Any] = None, phone: Optional[Any] = None, max_balance: Optional[Any] = None, min_balance: Optional[Any] = None) -> List[Customer]:
         with self.db.connect() as conn:
             query = "SELECT * FROM customers WHERE 1=1"
             params: List[Any] = []
@@ -50,12 +50,12 @@ class CustomerRepository:
             if phone is not None:
                 query += ' AND phone = ?'
                 params.append(phone)
-            if max_capacity is not None:
+            if max_balance is not None:
                 query += ' AND id <= ?'
-                params.append(max_capacity)
-            if min_capacity is not None:
+                params.append(max_balance)
+            if min_balance is not None:
                 query += ' AND id >= ?'
-                params.append(min_capacity)
+                params.append(min_balance)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Customer(**dict(r)) for r in rows]
 
@@ -85,40 +85,4 @@ class CustomerRepository:
             )
             conn.commit()
             return cur.rowcount > 0
-
-    def get_customer_by_id(self, customer_id: int) -> Optional[Customer]:
-        with self.db.connect() as conn:
-            row = conn.execute('SELECT * FROM customers WHERE id = ?', (customer_id,)).fetchone()
-            return Customer(**dict(row)) if row else None
-
-    def list_customers(self) -> list[Customer]:
-        with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM customers').fetchall()
-            return [Customer(**dict(r)) for r in rows]
-
-    def list_customers_with_reservations(self, include_details: bool) -> list[dict]:
-        with self.db.connect() as conn:
-            rows = conn.execute('\n                SELECT c.* \n                FROM customers c\n                LEFT JOIN reservations r ON c.id = r.customer_id\n            ').fetchall()
-            return [dict(row) for row in rows]
-
-    def get_customer_reservations_count(self, customer_id: int) -> int:
-        with self.db.connect() as conn:
-            row = conn.execute('SELECT COUNT(*) FROM reservations WHERE customer_id = ?', (customer_id,)).fetchone()
-            return row[0] if row else 0
-
-    def get_customers_with_active_reservations(self) -> list[Customer]:
-        with self.db.connect() as conn:
-            rows = conn.execute("\n                SELECT DISTINCT c.*\n                FROM customers c\n                JOIN reservations r ON c.id = r.customer_id\n                WHERE r.status = 'active'\n            ").fetchall()
-            return [Customer(**dict(r)) for r in rows]
-
-    def get_customers_by_email_domain(self, domain: str) -> list[Customer]:
-        with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM customers WHERE (name LIKE ? OR email LIKE ? OR phone LIKE ?)",
-                ("%" + domain + "%", "%" + domain + "%", "%" + domain + "%")
-            ).fetchall()
-            return [Customer(**dict(r)) for r in rows]
-
-    def get_customers_with_phone_prefix(self, prefix: str) -> list[Customer]:
-        return []
 

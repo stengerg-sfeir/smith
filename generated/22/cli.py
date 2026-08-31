@@ -8,67 +8,44 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('order-create')
-@click.option('--customer-name', required=True)
-@click.option('--items', required=True)
-def order_create(customer_name, items):
-    """order/create"""
+@cli.command('product-add')
+@click.option('--name', required=True)
+@click.option('--price', required=True)
+def product_add(name, price):
+    """product/add"""
     svc = OrderService(Database(DB_PATH))
-    result = svc.create_order(customer_name=customer_name, items=items)
+    result = svc.add_product(name=name, price=price)
 
 @cli.command('order-list')
 @click.option('--customer-name')
-@click.option('--start-date')
-@click.option('--end-date')
-def order_list(customer_name, start_date, end_date):
+@click.option('--created-at-from')
+@click.option('--created-at-to')
+def order_list(customer_name, created_at_from, created_at_to):
     """order/list"""
     svc = OrderService(Database(DB_PATH))
-    result = svc.list_orders_by_customer(customer_name=customer_name, start_date=start_date, end_date=end_date)
+    result = svc.list_order(customer_name=customer_name, created_at_from=created_at_from, created_at_to=created_at_to)
 
-@cli.command('get-total')
-@click.option('--order-id', type=int, required=True)
-def get_total(order_id):
-    """order/get/total"""
+@cli.command('product-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+@click.option('--price')
+def product_update(id, name, price):
+    """product/update"""
     svc = OrderService(Database(DB_PATH))
-    result = svc.get_order_total_amount(order_id=order_id)
+    result = svc.update_product(id=id, name=name, price=price)
 
-@cli.command('get-items')
-@click.option('--order-id', type=int, required=True)
-def get_items(order_id):
-    """order/get/items"""
+@cli.command('order-delete')
+@click.option('--id', type=int, required=True)
+def order_delete(id):
+    """order/delete"""
     svc = OrderService(Database(DB_PATH))
-    result = svc.get_order_with_items(order_id=order_id)
+    result = svc.delete_order(id=id)
 
-@cli.command('get-revenue')
-@click.option('--start-date')
-@click.option('--end-date')
-def get_revenue(start_date, end_date):
-    """order/get/revenue"""
+@cli.command('product-report')
+def product_report():
+    """product/report"""
     svc = OrderService(Database(DB_PATH))
-    result = svc.get_total_revenue_by_product(start_date=start_date, end_date=end_date)
-
-@cli.command('get-popular')
-def get_popular():
-    """order/get/popular"""
-    svc = OrderService(Database(DB_PATH))
-    result = svc.get_most_popular_product()
-
-@cli.command('get-over_limit')
-@click.option('--min-quantity', type=int, required=True)
-def get_over_limit(min_quantity):
-    """order/get/over_limit"""
-    svc = OrderService(Database(DB_PATH))
-    result = svc.get_orders_with_quantity_over_limit(min_quantity=min_quantity)
-
-@cli.command('order-export')
-@click.option('--file-path', required=True)
-@click.option('--customer-name')
-@click.option('--start-date')
-@click.option('--end-date')
-def order_export(file_path, customer_name, start_date, end_date):
-    """order/export"""
-    svc = OrderService(Database(DB_PATH))
-    result = svc.export_orders_to_csv(file_path=file_path, customer_name=customer_name, start_date=start_date, end_date=end_date)
+    result = svc.get_product_report()
 
 
 if __name__ == "__main__":

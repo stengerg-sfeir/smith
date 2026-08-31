@@ -353,10 +353,20 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
         if ref_ent:
             refs.append({"flag": flag, "entity": ref_ent})
             continue
-        # Targeted-PK reference: update/delete/get of an already-seeded row.
-        if (target_entity and not create_style
-                and field in pk_by_entity.get(target_entity, [])):
-            refs.append({"flag": flag, "entity": target_entity})
+        # Targeted-PK reference: update/delete/get, or a state transition
+        # (confirm/ship/cancel/approve) of an already-seeded row. A non-create
+        # command that targets an entity via any id-like option (--id,
+        # --<entity>_id, or a real PK field) requires that entity to exist
+        # first — the executor creates it, then substitutes the real id
+        # (prompt 32's order-confirm/ship/cancel).
+        if (target_entity and not create_style):
+            id_like = (
+                field in pk_by_entity.get(target_entity, [])
+                or field == _snake(target_entity) + "_id"
+                or field == "id"
+            )
+            if id_like:
+                refs.append({"flag": flag, "entity": target_entity})
     return creates, refs
 
 

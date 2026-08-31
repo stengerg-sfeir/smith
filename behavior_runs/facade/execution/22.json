@@ -1,17 +1,17 @@
 {
   "ident": "22",
   "generated_dir": "generated/22",
-  "status": "fail",
+  "status": "pass",
   "n_intentions": 6,
   "n_mapped": 4,
   "n_unmapped": 2,
-  "pass": 2,
-  "fail": 2,
+  "pass": 4,
+  "fail": 0,
   "results": [
     {
-      "intent_id": "I1",
-      "command": "order-create",
-      "invocation": "python3 cli.py order-create --customer-name 'John Doe' --items product1:5,product2:3",
+      "intent_id": "I2",
+      "command": "order-list",
+      "invocation": "python3 cli.py order-list --customer-name 'John Doe' --created-at-from 2023-01-01 --created-at-to 2023-12-31",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
@@ -19,19 +19,9 @@
       "stderr_tail": ""
     },
     {
-      "intent_id": "I2",
-      "command": "get-total",
-      "invocation": "python3 cli.py get-total --order-id 1",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
-      "stdout_tail": "",
-      "stderr_tail": "                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/cli.py\", line 33, in get_total\n    result = svc.get_order_total_amount(order_id=order_id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/order_service.py\", line 25, in get_order_total_amount\n    rows = self.order_item_repo.list(order_id=order_id)\n           ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'OrderService' object has no attribute 'order_item_repo'\n"
-    },
-    {
       "intent_id": "I5",
       "command": "order-list",
-      "invocation": "python3 cli.py order-list",
+      "invocation": "python3 cli.py order-list --customer-name 'Alice Smith' --created-at-from 2023-01-01 --created-at-to 2023-12-31",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
@@ -40,25 +30,35 @@
     },
     {
       "intent_id": "I6",
-      "command": "get-total",
-      "invocation": "python3 cli.py get-total --order-id 1",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
+      "command": "product-report",
+      "invocation": "python3 cli.py product-report",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": "                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/cli.py\", line 33, in get_total\n    result = svc.get_order_total_amount(order_id=order_id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/order_service.py\", line 25, in get_order_total_amount\n    rows = self.order_item_repo.list(order_id=order_id)\n           ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'OrderService' object has no attribute 'order_item_repo'\n"
+      "stderr_tail": ""
+    },
+    {
+      "intent_id": "I4",
+      "command": "order-delete",
+      "invocation": "python3 cli.py order-delete --id 123",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
     }
   ],
   "unmapped": [
     {
-      "intent_id": "I3",
-      "text": "I can update the quantity or unit price of a product in an existing order.",
+      "intent_id": "I1",
+      "text": "I can create a new order with one or more products, each with a specified quantity and unit price.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     },
     {
-      "intent_id": "I4",
-      "text": "I can delete an existing order.",
+      "intent_id": "I3",
+      "text": "I can update the quantity or unit price of a product in an existing order.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     }

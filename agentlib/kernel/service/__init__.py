@@ -7,6 +7,7 @@ name matches `impl["kind"]`, preserving the original `_IMPL_HANDLERS` mapping.
 from ..load import load_recipes_for
 from . import (  # noqa: F401  (import to register packages; pkgutil reads __path__)
     below_foreign_threshold,
+    count_by_group,
     duplicate_groups,
     export_csv,
     sum_by_group,

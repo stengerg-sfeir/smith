@@ -37,10 +37,13 @@ class UserRepository:
             ).fetchall()
             return [User(**dict(r)) for r in rows]
 
-    def list(self, email: Optional[Any] = None) -> List[User]:
+    def list(self, created_at: Optional[Any] = None, email: Optional[Any] = None) -> List[User]:
         with self.db.connect() as conn:
             query = "SELECT * FROM users WHERE 1=1"
             params: List[Any] = []
+            if created_at is not None:
+                query += ' AND created_at = ?'
+                params.append(created_at)
             if email is not None:
                 query += ' AND email = ?'
                 params.append(email)
@@ -91,7 +94,6 @@ class UserRepository:
         if created_before:
             query += ' AND created_at <= ?'
             params.append(created_before)
-        query += ' ORDER BY created_at DESC'
         with self.db.connect() as conn:
             rows = conn.execute(query, params).fetchall()
             return [Document(**dict(r)) for r in rows]
@@ -101,11 +103,26 @@ class UserRepository:
             row = conn.execute('SELECT COUNT(*) FROM documents WHERE user_id = ?', (user_id,)).fetchone()
             return row[0] if row else 0
 
+    def get_user_document_access_summary(self, user_id: int) -> dict:
+        with self.db.connect() as conn:
+            rows = conn.execute("\n                SELECT \n                    COUNT(*) as total_documents,\n                    COUNT(CASE WHEN updated_at >= datetime('now', '-30 days') THEN 1 END) as updated_in_last_30_days,\n                    COUNT(CASE WHEN created_at >= datetime('now', '-30 days') THEN 1 END) as created_in_last_30_days\n                FROM documents \n                WHERE user_id = ?\n            ", (user_id,)).fetchall()
+            result = rows[0] if rows else None
+            return {'total_documents': result[0] if result else 0, 'updated_in_last_30_days': result[1] if result else 0, 'created_in_last_30_days': result[2] if result else 0}
+
     def search_documents_by_title(self, query: str, user_id: int) -> list[Document]:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM documents WHERE user_id = ? AND title LIKE ? ORDER BY created_at DESC', (user_id, f'%{query}%')).fetchall()
+            rows = conn.execute('SELECT * FROM documents WHERE user_id = ? AND title LIKE ?', (user_id, f'%{query}%')).fetchall()
             return [Document(**dict(r)) for r in rows]
 
-    def get_user_document_permissions(self, user_id: int) -> dict[str, bool]:
-        return {'read': True, 'edit': False, 'delete': False}
+    def get_user_with_documents(self, user_id: int) -> dict[str, any]:
+        with self.db.connect() as conn:
+            rows = conn.execute('SELECT u.*, d.id as document_id, d.title, d.content, d.created_at, d.updated_at FROM users u LEFT JOIN documents d ON u.id = d.user_id WHERE u.id = ?', (user_id,)).fetchall()
+            user_data = rows[0] if rows else None
+            if not user_data:
+                return {}
+            user_dict = {'id': user_data[0], 'email': user_data[1], 'created_at': user_data[2], 'updated_at': user_data[3], 'documents': []}
+            for row in rows:
+                if row[4] is not None:
+                    user_dict['documents'].append({'id': row[4], 'title': row[5], 'content': row[6], 'created_at': row[7], 'updated_at': row[8]})
+            return user_dict
 

@@ -8,89 +8,68 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('reservation-create')
+@cli.command('reservation-add')
 @click.option('--customer-id', type=int, required=True)
 @click.option('--room-id', type=int, required=True)
-@click.option('--start-date', required=True)
-@click.option('--end-date', required=True)
-@click.option('--status')
-def reservation_create(customer_id, room_id, start_date, end_date, status):
-    """reservation/create"""
-    svc = ReservationService(Database(DB_PATH))
-    result = svc.create_reservation(customer_id=customer_id, room_id=room_id, start_date=start_date, end_date=end_date, status=status)
-
-@cli.command('reservation-get_by_id')
-@click.option('--id', type=int, required=True)
-def reservation_get_by_id(id):
-    """reservation/get_by_id"""
-    svc = ReservationService(Database(DB_PATH))
-    result = svc.get_reservation_by_id(reservation_id=id)
-
-@cli.command('reservation-list_by_customer')
-@click.option('--customer-id', type=int, required=True)
-def reservation_list_by_customer(customer_id):
-    """reservation/list_by_customer"""
-    svc = ReservationService(Database(DB_PATH))
-    result = svc.list_reservations_by_customer(customer_id=customer_id)
-
-@cli.command('reservation-list_by_room')
-@click.option('--room-id', type=int, required=True)
-def reservation_list_by_room(room_id):
-    """reservation/list_by_room"""
-    svc = ReservationService(Database(DB_PATH))
-    result = svc.list_reservations_by_room(room_id=room_id)
-
-@cli.command('reservation-overlapping_with_date')
-@click.option('--room-id', type=int, required=True)
-@click.option('--start-date', required=True)
-@click.option('--end-date', required=True)
-def reservation_overlapping_with_date(room_id, start_date, end_date):
-    """reservation/overlapping_with_date"""
-    svc = ReservationService(Database(DB_PATH))
-    result = svc.list_reservations_overlapping_with_date(room_id=room_id, start_date=start_date, end_date=end_date)
-
-@cli.command('reservation-count_by_room')
-def reservation_count_by_room():
-    """reservation/count_by_room"""
-    svc = ReservationService(Database(DB_PATH))
-    result = svc.get_reservation_count_by_room()
-
-@cli.command('reservation-by_status')
 @click.option('--status', required=True)
-def reservation_by_status(status):
-    """reservation/by_status"""
+def reservation_add(customer_id, room_id, status):
+    """reservation/add"""
     svc = ReservationService(Database(DB_PATH))
-    result = svc.get_reservations_by_status(status=status)
+    result = svc.add_reservation(customer_id=customer_id, room_id=room_id, status=status)
 
-@cli.command('reservation-total_by_customer')
-def reservation_total_by_customer():
-    """reservation/total_by_customer"""
+@cli.command('reservation-list')
+@click.option('--customer-id')
+@click.option('--room-id')
+@click.option('--start-date')
+@click.option('--end-date')
+@click.option('--status')
+def reservation_list(customer_id, room_id, start_date, end_date, status):
+    """reservation/list"""
     svc = ReservationService(Database(DB_PATH))
-    result = svc.get_total_reservations_by_customer()
+    result = svc.list_reservation(customer_id=customer_id, room_id=room_id, start_date=start_date, end_date=end_date, status=status)
 
-@cli.command('reservation-available_for_date_range')
-@click.option('--start-date', required=True)
-@click.option('--end-date', required=True)
-def reservation_available_for_date_range(start_date, end_date):
-    """reservation/available_for_date_range"""
+@cli.command('reservation-update')
+@click.option('--id', type=int, required=True)
+@click.option('--customer-id', type=int)
+@click.option('--room-id', type=int)
+@click.option('--status')
+def reservation_update(id, customer_id, room_id, status):
+    """reservation/update"""
     svc = ReservationService(Database(DB_PATH))
-    result = svc.get_available_rooms_for_date_range(start_date=start_date, end_date=end_date)
+    result = svc.update_reservation(id=id, customer_id=customer_id, room_id=room_id, status=status)
 
-@cli.command('reservation-overlap_report')
-@click.option('--room-id', type=int, required=True)
-@click.option('--start-date', required=True)
-@click.option('--end-date', required=True)
-def reservation_overlap_report(room_id, start_date, end_date):
-    """reservation/overlap_report"""
+@cli.command('reservation-delete')
+@click.option('--id', type=int, required=True)
+def reservation_delete(id):
+    """reservation/delete"""
     svc = ReservationService(Database(DB_PATH))
-    result = svc.get_overlapping_reservations_report(room_id=room_id, start_date=start_date, end_date=end_date)
+    result = svc.delete_reservation(id=id)
 
-@cli.command('reservation-validate')
-@click.option('--reservation', required=True)
-def reservation_validate(reservation):
-    """reservation/validate"""
+@cli.command('reservation-check')
+@click.option('--id', type=int, required=True)
+def reservation_check(id):
+    """reservation/check"""
     svc = ReservationService(Database(DB_PATH))
-    result = svc.validate_reservation_overlap(reservation=reservation)
+    result = svc.check_reservation(id=id)
+
+@cli.command('customer-add')
+@click.option('--name', required=True)
+@click.option('--email', required=True)
+@click.option('--phone')
+def customer_add(name, email, phone):
+    """customer/add"""
+    svc = ReservationService(Database(DB_PATH))
+    result = svc.add_customer(name=name, email=email, phone=phone)
+
+@cli.command('room-add')
+@click.option('--room-number', required=True)
+@click.option('--floor', type=int, required=True)
+@click.option('--capacity', type=int, required=True)
+@click.option('--room-type', required=True)
+def room_add(room_number, floor, capacity, room_type):
+    """room/add"""
+    svc = ReservationService(Database(DB_PATH))
+    result = svc.add_room(room_number=room_number, floor=floor, capacity=capacity, room_type=room_type)
 
 
 if __name__ == "__main__":

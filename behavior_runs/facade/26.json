@@ -34,119 +34,38 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "loan-create",
+        "name": "member-add",
         "options": [
           {
             "names": [
-              "--member-id"
+              "--name"
             ],
-            "dest": "member_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--book-id"
-            ],
-            "dest": "book_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--loan-date"
-            ],
-            "dest": "loan_date",
+            "dest": "name",
             "type": "str",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--due-date"
+              "--email"
             ],
-            "dest": "due_date",
+            "dest": "email",
             "type": "str",
             "required": true,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "create_loan"
-      },
-      {
-        "name": "loan-close",
-        "options": [
+          },
           {
             "names": [
-              "--loan-id"
+              "--phone"
             ],
-            "dest": "loan_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "close_loan"
-      },
-      {
-        "name": "loan-available_books",
-        "options": [],
-        "arguments": [],
-        "target": "get_available_books"
-      },
-      {
-        "name": "loan-by_member",
-        "options": [
-          {
-            "names": [
-              "--member-id"
-            ],
-            "dest": "member_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_loans_by_member"
-      },
-      {
-        "name": "loan-overdue",
-        "options": [],
-        "arguments": [],
-        "target": "get_overdue_loans"
-      },
-      {
-        "name": "loan-total_by_member",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_loans_by_member"
-      },
-      {
-        "name": "loan-active_count",
-        "options": [],
-        "arguments": [],
-        "target": "get_active_loans_count"
-      },
-      {
-        "name": "loan-after_return_date",
-        "options": [
-          {
-            "names": [
-              "--return-date"
-            ],
-            "dest": "return_date",
+            "dest": "phone",
             "type": "str",
-            "required": true,
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_loans_with_return_date_after"
+        "target": "add_member"
       }
     ],
     "invoker": "cli"

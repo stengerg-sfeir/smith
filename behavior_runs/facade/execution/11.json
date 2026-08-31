@@ -10,8 +10,8 @@
   "results": [
     {
       "intent_id": "I1",
-      "command": "book-create",
-      "invocation": "python3 cli.py book-create --title 'The Great Gatsby' --author 'F. Scott Fitzgerald' --isbn 978-0-7475-3269-9 --publication-year 1925",
+      "command": "book-add",
+      "invocation": "python3 cli.py book-add --title 'The Great Gatsby' --author 'F. Scott Fitzgerald' --isbn 978-0-7475-3269-9 --publication-year 1925",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
@@ -29,9 +29,9 @@
       "stderr_tail": ""
     },
     {
-      "intent_id": "I4",
-      "command": "book-search",
-      "invocation": "python3 cli.py book-search --term 'F. Scott Fitzgerald'",
+      "intent_id": "I3",
+      "command": "book-update",
+      "invocation": "python3 cli.py book-update --id 1 --title 'The Great Gatsby' --author 'F. Scott Fitzgerald' --isbn 978-0-7475-3269-9 --publication-year 1925",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
@@ -39,9 +39,9 @@
       "stderr_tail": ""
     },
     {
-      "intent_id": "I5",
-      "command": "book-delete",
-      "invocation": "python3 cli.py book-delete --isbn 978-0-7475-3269-9",
+      "intent_id": "I4",
+      "command": "book-search",
+      "invocation": "python3 cli.py book-search --term 'The Great Gatsby'",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
@@ -51,8 +51,8 @@
   ],
   "unmapped": [
     {
-      "intent_id": "I3",
-      "text": "I can update the details of an existing book, such as title, author, ISBN, or publication year.",
+      "intent_id": "I5",
+      "text": "I can delete a book from the library by its ISBN.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     },

@@ -1,13 +1,10 @@
 """Service layer."""
 from __future__ import annotations
 
-import csv
 import datetime
+from typing import Optional
 
 from database import Database
-from exceptions import (
-    NotFoundError,
-)
 from models import Order, Product
 from order_repository import OrderRepository
 
@@ -17,57 +14,28 @@ class OrderService:
         self.db = db
         self.order_repo = OrderRepository(db)
 
-    def create_order(self, customer_name: str, items: list[dict[str, any]]) -> int:
-        order = Order(customer_name=customer_name, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
-        return self.order_repo.create(order)
+    def add_product(self, name: str, price: str) -> None:
+        product = Product(name=name, price=price, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
+        return self.product_repo.create(product)
 
-    def get_order_total_amount(self, order_id: int) -> float:
-        rows = self.order_item_repo.list(order_id=order_id)
-        return sum(e.unit_price for e in rows)
+    def list_order(self, customer_name: Optional[str] = None, created_at_from: Optional[str] = None, created_at_to: Optional[str] = None) -> list[Order]:
+        return self.order_repo.list(customer_name=customer_name, created_at_from=created_at_from, created_at_to=created_at_to)
 
-    def list_orders_by_customer(self, customer_name: str, start_date: datetime, end_date: datetime) -> list[Order]:
+    def update_product(self, id: int, name: Optional[str] = None, price: Optional[str] = None) -> None:
+        data = {k: v for k, v in {'name': name, 'price': price}.items() if v is not None}
+        return self.product_repo.update(id, data)
+
+    def delete_order(self, id: int) -> None:
+        return self.order_repo.delete(id)
+
+    def get_product_report(self) -> dict:
         """
-            Retrieves orders for a specific customer within a date range.
+            Generates a product report that includes total revenue by product and the most popular product.
+            Returns a dictionary with:
+            - 'total_revenue_by_product': dict mapping product name to total revenue
+            - 'most_popular_product': Product object with the highest total quantity sold
             """
-        return self.order_repo.list_orders_by_customer(customer_name, start_date, end_date)
-
-    def get_order_with_items(self, order_id: int) -> OrderWithItems:
-        """
-            Retrieves an order with its associated items.
-            """
-        order = self.order_repo.get_order_with_items(order_id)
-        if not order:
-            raise NotFoundError(f'Order with id {order_id} not found')
-        return order
-
-    def get_total_revenue_by_product(self, start_date: datetime, end_date: datetime) -> dict[str, float]:
-        results = {}
-        for row in self.order_item_repo.list(start_date=start_date, end_date=end_date):
-            key = row.product_id
-            results[key] = results.get(key, 0) + row.unit_price
-        return results
-
-    def get_most_popular_product(self) -> Product:
-        """
-            Retrieves the product with the highest total quantity sold.
-            """
-        return self.order_repo.get_most_popular_product()
-
-    def get_orders_with_quantity_over_limit(self, min_quantity: int) -> list[Order]:
-        """
-            Retrieves orders where at least one item has a quantity exceeding the specified limit.
-            """
-        return self.order_repo.get_orders_with_quantity_over_limit(min_quantity)
-
-    def export_orders_to_csv(self, file_path: str, customer_name: str, start_date: datetime, end_date: datetime) -> None:
-        rows = self.order_repo.list(customer_name=customer_name, )
-        with open(file_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'id', 'customer_name', 'created_at', 'updated_at',
-            ])
-            for row in rows:
-                writer.writerow([
-                    row.id, row.customer_name, row.created_at, row.updated_at,
-                ])
+        revenue_by_product = self.order_repo.get_total_revenue_by_product(start_date=datetime.date(2023, 1, 1), end_date=datetime.date(2023, 12, 31))
+        most_popular_product = self.order_repo.get_most_popular_product()
+        return {'total_revenue_by_product': revenue_by_product, 'most_popular_product': most_popular_product}
 

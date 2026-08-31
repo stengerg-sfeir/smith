@@ -2,33 +2,28 @@
 from __future__ import annotations
 
 import datetime
+from typing import Dict, List, Optional
 
 from database import Database
-from exceptions import NotFoundError, ValidationException
-from models import Notification, Order
+from exceptions import NotFoundError
+from notification_repository import NotificationRepository
 
 
 class NotificationService:
     def __init__(self, db: Database) -> None:
         self.db = db
+        self.notification_repo = NotificationRepository(db)
 
-    def send_notification(self, order_id: int, message: str, sent_to: str) -> None:
-        """Send a notification to a specified recipient."""
-        order = self.db.order_repo.find_by_id(order_id)
-        if not order:
-            raise NotFoundError(f'Order with id {order_id} not found')
-        notification = Notification(id=None, message=message, order_id=order_id, sent_at=datetime.datetime.now(), sent_to=sent_to)
-        self.db.notification_repo.create(notification)
+    def confirm_notification(self, id: int) -> Optional[Dict[str, str]]:
+        notification = self.notification_repo.get_by_id(id)
+        if not notification:
+            raise NotFoundError(f'Notification with id {id} not found')
+        if notification.sent_at:
+            return None
+        notification.sent_at = datetime.datetime.now()
+        self.notification_repo.update(id, {'sent_at': notification.sent_at.isoformat()})
+        return {'id': notification.id, 'message': notification.message, 'order_id': notification.order_id, 'sent_at': notification.sent_at.isoformat()}
 
-    def send_confirmation_notification(self, order: Order) -> None:
-        """Send a confirmation notification for the given order."""
-        if not order:
-            raise ValidationException('Order must be provided')
-        message = f'Thank you for your order! Your order #{order.id} is confirmed and will be processed shortly.'
-        self.send_notification(order.id, message, order.customer_id)
-
-    def log_notification(self, order_id: int, message: str, sent_to: str) -> None:
-        """Log a notification (for audit purposes) without sending it."""
-        notification = Notification(id=None, message=message, order_id=order_id, sent_at=datetime.datetime.now(), sent_to=sent_to)
-        self.db.notification_repo.create(notification)
+    def list_notification(self, order_id: str, sent_at: str, sent_at_end: str) -> List[Dict[str, str]]:
+        return self.notification_repo.list(order_id=order_id, sent_at=sent_at, sent_at_end=sent_at_end)
 

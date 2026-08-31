@@ -8,39 +8,40 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('authenticate-login')
-@click.option('--email', required=True)
-@click.option('--password', required=True)
-def authenticate_login(email, password):
-    """user/authenticate/login"""
+@cli.command('documents-add')
+@click.option('--title', required=True)
+@click.option('--content', required=True)
+@click.option('--user-id', type=int, required=True)
+def documents_add(title, content, user_id):
+    """user/documents/add"""
     svc = AuthService(Database(DB_PATH))
-    result = svc.authenticate_user(email=email, password=password)
+    result = svc.add_document(title=title, content=content, user_id=user_id)
+
+@cli.command('documents-update')
+@click.option('--id', type=int, required=True)
+@click.option('--title')
+@click.option('--content')
+@click.option('--user-id', type=int, required=True)
+def documents_update(id, title, content, user_id):
+    """user/documents/update"""
+    svc = AuthService(Database(DB_PATH))
+    result = svc.update_document(id=id, title=title, content=content, user_id=user_id)
+
+@cli.command('documents-delete')
+@click.option('--id', type=int, required=True)
+def documents_delete(id):
+    """user/documents/delete"""
+    svc = AuthService(Database(DB_PATH))
+    result = svc.delete_user(id=id)
 
 @cli.command('documents-list')
-@click.option('--user-id', type=int, required=True)
-@click.option('--title-filter')
-@click.option('--created-after')
-@click.option('--created-before')
-def documents_list(user_id, title_filter, created_after, created_before):
+@click.option('--title')
+@click.option('--created-at')
+@click.option('--created-at-end')
+def documents_list(title, created_at, created_at_end):
     """user/documents/list"""
     svc = AuthService(Database(DB_PATH))
-    result = svc.get_user_documents(user_id=user_id, title_filter=title_filter, created_after=created_after, created_before=created_before)
-
-@cli.command('documents-search')
-@click.option('--user-id', type=int, required=True)
-@click.option('--query', required=True)
-def documents_search(user_id, query):
-    """user/documents/search"""
-    svc = AuthService(Database(DB_PATH))
-    result = svc.search_documents_by_user(user_id=user_id, query=query)
-
-@cli.command('documents-check_access')
-@click.option('--user-id', type=int, required=True)
-@click.option('--document-id', type=int, required=True)
-def documents_check_access(user_id, document_id):
-    """user/documents/check_access"""
-    svc = AuthService(Database(DB_PATH))
-    result = svc.check_document_access(user_id=user_id, document_id=document_id)
+    result = svc.list_document(title=title, created_at=created_at, created_at_end=created_at_end)
 
 
 if __name__ == "__main__":

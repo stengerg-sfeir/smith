@@ -447,8 +447,14 @@ def _resolve_flag_field(ent, stem):
     return col, ftype
 
 
-def _design_module(path, kind, prompt_text, context, verbose=False):
-    """One schema-constrained design call with one corrective retry."""
+def _design_module(path, kind, prompt_text, context, verbose=False,
+                   extra_context=None):
+    """One schema-constrained design call with one corrective retry.
+
+    ``extra_context`` is appended to the user prompt before "Emit the JSON
+    now." — used to pass a generated CLI surface to the service design so it
+    produces CLI-drivable (primitive-parameter) methods.
+    """
     schema = {
         "exceptions": _exceptions_schema,
         "models": _entities_schema,
@@ -460,8 +466,9 @@ def _design_module(path, kind, prompt_text, context, verbose=False):
         "SPECIFICATION:\n%s\n\n"
         "PROJECT LAYOUT SO FAR:\n%s\n\n"
         "FILE TO DESIGN: %s\n"
+        "%s"
         "Emit the JSON now."
-        % (prompt_text, context, path)
+        % (prompt_text, context, path, extra_context or "")
     )
     messages = [
         {"role": "system", "content": system},

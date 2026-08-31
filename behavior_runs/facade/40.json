@@ -34,67 +34,54 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "get",
+        "name": "notification-confirm",
         "options": [
           {
             "names": [
               "--id"
             ],
             "dest": "id",
-            "type": "str",
-            "required": false,
+            "type": "int",
+            "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": ""
+        "target": "confirm_notification"
       },
       {
-        "name": "update",
+        "name": "notification-list",
         "options": [
           {
             "names": [
-              "--id"
+              "--order-id"
             ],
-            "dest": "id",
+            "dest": "order_id",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--money"
+              "--sent-at"
             ],
-            "dest": "money",
+            "dest": "sent_at",
             "type": "str",
             "required": false,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": ""
-      },
-      {
-        "name": "delete",
-        "options": [
+          },
           {
             "names": [
-              "--id"
+              "--sent-at-end"
             ],
-            "dest": "id",
+            "dest": "sent_at_end",
             "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": ""
-      },
-      {
-        "name": "list_records",
-        "options": [],
-        "arguments": [],
-        "target": ""
+        "target": "list_notification"
       }
     ],
     "invoker": "cli"

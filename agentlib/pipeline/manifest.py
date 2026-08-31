@@ -16,8 +16,17 @@ from agentlib.pipeline.design import (
     _describe_design,
     _fmt_design_context,
     _design_cli,
+    _command_entity,
 )
-from agentlib.pipeline.intents import extract_intentions, compute_needs_cli
+from agentlib.pipeline.intents import (
+    extract_intentions,
+    compute_needs_cli,
+    _prompt_specifies_cli,
+)
+from agentlib.pipeline.cli_surface import (
+    derive_cli_surface,
+    cli_surface_constraint,
+)
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.generation.service_render import (
     _apply_filter_floors,
@@ -47,6 +56,57 @@ class _NoEntityScript(Exception):
     than failing outright."""
 
 
+def _synthesize_cli_repos(designs, entities_by_class, manifest):
+    """Back-propagate missing repository files from the CLI design.
+
+    A CLI command that references an entity (via its options/name) makes the
+    service header need ``self.<entity>_repo``. When ``<entity>_repository.py``
+    was never designed, the deterministic CRUD delegation would emit an
+    ``AttributeError`` at runtime (prompt 31's ``add_customer`` ->
+    ``self.customer_repo``, prompt 40's ``list_notification`` ->
+    ``self.notification_repo``). Synthesize the repo file: an empty customs
+    design renders a deterministic CRUD repository, and the service header
+    wires it on the next render pass.
+    """
+    if not designs:
+        return
+    cli_entries = [
+        d for p, k, d in designs
+        if k == "cli" and isinstance(d, dict)
+    ]
+    if not cli_entries:
+        return
+    existing_repo_stems = {
+        Path(path).stem
+        for path, kind, _ in designs
+        if kind == "repositories"
+    }
+    for cli_data in cli_entries:
+        for c in cli_data.get("commands") or []:
+            if not isinstance(c, dict):
+                continue
+            cls = _command_entity(c, entities_by_class)
+            if cls is None:
+                continue
+            ent = entities_by_class.get(cls)
+            if not isinstance(ent, dict):
+                continue
+            ent_snake = _snake(cls)
+            stem = ent_snake + "_repository"
+            if stem in existing_repo_stems:
+                continue
+            file_name = stem + ".py"
+            designs.append((file_name, "repositories", {"methods": []}))
+            existing_repo_stems.add(stem)
+            manifest.append({
+                "file": file_name,
+                "role": "data access",
+                "kind": "repository",
+                "entity": ent_snake,
+                "imports_from": ["models", "database"],
+            })
+
+
 def _manifest_first_blocks(prompt_text, verbose=False):
     """smith-style manifest-first pipeline.
 
@@ -63,24 +123,25 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         return None, None
     manifest, db_file = _validate_manifest(layout)
 
-    # Intent-based CLI gate: if the LLM layout design omitted a command-line
-    # surface but the extracted user intentions describe data-management
-    # capabilities (CRUD / reports / exports), the app is a CLI application.
-    # Inject a cli spec so the deterministic design/render phase synthesizes
-    # one. Never inject when the manifest already declared a CLI; degrade
-    # gracefully (no CLI) when the intent oracle yields nothing.
-    if not any(s["kind"] == "cli" for s in manifest):
-        intentions = extract_intentions(prompt_text, verbose=verbose)
-        if compute_needs_cli(intentions):
-            manifest.append({
-                "file": "cli.py",
-                "role": "command-line interface",
-                "kind": "cli",
-                "entity": "",
-                "imports_from": [],
-            })
-            if verbose:
-                print("    Intent gate: CLI required — injecting cli.py")
+    # Intent-based CLI gate: extract the user intentions ONCE (used both as
+    # the deterministic needs-CLI gate and, under Approach B, as the single
+    # source of truth for the CLI surface + service constraint). If the LLM
+    # layout omitted a CLI but the intentions describe data-management
+    # capabilities, inject a cli spec. Never inject when the manifest already
+    # declared a CLI.
+    intentions = extract_intentions(prompt_text, verbose=verbose)
+    manifest_has_cli = any(s["kind"] == "cli" for s in manifest)
+    needs_cli = manifest_has_cli or compute_needs_cli(intentions)
+    if needs_cli and not manifest_has_cli:
+        manifest.append({
+            "file": "cli.py",
+            "role": "command-line interface",
+            "kind": "cli",
+            "entity": "",
+            "imports_from": [],
+        })
+        if verbose:
+            print("    Intent gate: CLI required — injecting cli.py")
 
     designs = []  # (path, kind, data)
     entities_by_class = {}
@@ -88,9 +149,10 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if verbose:
         print("    Design phase (schema-constrained JSON)...")
 
-    def _design_into(path, kind, context):
+    def _design_into(path, kind, context, extra_context=None):
         """One schema-constrained design call, appended to `designs`."""
-        data = _design_module(path, kind, prompt_text, context, verbose)
+        data = _design_module(path, kind, prompt_text, context, verbose,
+                              extra_context=extra_context)
         if data is None:
             print("    [design] %s: FAILED" % path, file=sys.stderr)
             return None
@@ -199,16 +261,30 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         kept.append(spec)
     manifest[:] = kept
 
+    # Approach B: derive the CLI command surface from the user intentions,
+    # now that the designed entities are known (options are enriched from
+    # entity fields). This is the single source of truth for the CLI tree and
+    # the service-design constraint. Only meaningful when the app is a CLI.
+    cli_surface = None
+    if needs_cli and entities_by_class:
+        cli_surface = derive_cli_surface(
+            intentions, prompt_text, entities_by_class, verbose=verbose
+        )
+
     # 3. repositories (custom methods only; CRUD is generated)
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
     for rp in repo_paths:
         if _design_into(rp, "repositories", _fmt_design_context(designs)) is None:
             return None, None
 
-    # 4. services
+    # 4. services (constrained to the CLI surface, so every method is
+    # CLI-drivable — primitive params, one method per command; no whole-object
+    # signatures that would make the CLI sanitizer drop commands).
     svc_paths = [s["file"] for s in manifest if s["kind"] == "service"]
+    svc_constraint = cli_surface_constraint(cli_surface) if cli_surface else ""
     for sp in svc_paths:
-        if _design_into(sp, "services", _fmt_design_context(designs)) is None:
+        if _design_into(sp, "services", _fmt_design_context(designs),
+                        extra_context=svc_constraint) is None:
             return None, None
 
     # 5. CLI (targets constrained to designed service methods).
@@ -220,8 +296,18 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     svc_design = next((d for p, k, d in designs if k == "services"), None)
     service_methods = (svc_design or {}).get("methods") or []
     cli_failed = False
+    # Approach B: for non-explicit prompts, the CLI command tree is the
+    # intent-derived deterministic surface (no independent LLM design).
+    # For prompts that name a CLI explicitly (click/argparse/`--flag`), keep
+    # the LLM design — the constrained service now wires its targets cleanly.
+    explicit_cli = _prompt_specifies_cli(prompt_text) or any(
+        (i.get("cli_command") or "").strip() for i in intentions
+    )
     for cp in cli_paths:
-        data = _design_cli(prompt_text, _fmt_design_context(designs), service_methods, verbose)
+        if explicit_cli or cli_surface is None:
+            data = _design_cli(prompt_text, _fmt_design_context(designs), service_methods, verbose)
+        else:
+            data = cli_surface
         if data is None:
             print("    [design] %s: FAILED (will generate via per-file path)" % cp, file=sys.stderr)
             cli_failed = True
@@ -240,6 +326,15 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         if verbose:
             print("      - %s [cli] commands=%d"
                   % (cp, len(data.get("commands") or [])))
+
+    # Famille 1: back-propagate missing repository files. A CLI command that
+    # references an entity (add_customer -> Customer) makes the service header
+    # need self.<entity>_repo; if <entity>_repository.py was never designed,
+    # the deterministic CRUD delegation would emit an AttributeError at
+    # runtime. Synthesize the repo (empty customs -> deterministic CRUD).
+    _synthesize_cli_repos(designs, entities_by_class, manifest)
+    # Recompute repo_paths to include any repository file synthesized above.
+    repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
 
     # Deterministic floor for list_filters: cover the parameters the
     # designed service/repository signatures actually use. Declarations

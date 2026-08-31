@@ -76,6 +76,7 @@ def _impl_bindings_ok(impl, m, entities_by_class):
         "export_csv": (),
         "duplicate_groups": (),
         "sum_by_group": ("value_field",),
+        "count_by_group": (),
         "below_foreign_threshold": ("value_field", "fk_field"),
     }.get(kind)
     if field_keys is None:
@@ -91,7 +92,7 @@ def _impl_bindings_ok(impl, m, entities_by_class):
         if impl.get(key) not in params:
             return None, None
     gb = impl.get("group_by")
-    if kind in ("duplicate_groups", "sum_by_group"):
+    if kind in ("duplicate_groups", "sum_by_group", "count_by_group"):
         if not isinstance(gb, list) or not gb or any(g not in fields for g in gb):
             return None, None
     if kind == "below_foreign_threshold":

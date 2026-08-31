@@ -9,7 +9,7 @@ import ast
 import re
 from pathlib import Path
 
-from ..naming import _camel, _plural, _snake
+from ..naming import _camel, _entity_table_name, _plural, _snake
 from ..llm.fill import _llm_fill
 from ..kernel.service import dispatch_impl_body
 from ..kernel.service.common import _filter_params
@@ -18,6 +18,61 @@ from ..kernel.repo.variant import _existing_variant_alias, _render_variant_alias
 from .helpers import _method_stub_code
 from .repo_render import _repo_dict_keys
 from .splice import _fn_has_stub_raise, _merge_stub_bodies
+
+
+def _bulk_update_spec(attr, meth, entities_by_class):
+    """Resolve a ``bulk_update_<col>`` repo-method spec against the design.
+
+    Bounded: the method must be named ``bulk_update_<col>`` where ``<col>``
+    resolves (exact, then unique prefix/suffix) to ONE non-id field of the
+    repo's OWN entity. The synthesized repo method takes ``(ids, value)`` so
+    the service fill's positional call (product_ids, new_stock_quantity)
+    binds without name heuristics. Returns None when not resolvable.
+    """
+    if not (meth or "").startswith("bulk_update_"):
+        return None
+    ent_snake = attr[:-len("_repo")] if attr.endswith("_repo") else attr
+    cls = _camel(ent_snake)
+    ent = entities_by_class.get(cls)
+    if not isinstance(ent, dict):
+        return None
+    col_suffix = meth[len("bulk_update_"):]
+    fields = {
+        f.get("name"): f
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+    col = None
+    if col_suffix in fields:
+        col = col_suffix
+    else:
+        cands = [
+            f for f in fields
+            if f.startswith(col_suffix + "_") or f.endswith("_" + col_suffix)
+        ]
+        if len(cands) == 1:
+            col = cands[0]
+    if col is None or col == "id":
+        return None
+    return {
+        "meth": meth,
+        "col": col,
+        "table": _entity_table_name(ent),
+    }
+
+
+def _render_bulk_update(spec):
+    """Deterministic repo body for a ``bulk_update_<col>`` method."""
+    return (
+        "    def %(meth)s(self, ids, value):\n"
+        "        with self.db.connect() as conn:\n"
+        "            cur = conn.cursor()\n"
+        "            for pid in ids:\n"
+        "                cur.execute(\"UPDATE %(table)s SET %(col)s = ? \"\n"
+        "                            \"WHERE id = ?\", (value, pid))\n"
+        "            conn.commit()\n"
+        "        return True\n" % spec
+    )
 
 
 def _zero_param_dict_repo_customs(designs, entities_by_class):
@@ -480,13 +535,25 @@ def _apply_impl_floors(entities_by_class, designs):
             if not isinstance(m, dict) or m.get("impl") is not None:
                 continue
             mname = m.get("name") or ""
+            returns = m.get("returns") or ""
+            low_ret = returns.lower()
+            grouped = (
+                "list" in low_ret
+                and ("Dict" in returns or "dict" in returns)
+            )
+            # CRUD verbs (add/create/update/delete/get/search/find) are
+            # rendered deterministically via generic delegation — never stamp
+            # an aggregate impl over them.
             if re.match(
-                r"^(add|create|update|delete|remove|set|list|get|search|find)_",
+                r"^(add|create|update|delete|remove|set|get|search|find)_",
                 mname,
             ):
                 continue
-            returns = m.get("returns") or ""
-            low_ret = returns.lower()
+            # list_<entity> returns List[Entity] for a plain CRUD list; a
+            # List[Dict] return is a grouped report — let the grouped-count
+            # floor handle it (prompt 27's list_reservation).
+            if mname.startswith("list_") and not grouped:
+                continue
             if (
                 "Dict" not in returns and "dict" not in returns
                 and "int" not in low_ret and "float" not in low_ret
@@ -497,6 +564,36 @@ def _apply_impl_floors(entities_by_class, designs):
                 for p in (m.get("params") or [])
                 if isinstance(p, dict) and p.get("name")
             ]
+            # Grouped count: a List[Dict]-returning method whose params are all
+            # declared filters is a grouped report. Stamp count_by_group with
+            # group_by = the non-date/datetime filter params (the grouping
+            # dimensions); each row counts 1, never a date/numeric field
+            # (prompt 27's list_reservation did `0 + row.start_date`).
+            if grouped:
+                cand = next(
+                    (
+                        (cls_, ent_)
+                        for cls_, ent_ in entities_by_class.items()
+                        if params
+                        and set(params) <= set(_filter_params(ent_))
+                    ),
+                    None,
+                )
+                if cand is not None:
+                    cls_, ent_ = cand
+                    date_cols = {
+                        f["name"] for f in (ent_.get("fields") or [])
+                        if isinstance(f, dict)
+                        and f.get("type") in ("date", "datetime")
+                    }
+                    group_by = [p for p in params if p not in date_cols]
+                    if len(group_by) >= 2:
+                        m["impl"] = {
+                            "kind": "count_by_group",
+                            "entity": _snake(cls_),
+                            "group_by": group_by,
+                        }
+                        continue
             # unique aggregate-capable entity: exactly one date + one numeric
             cands = []
             for cls_, ent_ in entities_by_class.items():

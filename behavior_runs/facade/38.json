@@ -58,122 +58,131 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "authenticate-login",
+        "name": "documents-add",
         "options": [
           {
             "names": [
-              "--email"
+              "--title"
             ],
-            "dest": "email",
+            "dest": "title",
             "type": "str",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--password"
+              "--content"
             ],
-            "dest": "password",
+            "dest": "content",
             "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--user-id"
+            ],
+            "dest": "user_id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "authenticate_user"
+        "target": "add_document"
+      },
+      {
+        "name": "documents-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--content"
+            ],
+            "dest": "content",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--user-id"
+            ],
+            "dest": "user_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_document"
+      },
+      {
+        "name": "documents-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_user"
       },
       {
         "name": "documents-list",
         "options": [
           {
             "names": [
-              "--user-id"
+              "--title"
             ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--title-filter"
-            ],
-            "dest": "title_filter",
+            "dest": "title",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--created-after"
+              "--created-at"
             ],
-            "dest": "created_after",
+            "dest": "created_at",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--created-before"
+              "--created-at-end"
             ],
-            "dest": "created_before",
+            "dest": "created_at_end",
             "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_user_documents"
-      },
-      {
-        "name": "documents-search",
-        "options": [
-          {
-            "names": [
-              "--user-id"
-            ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--query"
-            ],
-            "dest": "query",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "search_documents_by_user"
-      },
-      {
-        "name": "documents-check_access",
-        "options": [
-          {
-            "names": [
-              "--user-id"
-            ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--document-id"
-            ],
-            "dest": "document_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "check_document_access"
+        "target": "list_document"
       }
     ],
     "invoker": "cli"

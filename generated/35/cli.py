@@ -8,52 +8,59 @@ DB_PATH = "inventory.db"
 def cli():
     """Application root."""
 
-@cli.command('crud-create')
+@cli.command('product-add')
 @click.option('--name', required=True)
 @click.option('--description')
-@click.option('--price', type=int, required=True)
+@click.option('--price', required=True)
 @click.option('--stock-quantity', type=int, required=True)
 @click.option('--category')
-def crud_create(name, description, price, stock_quantity, category):
-    """product/crud/create"""
+def product_add(name, description, price, stock_quantity, category):
+    """product/add"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.create_product(name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)
+    result = svc.add_product(name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)
 
-@cli.command('crud-update')
-@click.option('--product-id', type=int, required=True)
+@cli.command('product-list')
+@click.option('--name')
+@click.option('--category')
+@click.option('--price-min')
+@click.option('--price-max')
+@click.option('--stock-min')
+@click.option('--stock-max')
+def product_list(name, category, price_min, price_max, stock_min, stock_max):
+    """product/list"""
+    svc = ProductService(Database(DB_PATH))
+    result = svc.list_product(name=name, category=category, price_min=price_min, price_max=price_max, stock_min=stock_min, stock_max=stock_max)
+
+@cli.command('product-update')
+@click.option('--id', type=int, required=True)
 @click.option('--name')
 @click.option('--description')
-@click.option('--price', type=int)
+@click.option('--price')
 @click.option('--stock-quantity', type=int)
 @click.option('--category')
-def crud_update(product_id, name, description, price, stock_quantity, category):
-    """product/crud/update"""
+def product_update(id, name, description, price, stock_quantity, category):
+    """product/update"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.update_product(product_id=product_id, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)
+    result = svc.update_product(id=id, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)
 
-@cli.command('crud-delete')
-@click.option('--product-id', type=int, required=True)
-def crud_delete(product_id):
-    """product/crud/delete"""
+@cli.command('product-delete')
+@click.option('--id', type=int, required=True)
+def product_delete(id):
+    """product/delete"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.delete_product(product_id=product_id)
+    result = svc.delete_product(id=id)
 
-@cli.command('query-get_by_category_and_price_range')
+@cli.command('product-bulk-update')
+@click.option('--ids', required=True)
+@click.option('--name')
+@click.option('--description')
+@click.option('--price')
+@click.option('--stock-quantity', type=int)
 @click.option('--category')
-@click.option('--min-price', type=int)
-@click.option('--max-price', type=int)
-def query_get_by_category_and_price_range(category, min_price, max_price):
-    """product/query/get_by_category_and_price_range"""
+def product_bulk_update(ids, name, description, price, stock_quantity, category):
+    """product/bulk-update"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_by_category_and_price_range(category=category, min_price=min_price, max_price=max_price)
-
-@cli.command('bulk-bulk_update_stock')
-@click.option('--product-ids', required=True)
-@click.option('--new-stock-quantity', type=int, required=True)
-def bulk_bulk_update_stock(product_ids, new_stock_quantity):
-    """product/bulk/bulk_update_stock"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.bulk_update_stock(product_ids=product_ids, new_stock_quantity=new_stock_quantity)
+    result = svc.bulk_update_product(ids=ids, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)
 
 
 if __name__ == "__main__":

@@ -1,43 +1,31 @@
 {
   "ident": "26",
   "generated_dir": "generated/26",
-  "status": "fail",
+  "status": "no_mapped",
   "n_intentions": 3,
-  "n_mapped": 3,
-  "n_unmapped": 0,
-  "pass": 1,
-  "fail": 2,
-  "results": [
+  "n_mapped": 0,
+  "n_unmapped": 3,
+  "pass": 0,
+  "fail": 0,
+  "results": [],
+  "unmapped": [
     {
       "intent_id": "I1",
-      "command": "loan-create",
-      "invocation": "python3 cli.py loan-create --member-id 101 --book-id 501 --loan-date 2023-10-01 --due-date 2023-10-15",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
-      "stdout_tail": "",
-      "stderr_tail": "        ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/cli.py\", line 19, in loan_create\n    result = svc.create_loan(member_id=member_id, book_id=book_id, loan_date=loan_date, due_date=due_date)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/loan_service.py\", line 28, in create_loan\n    raise MemberNotFoundError(f'Member with id {member_id} not found')\nexceptions.MemberNotFoundError: Member with id 101 not found\n"
+      "text": "I can create a loan for a book by a member.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
     },
     {
       "intent_id": "I2",
-      "command": "loan-close",
-      "invocation": "python3 cli.py loan-close --loan-id 205",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
-      "stdout_tail": "",
-      "stderr_tail": "command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/cli.py\", line 26, in loan_close\n    result = svc.close_loan(loan_id=loan_id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/loan_service.py\", line 56, in close_loan\n    raise InvalidLoanStateException(f'Cannot close loan: {str(e)}')\nexceptions.InvalidLoanStateException: Cannot close loan: Loan with id 205 not found\n"
+      "text": "I can close an existing loan for a book.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
     },
     {
       "intent_id": "I3",
-      "command": "loan-available_books",
-      "invocation": "python3 cli.py loan-available_books",
-      "status": "pass",
-      "reason": "ok",
-      "exit_code": 0,
-      "stdout_tail": "",
-      "stderr_tail": ""
+      "text": "I can check which books are currently available for borrowing.",
+      "status": "unmapped",
+      "reason": "no facade command matched the intention"
     }
-  ],
-  "unmapped": []
+  ]
 }

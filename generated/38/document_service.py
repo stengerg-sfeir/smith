@@ -26,8 +26,8 @@ class AuthService:
     def list_document(self, title: Optional[str] = None, created_at: Optional[str] = None, created_at_end: Optional[str] = None) -> List[Dict[str, Any]]:
         results = {}
         for row in self.document_repo.list(title=title, created_at=created_at, created_at_end=created_at_end):
-            key = row.title
-            results[key] = results.get(key, 0) + row.content
+            key = (row.title, row.created_at)
+            results[key] = results.get(key, 0) + row.id
         return results
 
     def add_document(self, title: str, content: str, user_id: int) -> bool:
@@ -40,7 +40,4 @@ class AuthService:
 
     def delete_document(self, id: int) -> bool:
         return self.document_repo.delete(id)
-
-    def delete_user(self, id: int) -> bool:
-        return self.user_repo.delete(id)
 

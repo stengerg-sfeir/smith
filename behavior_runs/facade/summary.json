@@ -1,7 +1,474 @@
 {
-  "started_at": "2026-08-31T08:31:20.840087+00:00",
-  "total": 1,
+  "started_at": "2026-08-31T14:40:26.086010+00:00",
+  "total": 46,
   "results": [
+    {
+      "ident": "hello_world",
+      "status": "ok",
+      "n_intents": 1,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_command",
+      "facade_commands": 1
+    },
+    {
+      "ident": "cli_tool",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_command",
+      "facade_commands": 1
+    },
+    {
+      "ident": "inventory",
+      "status": "ok",
+      "n_intents": 12,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 11
+    },
+    {
+      "ident": "expenses",
+      "status": "ok",
+      "n_intents": 17,
+      "spec_levels": [
+        "explicit",
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 14
+    },
+    {
+      "ident": "library_system",
+      "status": "ok",
+      "n_intents": 9,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 9
+    },
+    {
+      "ident": "multi_module",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
+    {
+      "ident": "01",
+      "status": "ok",
+      "n_intents": 1,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "none",
+      "facade_commands": 0
+    },
+    {
+      "ident": "02",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_command",
+      "facade_commands": 1
+    },
+    {
+      "ident": "03",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 4
+    },
+    {
+      "ident": "04",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "explicit",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 5
+    },
+    {
+      "ident": "05",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 13
+    },
+    {
+      "ident": "06",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 10
+    },
+    {
+      "ident": "07",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 3
+    },
+    {
+      "ident": "08",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 8
+    },
+    {
+      "ident": "09",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 11
+    },
+    {
+      "ident": "10",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "explicit"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "11",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 5
+    },
+    {
+      "ident": "12",
+      "status": "ok",
+      "n_intents": 8,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "13",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 9
+    },
+    {
+      "ident": "14",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
+    {
+      "ident": "15",
+      "status": "ok",
+      "n_intents": 10,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "16",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "17",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "18",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 9
+    },
+    {
+      "ident": "19",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
+    {
+      "ident": "20",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 12
+    },
+    {
+      "ident": "21",
+      "status": "ok",
+      "n_intents": 8,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
+    {
+      "ident": "22",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 5
+    },
+    {
+      "ident": "23",
+      "status": "ok",
+      "n_intents": 10,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "24",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 11
+    },
+    {
+      "ident": "25",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
+    {
+      "ident": "26",
+      "status": "ok",
+      "n_intents": 3,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 1
+    },
+    {
+      "ident": "27",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
+    {
+      "ident": "28",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 10
+    },
+    {
+      "ident": "29",
+      "status": "ok",
+      "n_intents": 9,
+      "spec_levels": [
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 9
+    },
+    {
+      "ident": "30",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "explicit",
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 11
+    },
+    {
+      "ident": "31",
+      "status": "ok",
+      "n_intents": 4,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 3
+    },
+    {
+      "ident": "32",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 5
+    },
+    {
+      "ident": "33",
+      "status": "ok",
+      "n_intents": 5,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 9
+    },
+    {
+      "ident": "34",
+      "status": "ok",
+      "n_intents": 1,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 1
+    },
+    {
+      "ident": "35",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 5
+    },
+    {
+      "ident": "36",
+      "status": "ok",
+      "n_intents": 7,
+      "spec_levels": [
+        "partial",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 6
+    },
+    {
+      "ident": "37",
+      "status": "ok",
+      "n_intents": 1,
+      "spec_levels": [
+        "partial"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 9
+    },
+    {
+      "ident": "38",
+      "status": "ok",
+      "n_intents": 6,
+      "spec_levels": [
+        "explicit",
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 4
+    },
+    {
+      "ident": "39",
+      "status": "ok",
+      "n_intents": 10,
+      "spec_levels": [
+        "vague"
+      ],
+      "facade_kind": "click_group",
+      "facade_commands": 7
+    },
     {
       "ident": "40",
       "status": "ok",
@@ -11,8 +478,8 @@
         "vague"
       ],
       "facade_kind": "click_group",
-      "facade_commands": 4
+      "facade_commands": 2
     }
   ],
-  "finished_at": "2026-08-31T08:31:26.331158+00:00"
+  "finished_at": "2026-08-31T14:49:52.435734+00:00"
 }

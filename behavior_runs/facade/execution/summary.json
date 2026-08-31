@@ -1,15 +1,375 @@
 {
-  "started_at": "2026-08-31T08:31:26.407419+00:00",
-  "total": 1,
+  "started_at": "2026-08-31T14:49:52.632130+00:00",
+  "total": 46,
   "results": [
+    {
+      "ident": "hello_world",
+      "status": "pass",
+      "n_mapped": 1,
+      "n_unmapped": 0,
+      "pass": 1,
+      "fail": 0
+    },
+    {
+      "ident": "cli_tool",
+      "status": "pass",
+      "n_mapped": 3,
+      "n_unmapped": 2,
+      "pass": 3,
+      "fail": 0
+    },
+    {
+      "ident": "inventory",
+      "status": "pass",
+      "n_mapped": 12,
+      "n_unmapped": 0,
+      "pass": 12,
+      "fail": 0
+    },
+    {
+      "ident": "expenses",
+      "status": "fail",
+      "n_mapped": 14,
+      "n_unmapped": 3,
+      "pass": 13,
+      "fail": 1
+    },
+    {
+      "ident": "library_system",
+      "status": "fail",
+      "n_mapped": 9,
+      "n_unmapped": 0,
+      "pass": 6,
+      "fail": 3
+    },
+    {
+      "ident": "multi_module",
+      "status": "pass",
+      "n_mapped": 5,
+      "n_unmapped": 0,
+      "pass": 5,
+      "fail": 0
+    },
+    {
+      "ident": "01",
+      "status": "no_mapped",
+      "n_mapped": 0,
+      "n_unmapped": 1,
+      "pass": 0,
+      "fail": 0
+    },
+    {
+      "ident": "02",
+      "status": "pass",
+      "n_mapped": 5,
+      "n_unmapped": 0,
+      "pass": 5,
+      "fail": 0
+    },
+    {
+      "ident": "03",
+      "status": "fail",
+      "n_mapped": 4,
+      "n_unmapped": 0,
+      "pass": 3,
+      "fail": 1
+    },
+    {
+      "ident": "04",
+      "status": "fail",
+      "n_mapped": 5,
+      "n_unmapped": 0,
+      "pass": 0,
+      "fail": 5
+    },
+    {
+      "ident": "05",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 0,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "06",
+      "status": "pass",
+      "n_mapped": 1,
+      "n_unmapped": 4,
+      "pass": 1,
+      "fail": 0
+    },
+    {
+      "ident": "07",
+      "status": "pass",
+      "n_mapped": 2,
+      "n_unmapped": 3,
+      "pass": 2,
+      "fail": 0
+    },
+    {
+      "ident": "08",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 2,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "09",
+      "status": "pass",
+      "n_mapped": 2,
+      "n_unmapped": 3,
+      "pass": 2,
+      "fail": 0
+    },
+    {
+      "ident": "10",
+      "status": "pass",
+      "n_mapped": 3,
+      "n_unmapped": 1,
+      "pass": 3,
+      "fail": 0
+    },
+    {
+      "ident": "11",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 2,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "12",
+      "status": "fail",
+      "n_mapped": 5,
+      "n_unmapped": 3,
+      "pass": 3,
+      "fail": 2
+    },
+    {
+      "ident": "13",
+      "status": "fail",
+      "n_mapped": 5,
+      "n_unmapped": 2,
+      "pass": 4,
+      "fail": 1
+    },
+    {
+      "ident": "14",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 0,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "15",
+      "status": "fail",
+      "n_mapped": 7,
+      "n_unmapped": 3,
+      "pass": 0,
+      "fail": 7
+    },
+    {
+      "ident": "16",
+      "status": "pass",
+      "n_mapped": 1,
+      "n_unmapped": 3,
+      "pass": 1,
+      "fail": 0
+    },
+    {
+      "ident": "17",
+      "status": "pass",
+      "n_mapped": 5,
+      "n_unmapped": 0,
+      "pass": 5,
+      "fail": 0
+    },
+    {
+      "ident": "18",
+      "status": "fail",
+      "n_mapped": 3,
+      "n_unmapped": 3,
+      "pass": 2,
+      "fail": 1
+    },
+    {
+      "ident": "19",
+      "status": "pass",
+      "n_mapped": 6,
+      "n_unmapped": 1,
+      "pass": 6,
+      "fail": 0
+    },
+    {
+      "ident": "20",
+      "status": "pass",
+      "n_mapped": 6,
+      "n_unmapped": 1,
+      "pass": 6,
+      "fail": 0
+    },
+    {
+      "ident": "21",
+      "status": "fail",
+      "n_mapped": 4,
+      "n_unmapped": 4,
+      "pass": 1,
+      "fail": 3
+    },
+    {
+      "ident": "22",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 2,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "23",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 6,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "24",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 3,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "25",
+      "status": "fail",
+      "n_mapped": 2,
+      "n_unmapped": 2,
+      "pass": 1,
+      "fail": 1
+    },
+    {
+      "ident": "26",
+      "status": "no_mapped",
+      "n_mapped": 0,
+      "n_unmapped": 3,
+      "pass": 0,
+      "fail": 0
+    },
+    {
+      "ident": "27",
+      "status": "fail",
+      "n_mapped": 7,
+      "n_unmapped": 0,
+      "pass": 5,
+      "fail": 2
+    },
+    {
+      "ident": "28",
+      "status": "fail",
+      "n_mapped": 2,
+      "n_unmapped": 4,
+      "pass": 1,
+      "fail": 1
+    },
+    {
+      "ident": "29",
+      "status": "pass",
+      "n_mapped": 3,
+      "n_unmapped": 6,
+      "pass": 3,
+      "fail": 0
+    },
+    {
+      "ident": "30",
+      "status": "pass",
+      "n_mapped": 2,
+      "n_unmapped": 5,
+      "pass": 2,
+      "fail": 0
+    },
+    {
+      "ident": "31",
+      "status": "fail",
+      "n_mapped": 3,
+      "n_unmapped": 1,
+      "pass": 1,
+      "fail": 2
+    },
+    {
+      "ident": "32",
+      "status": "fail",
+      "n_mapped": 4,
+      "n_unmapped": 2,
+      "pass": 0,
+      "fail": 4
+    },
+    {
+      "ident": "33",
+      "status": "pass",
+      "n_mapped": 4,
+      "n_unmapped": 1,
+      "pass": 4,
+      "fail": 0
+    },
+    {
+      "ident": "34",
+      "status": "pass",
+      "n_mapped": 1,
+      "n_unmapped": 0,
+      "pass": 1,
+      "fail": 0
+    },
+    {
+      "ident": "35",
+      "status": "fail",
+      "n_mapped": 6,
+      "n_unmapped": 0,
+      "pass": 4,
+      "fail": 2
+    },
+    {
+      "ident": "36",
+      "status": "pass",
+      "n_mapped": 2,
+      "n_unmapped": 5,
+      "pass": 2,
+      "fail": 0
+    },
+    {
+      "ident": "37",
+      "status": "pass",
+      "n_mapped": 1,
+      "n_unmapped": 0,
+      "pass": 1,
+      "fail": 0
+    },
+    {
+      "ident": "38",
+      "status": "fail",
+      "n_mapped": 3,
+      "n_unmapped": 3,
+      "pass": 2,
+      "fail": 1
+    },
+    {
+      "ident": "39",
+      "status": "pass",
+      "n_mapped": 2,
+      "n_unmapped": 8,
+      "pass": 2,
+      "fail": 0
+    },
     {
       "ident": "40",
       "status": "fail",
-      "n_mapped": 1,
-      "n_unmapped": 2,
-      "pass": 0,
+      "n_mapped": 2,
+      "n_unmapped": 1,
+      "pass": 1,
       "fail": 1
     }
   ],
-  "finished_at": "2026-08-31T08:31:33.209788+00:00"
+  "finished_at": "2026-08-31T15:41:45.388224+00:00"
 }

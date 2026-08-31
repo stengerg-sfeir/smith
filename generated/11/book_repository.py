@@ -109,11 +109,15 @@ class BookRepository:
             ).fetchone()
             return int(row["n"])
 
-    def get_books_with_most_popular_authors(self, top_n: int) -> list[tuple[str, int]]:
+    def get_books_with_most_popular_authors(self, top_n: int) -> dict[str, int]:
         with self.db.connect() as conn:
             cursor = conn.execute('\n                SELECT author, COUNT(*) as book_count\n                FROM books\n                GROUP BY author\n                ORDER BY book_count DESC\n                LIMIT ?\n            ', (top_n,))
             rows = cursor.fetchall()
-            return [(row[0], row[1]) for row in rows]
+            result = {}
+            for row in rows:
+                author, book_count = row
+                result[author] = book_count
+            return result
 
     def search_books_by_isbn_or_title(self, search_term: str) -> list[Book]:
         return []

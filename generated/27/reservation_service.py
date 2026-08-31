@@ -6,7 +6,8 @@ from typing import Optional
 
 from customer_repository import CustomerRepository
 from database import Database
-from models import Reservation, Room
+from exceptions import NotFoundError
+from models import Customer, Reservation
 from reservation_repository import ReservationRepository
 from room_repository import RoomRepository
 
@@ -18,41 +19,40 @@ class ReservationService:
         self.reservation_repo = ReservationRepository(db)
         self.room_repo = RoomRepository(db)
 
-    def create_reservation(self, customer_id: int, room_id: int, start_date: datetime, end_date: datetime, status: str) -> int:
-        reservation = Reservation(customer_id=customer_id, room_id=room_id, start_date=start_date, end_date=end_date, status=status)
+    def add_reservation(self, customer_id: int, room_id: int, status: str) -> int:
+        reservation = Reservation(customer_id=customer_id, room_id=room_id, status=status, end_date=datetime.datetime.now().isoformat(), start_date=datetime.datetime.now().isoformat())
         return self.reservation_repo.create(reservation)
 
-    def get_reservation_by_id(self, reservation_id: int) -> Optional[Reservation]:
-        return self.reservation_repo.get_by_id(reservation_id)
+    def list_reservation(self, customer_id: Optional[int] = None, room_id: Optional[int] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, status: Optional[str] = None) -> list[dict]:
+        results = {}
+        for row in self.reservation_repo.list(customer_id=customer_id, room_id=room_id, start_date=start_date, end_date=end_date, status=status):
+            key = (row.customer_id, row.room_id)
+            results[key] = results.get(key, 0) + row.id
+        return results
 
-    def list_reservations_by_customer(self, customer_id: int) -> list[Reservation]:
-        return self.reservation_repo.list_reservations_by_customer(customer_id)
+    def update_reservation(self, id: int, customer_id: Optional[int] = None, room_id: Optional[int] = None, status: Optional[str] = None) -> bool:
+        data = {k: v for k, v in {'customer_id': customer_id, 'room_id': room_id, 'status': status}.items() if v is not None}
+        return self.reservation_repo.update(id, data)
 
-    def list_reservations_by_room(self, room_id: int) -> list[Reservation]:
-        return self.reservation_repo.list_reservations_by_room(room_id)
+    def delete_reservation(self, id: int) -> bool:
+        return self.reservation_repo.delete(id)
 
-    def list_reservations_overlapping_with_date(self, room_id: int, start_date: datetime, end_date: datetime) -> list[Reservation]:
-        return self.reservation_repo.list_reservations_overlapping_with_date(room_id, start_date, end_date)
+    def check_reservation(self, id: int) -> dict:
+        """Check if a reservation exists and return its details with customer and room information."""
+        reservation = self.reservation_repo.get_by_id(id)
+        if not reservation:
+            raise NotFoundError(f'Reservation with id {id} not found')
+        reservation_details = self.reservation_repo.get_reservations_with_customer_and_room_details(reservation.id)
+        return {'reservation_id': reservation_details['reservation_id'], 'customer_id': reservation_details['customer_id'], 'customer_name': reservation_details['customer_name'], 'customer_phone': reservation_details['customer_phone'], 'room_id': reservation_details['room_id'], 'room_number': reservation_details['room_number'], 'floor': reservation_details['floor'], 'room_type': reservation_details['room_type'], 'capacity': reservation_details['capacity'], 'start_date': reservation_details['start_date'], 'end_date': reservation_details['end_date'], 'status': reservation_details['status']}
 
-    def get_reservation_count_by_room(self) -> dict[str, int]:
-        return self.reservation_repo.get_reservation_count_by_room()
+    def add_customer(self, name: str, email: str, phone: Optional[str] = None) -> int:
+        customer = Customer(name=name, email=email, phone=phone)
+        return self.customer_repo.create(customer)
 
-    def get_reservations_by_status(self, status: str) -> list[Reservation]:
-        return self.reservation_repo.get_reservations_by_status(status)
-
-    def get_available_rooms_for_date_range(self, start_date: datetime, end_date: datetime) -> list[Room]:
-        return self.reservation_repo.get_available_rooms_for_date_range(start_date, end_date)
-
-    def get_total_reservations_by_customer(self) -> dict[int, int]:
-        return self.reservation_repo.get_total_reservations_by_customer()
-
-    def get_overlapping_reservations_report(self, room_id: int, start_date: datetime, end_date: datetime) -> list[dict]:
-        return self.reservation_repo.get_overlapping_reservations_report(room_id, start_date, end_date)
-
-    def validate_reservation_overlap(self, reservation: Reservation) -> bool:
-        existing_reservations = self.reservation_repo.get_reservations_by_room(reservation.room_id)
-        for existing in existing_reservations:
-            if existing.start_date < reservation.end_date and existing.end_date > reservation.start_date:
-                return True
-        return False
+    def add_room(self, room_number: str, floor: int, capacity: int, room_type: str) -> int:
+        results = {}
+        for row in self.room_repo.list(room_number=room_number, floor=floor, capacity=capacity, room_type=room_type):
+            key = row.room_type
+            results[key] = results.get(key, 0) + row.id
+        return results
 

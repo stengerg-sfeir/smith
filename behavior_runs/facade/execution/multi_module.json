@@ -31,7 +31,7 @@
     {
       "intent_id": "I3",
       "command": "manage-update",
-      "invocation": "python3 cli.py manage-update --title 'Review project timeline' --description 'Review and adjust the project timeline based on feedback.' --status in-progress --task-id 123",
+      "invocation": "python3 cli.py manage-update --title 'Review project timeline' --description 'Review and adjust the project timeline based on feedback.' --status in-progress --task-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
@@ -51,7 +51,7 @@
     {
       "intent_id": "I4",
       "command": "manage-delete",
-      "invocation": "python3 cli.py manage-delete --task-id 456",
+      "invocation": "python3 cli.py manage-delete --task-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,

@@ -3,39 +3,43 @@
   "generated_dir": "generated/31",
   "status": "fail",
   "n_intentions": 4,
-  "n_mapped": 2,
-  "n_unmapped": 2,
-  "pass": 0,
+  "n_mapped": 3,
+  "n_unmapped": 1,
+  "pass": 1,
   "fail": 2,
   "results": [
     {
+      "intent_id": "I1",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --name 'John Doe' --email john.doe@example.com --phone 555-1234",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
       "intent_id": "I3",
-      "command": "deposit-create",
-      "invocation": "python3 cli.py deposit-create --account-id 101 --amount 500",
+      "command": "account-deposit",
+      "invocation": "python3 cli.py account-deposit --id 1",
       "status": "fail",
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "                      ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/cli.py\", line 17, in deposit_create\n    result = svc.create_deposit(account_id=account_id, amount=amount)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/account_service.py\", line 20, in create_deposit\n    return self.deposit_repo.create(deposit)\n           ^^^^^^^^^^^^^^^^^\nAttributeError: 'AccountService' object has no attribute 'deposit_repo'\n"
+      "stderr_tail": "e.py\", line 1490, in main\n    rv = self.invoke(ctx)\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1970, in invoke\n    return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/cli.py\", line 25, in account_deposit\n    result = svc.deposit_account(id=id)\nTypeError: AccountService.deposit_account() got an unexpected keyword argument 'id'\n"
     },
     {
       "intent_id": "I4",
-      "command": "withdrawal-create",
-      "invocation": "python3 cli.py withdrawal-create --account-id 101 --amount 200",
+      "command": "withdrawal-withdraw",
+      "invocation": "python3 cli.py withdrawal-withdraw --id 1",
       "status": "fail",
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": " ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/cli.py\", line 25, in withdrawal_create\n    result = svc.create_withdrawal(account_id=account_id, amount=amount)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/account_service.py\", line 24, in create_withdrawal\n    return self.withdrawal_repo.create(withdrawal)\n           ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'AccountService' object has no attribute 'withdrawal_repo'\n"
+      "stderr_tail": "1490, in main\n    rv = self.invoke(ctx)\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1970, in invoke\n    return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/31/cli.py\", line 32, in withdrawal_withdraw\n    result = svc.withdraw_withdrawal(id=id)\nTypeError: AccountService.withdraw_withdrawal() got an unexpected keyword argument 'id'\n"
     }
   ],
   "unmapped": [
-    {
-      "intent_id": "I1",
-      "text": "I can create a new customer with a unique customer ID, name, and contact information.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
     {
       "intent_id": "I2",
       "text": "I can create a new account for a customer with a unique account number and initial balance.",

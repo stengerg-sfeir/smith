@@ -45,7 +45,7 @@ _NAME_CLASS = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
 
 _IMPL_KINDS = (
     "total_in_period", "total_filtered", "export_csv", "duplicate_groups",
-    "list_filtered", "sum_by_group", "below_foreign_threshold",
+    "list_filtered", "sum_by_group", "count_by_group", "below_foreign_threshold",
 )
 
 
@@ -398,6 +398,7 @@ _IMPL_REQUIRED = {
     "duplicate_groups": ("entity", "group_by"),
     "list_filtered": (),
     "sum_by_group": ("entity", "value_field", "group_by"),
+    "count_by_group": ("entity", "group_by"),
     "below_foreign_threshold": (
         "entity", "value_field", "ref_entity", "ref_field", "fk_field",
     ),
