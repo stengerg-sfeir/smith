@@ -180,7 +180,7 @@
           }
         ],
         "arguments": [],
-        "target": "list_products"
+        "target": "list_product"
       },
       {
         "name": "product-update",
@@ -201,8 +201,7 @@
             "dest": "name",
             "type": "str",
             "required": false,
-            "flag": false,
-            "field": "name"
+            "flag": false
           },
           {
             "names": [
@@ -211,8 +210,7 @@
             "dest": "price",
             "type": "int",
             "required": false,
-            "flag": false,
-            "field": "price_cents"
+            "flag": false
           },
           {
             "names": [
@@ -221,8 +219,7 @@
             "dest": "category",
             "type": "int",
             "required": false,
-            "flag": false,
-            "field": "category_id"
+            "flag": false
           }
         ],
         "arguments": [],
@@ -242,44 +239,13 @@
           }
         ],
         "arguments": [],
-        "target": "delete_product"
+        "target": "delete"
       },
       {
-        "name": "product-restock",
-        "options": [
-          {
-            "names": [
-              "--id"
-            ],
-            "dest": "id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--qty"
-            ],
-            "dest": "qty",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "restock"
-      },
-      {
-        "name": "report-low_stock",
+        "name": "product-report",
         "options": [],
         "arguments": [],
-        "target": "low_stock_report"
-      },
-      {
-        "name": "report-value",
-        "options": [],
-        "arguments": [],
-        "target": "stock_value_by_category"
+        "target": "report"
       },
       {
         "name": "category-add",
@@ -313,13 +279,13 @@
           }
         ],
         "arguments": [],
-        "target": "add_category"
+        "target": "add"
       },
       {
         "name": "category-list",
         "options": [],
         "arguments": [],
-        "target": "list_category"
+        "target": "list"
       },
       {
         "name": "category-update",
@@ -362,7 +328,7 @@
           }
         ],
         "arguments": [],
-        "target": "update_category"
+        "target": "update"
       },
       {
         "name": "category-delete",
@@ -378,7 +344,7 @@
           }
         ],
         "arguments": [],
-        "target": "delete_category"
+        "target": "delete"
       }
     ],
     "invoker": "cli"

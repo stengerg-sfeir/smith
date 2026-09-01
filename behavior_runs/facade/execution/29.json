@@ -1,80 +1,112 @@
 {
   "ident": "29",
   "generated_dir": "generated/29",
-  "status": "pass",
+  "status": "fail",
   "n_intentions": 9,
-  "n_mapped": 3,
-  "n_unmapped": 6,
-  "pass": 3,
-  "fail": 0,
+  "n_mapped": 9,
+  "n_unmapped": 0,
+  "pass": 8,
+  "fail": 1,
   "results": [
     {
       "intent_id": "I1",
-      "command": "manage-create",
-      "invocation": "python3 cli.py manage-create --name 'John Doe' --email john.doe@example.com --phone 555-1234",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --name 'Alice Johnson' --email alice.j@example.com --phone 555-1234",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
-    },
-    {
-      "intent_id": "I2",
-      "command": "retrieve-by_email",
-      "invocation": "python3 cli.py retrieve-by_email --email john.doe@example.com",
-      "status": "pass",
-      "reason": "ok",
-      "exit_code": 0,
-      "stdout_tail": "",
-      "stderr_tail": ""
-    },
-    {
-      "intent_id": "I7",
-      "command": "orders-list",
-      "invocation": "python3 cli.py orders-list --customer-id 1 --status pending --from-date 2023-01-01 --to-date 2023-12-31",
-      "status": "pass",
-      "reason": "ok",
-      "exit_code": 0,
-      "stdout_tail": "",
-      "stderr_tail": ""
-    }
-  ],
-  "unmapped": [
-    {
-      "intent_id": "I3",
-      "text": "I can update an existing customer's information such as name, email, or phone number.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I4",
-      "text": "I can delete a customer record by their unique identifier.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I5",
-      "text": "I can create a new order with a customer ID, order date, and list of items.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "order-add",
+      "invocation": "python3 cli.py order-add --customer-id 1 --total-amount 150.00 --status pending",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I2",
+      "command": "customer-list",
+      "invocation": "python3 cli.py customer-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I3",
+      "command": "customer-update",
+      "invocation": "python3 cli.py customer-update --id 1 --name 'Bob Smith' --email bob.s@example.com",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I6",
-      "text": "I can retrieve an order by its unique identifier.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "order-update",
+      "invocation": "python3 cli.py order-update --id 1 --customer-id 1 --total-amount 160.00 --status shipped",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I7",
+      "command": "customer-list",
+      "invocation": "python3 cli.py customer-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I8",
-      "text": "I can update an existing order's status (e.g., pending, shipped, completed).",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "order-update",
+      "invocation": "python3 cli.py order-update --id 1 --customer-id 1 --total-amount 150.00 --status shipped",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I4",
+      "command": "customer-delete",
+      "invocation": "python3 cli.py customer-delete --id 1",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/29/cli.py\", line 60, in customer_delete\n    result = svc.delete_customer(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/29/customer_service.py\", line 34, in delete_customer\n    return self.customer_repo.delete(id)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/29/customer_repository.py\", line 78, in delete\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"DELETE FROM customers WHERE id = ?\", (id,)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.IntegrityError: FOREIGN KEY constraint failed\n",
+      "seed": false
     },
     {
       "intent_id": "I9",
-      "text": "I can delete an order by its unique identifier.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "order-delete",
+      "invocation": "python3 cli.py order-delete --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     }
-  ]
+  ],
+  "unmapped": []
 }

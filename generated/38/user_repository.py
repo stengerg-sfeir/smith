@@ -37,7 +37,7 @@ class UserRepository:
             ).fetchall()
             return [User(**dict(r)) for r in rows]
 
-    def list(self, created_at: Optional[Any] = None, email: Optional[Any] = None) -> List[User]:
+    def list(self, created_at: Optional[Any] = None, email: Optional[Any] = None, password_hash: Optional[Any] = None) -> List[User]:
         with self.db.connect() as conn:
             query = "SELECT * FROM users WHERE 1=1"
             params: List[Any] = []
@@ -47,6 +47,9 @@ class UserRepository:
             if email is not None:
                 query += ' AND email = ?'
                 params.append(email)
+            if password_hash is not None:
+                query += ' AND password_hash = ?'
+                params.append(password_hash)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [User(**dict(r)) for r in rows]
 

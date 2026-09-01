@@ -66,13 +66,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "task-count",
-        "options": [],
-        "arguments": [],
-        "target": "get_task_count_by_status"
-      },
-      {
-        "name": "task-create",
+        "name": "task-add",
         "options": [
           {
             "names": [
@@ -88,6 +82,49 @@
               "--description"
             ],
             "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--priority"
+            ],
+            "dest": "priority",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--due-date"
+            ],
+            "dest": "due_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_task"
+      },
+      {
+        "name": "task-list",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
             "type": "str",
             "required": false,
             "flag": false
@@ -118,19 +155,28 @@
             "type": "str",
             "required": false,
             "flag": false
+          },
+          {
+            "names": [
+              "--due-date-end"
+            ],
+            "dest": "due_date_end",
+            "type": "str",
+            "required": false,
+            "flag": false
           }
         ],
         "arguments": [],
-        "target": "create_task"
+        "target": "list_task"
       },
       {
         "name": "task-update",
         "options": [
           {
             "names": [
-              "--task-id"
+              "--id"
             ],
-            "dest": "task_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
@@ -189,9 +235,9 @@
         "options": [
           {
             "names": [
-              "--task-id"
+              "--id"
             ],
-            "dest": "task_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
@@ -201,32 +247,20 @@
         "target": "delete_task"
       },
       {
-        "name": "task-export",
-        "options": [],
-        "arguments": [],
-        "target": "export_tasks_to_json"
-      },
-      {
         "name": "task-import",
         "options": [
           {
             "names": [
-              "--json-file"
+              "--id"
             ],
-            "dest": "json_file",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "import_tasks_from_json"
-      },
-      {
-        "name": "task-overdue",
-        "options": [],
-        "arguments": [],
-        "target": "get_overdue_tasks"
+        "target": "import_task"
       }
     ],
     "invoker": "cli"

@@ -1,6 +1,7 @@
 """ContactRepository data access."""
 from __future__ import annotations
 
+import sqlite3
 from typing import Any, Dict, List, Optional
 
 from database import Database
@@ -112,22 +113,19 @@ class ContactRepository:
 
     def get_contacts_with_invalid_email_format(self) -> list[Contact]:
         with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM contacts WHERE email LIKE '%@%' AND email NOT LIKE '%@%@%' AND email NOT LIKE '%@%'").fetchall()
-            rows = conn.execute("SELECT * FROM contacts WHERE email LIKE '%@%' AND email NOT LIKE '%@%@%' AND email NOT LIKE '%@%'").fetchall()
-            rows = conn.execute("SELECT * FROM contacts WHERE email NOT LIKE '%@%@@%' AND email NOT LIKE '%@%'").fetchall()
-            rows = conn.execute("SELECT * FROM contacts WHERE email LIKE '%@%' AND email NOT LIKE '%@%@%'").fetchall()
+            rows = conn.execute("SELECT * FROM contacts WHERE email NOT LIKE '%@%' OR email NOT LIKE '%@%.%'").fetchall()
             return [Contact(**dict(r)) for r in rows]
 
     def export_to_csv(self, filename: str) -> bool:
         with self.db.connect() as conn:
-            cursor = conn.execute('SELECT * FROM contacts')
-            rows = cursor.fetchall()
+            rows = conn.execute('SELECT * FROM contacts').fetchall()
             if not rows:
                 return False
+            csv_content = 'first_name,last_name,email,phone,address,created_at,updated_at\n'
+            for row in rows:
+                csv_content += f'{row[3]},{row[4]},{row[2]},{row[5]},{row[1]},{row[6]},{row[7]}\n'
             with open(filename, 'w') as f:
-                f.write('first_name,last_name,email,phone,address,created_at,updated_at\n')
-                for row in rows:
-                    f.write(f'{row[3]},{row[4]},{row[2]},{row[5]},{row[1]},{row[6]},{row[7]}\n')
+                f.write(csv_content)
             return True
 
     def import_from_csv(self, filename: str) -> list[str]:
@@ -135,32 +133,21 @@ class ContactRepository:
         with self.db.connect() as conn:
             with open(filename, 'r') as f:
                 lines = f.readlines()
-                header = lines[0].strip().split(',')
-                if header != ['first_name', 'last_name', 'email', 'phone', 'address', 'created_at', 'updated_at']:
-                    errors.append('Invalid header format')
-                    return errors
-                for line in lines[1:]:
-                    fields = line.strip().split(',')
-                    if len(fields) != 7:
-                        errors.append(f'Line has {len(fields)} fields, expected 7')
-                        continue
-                    try:
-                        first_name = fields[0]
-                        last_name = fields[1]
-                        email = fields[2]
-                        phone = fields[3]
-                        address = fields[4]
-                        created_at = fields[5]
-                        updated_at = fields[6]
-                        if email.count('@') != 1:
-                            errors.append(f'Invalid email format: {email}')
-                            continue
-                        if '@' in email and (not email[email.find('@') + 1:]):
-                            errors.append(f'Invalid email format: {email}')
-                            continue
-                        conn.execute('INSERT INTO contacts (first_name, last_name, email, phone, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', (first_name, last_name, email, phone, address, created_at, updated_at))
-                    except Exception as e:
-                        errors.append(f'Error importing row: {str(e)}')
+            if not lines or not lines[0].strip().startswith('first_name'):
+                return errors
+            for line in lines[1:]:
+                parts = line.strip().split(',')
+                if len(parts) != 7:
+                    errors.append(f'Invalid row format: {line}')
+                    continue
+                first_name, last_name, email, phone, address, created_at, updated_at = parts
+                if '@' not in email or ('@' in email and email.count('@') > 1) or '.' not in email.split('@')[-1]:
+                    errors.append(f'Invalid email format: {email}')
+                    continue
+                try:
+                    conn.execute('INSERT INTO contacts (first_name, last_name, email, phone, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', (first_name, last_name, email, phone, address, created_at, updated_at))
+                except sqlite3.Error as e:
+                    errors.append(f'Database error inserting row: {e}')
         return errors
 
     def get_total_contact_count(self) -> int:
@@ -170,8 +157,6 @@ class ContactRepository:
             ).fetchone()
             return int(row["n"])
 
-    def get_contacts_with_phone_and_email(self) -> list[Contact]:
-        with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM contacts WHERE phone IS NOT NULL AND email IS NOT NULL').fetchall()
-            return [Contact(**dict(r)) for r in rows]
+    def get_contacts_created_in_range(self, start_date: datetime, end_date: datetime) -> list[Contact]:
+        return []
 

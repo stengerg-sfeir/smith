@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from database import Database
 from exceptions import OrderNotFoundError
-from models import Customer, Order
+from models import Order
 
 
 class OrderRepository:
@@ -38,28 +38,25 @@ class OrderRepository:
             ).fetchall()
             return [Order(**dict(r)) for r in rows]
 
-    def list(self, customer_id: Optional[Any] = None, order_date: Optional[Any] = None, order_date_end: Optional[Any] = None, total_amount: Optional[Any] = None, total_amount_end: Optional[Any] = None, status: Optional[Any] = None) -> List[Order]:
+    def list(self, customer_id: Optional[Any] = None, status: Optional[Any] = None, total_amount: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None) -> List[Order]:
         with self.db.connect() as conn:
             query = "SELECT * FROM orders WHERE 1=1"
             params: List[Any] = []
             if customer_id is not None:
                 query += ' AND customer_id = ?'
                 params.append(customer_id)
-            if order_date is not None:
-                query += ' AND order_date >= ?'
-                params.append(order_date)
-            if order_date_end is not None:
-                query += ' AND order_date <= ?'
-                params.append(order_date_end)
-            if total_amount is not None:
-                query += ' AND total_amount >= ?'
-                params.append(total_amount)
-            if total_amount_end is not None:
-                query += ' AND total_amount <= ?'
-                params.append(total_amount_end)
             if status is not None:
                 query += ' AND status = ?'
                 params.append(status)
+            if total_amount is not None:
+                query += ' AND total_amount = ?'
+                params.append(total_amount)
+            if start_date is not None:
+                query += ' AND order_date >= ?'
+                params.append(start_date)
+            if end_date is not None:
+                query += ' AND order_date <= ?'
+                params.append(end_date)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Order(**dict(r)) for r in rows]
 
@@ -97,64 +94,51 @@ class OrderRepository:
                 return None
             return Order(**dict(row))
 
-    def get_orders_by_status(self, status: str, from_date: Optional[datetime] = None, to_date: Optional[datetime] = None) -> list[Order]:
-        return []
+    def get_order_by_customer_id(self, customer_id: int) -> list[Order]:
+        return self.list(
+            customer_id=customer_id,
+        )
 
-    def get_orders_by_customer(self, customer_id: int, status: Optional[str] = None, from_date: Optional[datetime] = None, to_date: Optional[datetime] = None) -> list[Order]:
+    def get_orders_by_status(self, status: str) -> list[Order]:
+        return self.list(
+            status=status,
+        )
+
+    def get_orders_in_date_range(self, start_date: datetime, end_date: datetime) -> list[Order]:
+        return self.list(
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    def get_orders_with_customer_details(self) -> list[dict]:
+        with self.db.connect() as conn:
+            rows = conn.execute('\n                SELECT o.id, o.order_date, o.status, o.total_amount, o.created_at, o.updated_at,\n                c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone\n                FROM orders o\n                JOIN customers c ON o.customer_id = c.id\n            ').fetchall()
+            return [dict(row) for row in rows]
+
+    def get_orders_with_total_spent_by_customer(self) -> dict[int, float]:
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT r.* FROM orders r JOIN customers o ON r.customer_id = o.id WHERE o.name = ? AND r.order_date >= ? AND r.order_date <= ?",
-                (customer_id, from_date, to_date)
+                "SELECT o.name AS k, SUM(e.total_amount) AS v FROM orders e JOIN customers o ON e.customer_id = o.id GROUP BY o.name",
             ).fetchall()
-            return [Order(**dict(r)) for r in rows]
+            return {r["k"]: float(r["v"] or 0) for r in rows}
 
-    def get_order_summary_by_status(self) -> dict[str, float]:
+    def get_pending_orders_count(self) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM orders",
+            ).fetchone()
+            return int(row["n"])
+
+    def get_orders_summary_by_status(self) -> dict[str, int]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT status AS k, SUM(total_amount) AS v FROM orders GROUP BY status"
             ).fetchall()
             return {r["k"]: float(r["v"] or 0) for r in rows}
 
-    def get_total_orders_count(self) -> int:
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM orders",
-            ).fetchone()
-            return int(row["n"])
-
-    def get_orders_with_customer_details(self, order_id: int) -> dict[Order, Customer]:
-        with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM orders").fetchall()
-            out = {}
-            for r in rows:
-                obj = Order({k: v for k, v in dict(r).items() if k in {created_at, customer_id, id, order_date, status, total_amount, updated_at}})
-                rel = conn.execute(
-                    "SELECT * FROM customers WHERE id = ?", ((obj).customer_id,)
-                ).fetchone()
-                if rel:
-                    out[obj] = Customer({k: v for k, v in dict(rel).items() if k in {created_at, email, id, name, phone, updated_at}})
-            return out
-
-    def get_orders_in_date_range(self, from_date: datetime, to_date: datetime) -> list[Order]:
+    def get_orders_with_payment_method(self, payment_method: str) -> list[Order]:
         return []
 
-    def get_orders_by_total_range(self, min_amount: float, max_amount: float) -> list[Order]:
-        return self.list(
-            total_amount=min_amount,
-            total_amount_end=max_amount,
-        )
-
-    def get_active_orders_count(self) -> int:
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM orders",
-            ).fetchone()
-            return int(row["n"])
-
-    def get_order_with_most_spent(self) -> Optional[Order]:
-        with self.db.connect() as conn:
-            row = conn.execute('SELECT * FROM orders ORDER BY total_amount DESC LIMIT 1').fetchone()
-            if row is None:
-                return None
-            return Order(**dict(row))
+    def get_orders_with_shipping_status(self, shipping_status: str) -> list[Order]:
+        return []
 

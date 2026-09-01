@@ -60,7 +60,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             email TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS posts (
@@ -77,7 +78,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             name TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(name)
         );
 
         CREATE TABLE IF NOT EXISTS posttags (

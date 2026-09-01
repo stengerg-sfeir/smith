@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -21,4 +21,9 @@ class Employee:
     hire_date: date
     is_active: bool
     id: Optional[int] = None
+
+
+UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
+    "Employee": [("email",)],
+}
 

@@ -37,7 +37,7 @@ class InvoiceLineRepository:
             ).fetchall()
             return [InvoiceLine(**dict(r)) for r in rows]
 
-    def list(self, invoice_id: Optional[Any] = None, product_id: Optional[Any] = None, quantity: Optional[Any] = None, unit_price: Optional[Any] = None, max_price: Optional[Any] = None, max_quantity: Optional[Any] = None, max_unit_price: Optional[Any] = None) -> List[InvoiceLine]:
+    def list(self, invoice_id: Optional[Any] = None, product_id: Optional[Any] = None, quantity: Optional[Any] = None, unit_price: Optional[Any] = None, max_price: Optional[Any] = None, max_unit_price: Optional[Any] = None) -> List[InvoiceLine]:
         with self.db.connect() as conn:
             query = "SELECT * FROM invoicelines WHERE 1=1"
             params: List[Any] = []
@@ -56,9 +56,6 @@ class InvoiceLineRepository:
             if max_price is not None:
                 query += ' AND unit_price <= ?'
                 params.append(max_price)
-            if max_quantity is not None:
-                query += ' AND quantity <= ?'
-                params.append(max_quantity)
             if max_unit_price is not None:
                 query += ' AND unit_price <= ?'
                 params.append(max_unit_price)
@@ -97,44 +94,35 @@ class InvoiceLineRepository:
             invoice_id=invoice_id,
         )
 
-    def get_invoice_lines_by_product_id(self, product_id: int, start_date: datetime, end_date: datetime) -> List[InvoiceLine]:
+    def get_invoice_lines_by_product_id(self, product_id: int, min_quantity: int) -> List[InvoiceLine]:
+        return self.list(
+            product_id=product_id,
+            quantity=min_quantity,
+        )
+
+    def get_invoice_lines_with_price_range(self, min_unit_price: float, max_unit_price: float) -> List[InvoiceLine]:
+        return self.list(
+            unit_price=min_unit_price,
+            max_unit_price=max_unit_price,
+        )
+
+    def get_invoice_lines_by_customer(self, customer_id: int, created_after: str, created_before: str) -> List[InvoiceLine]:
+        with self.db.connect() as conn:
+            query = '\n                SELECT il.id, il.invoice_id, il.product_id, il.quantity, il.unit_price\n                FROM invoicelines il\n                JOIN invoices i ON il.invoice_id = i.id\n                WHERE i.customer_id = ?\n                AND i.created_at BETWEEN ? AND ?\n            '
+            rows = conn.execute(query, (customer_id, created_after, created_before)).fetchall()
+            return [InvoiceLine(**dict(r)) for r in rows]
+
+    def get_total_invoice_lines_by_product(self) -> dict:
+        with self.db.connect() as conn:
+            query = '\n                SELECT p.id, p.name, SUM(il.quantity) AS total_quantity\n                FROM invoicelines il\n                JOIN products p ON il.product_id = p.id\n                GROUP BY p.id, p.name\n            '
+            rows = conn.execute(query).fetchall()
+            return {row['name']: row['total_quantity'] for row in rows}
+
+    def get_invoice_lines_with_subtotal_summary(self, product_id: int, min_quantity: int) -> dict:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT r.* FROM invoicelines r JOIN products o ON r.product_id = o.id WHERE o.id = ?",
                 (product_id,)
             ).fetchall()
             return [InvoiceLine(**dict(r)) for r in rows]
-
-    def get_invoice_lines_with_quantity_range(self, min_quantity: int, max_quantity: int) -> List[InvoiceLine]:
-        return self.list(
-            quantity=min_quantity,
-            max_quantity=max_quantity,
-        )
-
-    def get_invoice_lines_by_date_range(self, start_date: datetime, end_date: datetime) -> List[InvoiceLine]:
-        return []
-
-    def get_total_invoice_lines_by_product(self, product_id: int, start_date: str, end_date: str) -> int:
-        with self.db.connect() as conn:
-            rows = conn.execute('SELECT COUNT(*) FROM invoicelines WHERE product_id = ? AND invoice_id IN (SELECT id FROM invoices WHERE created_at BETWEEN ? AND ?)', (product_id, start_date, end_date)).fetchone()
-            return rows[0] if rows else 0
-
-    def get_invoice_lines_with_unit_price_range(self, min_unit_price: float, max_unit_price: float) -> List[InvoiceLine]:
-        return self.list(
-            unit_price=min_unit_price,
-            max_unit_price=max_unit_price,
-        )
-
-    def get_invoice_lines_by_customer(self, customer_id: int, start_date: str, end_date: str) -> List[InvoiceLine]:
-        with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM invoicelines WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = ? AND created_at BETWEEN ? AND ?)', (customer_id, start_date, end_date)).fetchall()
-            return [InvoiceLine(**dict(r)) for r in rows]
-
-    def get_invoice_lines_summary_by_product(self, start_date: str, end_date: str) -> dict:
-        with self.db.connect() as conn:
-            rows = conn.execute('SELECT product_id, SUM(quantity) AS total_quantity FROM invoicelines WHERE invoice_id IN (SELECT id FROM invoices WHERE created_at BETWEEN ? AND ?) GROUP BY product_id', (start_date, end_date)).fetchall()
-            result = {}
-            for row in rows:
-                result[row['product_id']] = row['total_quantity']
-            return result
 

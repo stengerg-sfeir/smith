@@ -107,35 +107,12 @@ class EmployeeRepository:
         )
 
     def count_employees_by_age_group(self) -> dict[str, int]:
-        age_groups = {'0-17': 0, '18-25': 0, '26-35': 0, '36-50': 0, '51+': 0}
         with self.db.connect() as conn:
-            cursor = conn.execute('\n                SELECT age, name \n                FROM employees\n            ')
+            cursor = conn.execute("\n                SELECT \n                    CASE \n                        WHEN age <= 17 THEN '0-17'\n                        WHEN age <= 25 THEN '18-25'\n                        WHEN age <= 35 THEN '26-35'\n                        WHEN age <= 50 THEN '36-50'\n                        ELSE '51+'\n                    END AS age_group,\n                    COUNT(*) AS count\n                FROM employees\n                GROUP BY \n                    CASE \n                        WHEN age <= 17 THEN '0-17'\n                        WHEN age <= 25 THEN '18-25'\n                        WHEN age <= 35 THEN '26-35'\n                        WHEN age <= 50 THEN '36-50'\n                        ELSE '51+'\n                    END\n            ")
             rows = cursor.fetchall()
-            for row in rows:
-                age = row[0]
-                if age is None:
-                    continue
-                age = int(age)
-                if age <= 17:
-                    age_groups['0-17'] += 1
-                elif age <= 25:
-                    age_groups['18-25'] += 1
-                elif age <= 35:
-                    age_groups['26-35'] += 1
-                elif age <= 50:
-                    age_groups['36-50'] += 1
-                else:
-                    age_groups['51+'] += 1
-        return age_groups
+            return {row[0]: row[1] for row in rows}
 
-    def get_total_salary_spent(self) -> float:
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT COALESCE(SUM(salary), 0) AS v FROM employees",
-            ).fetchone()
-            return float(row["v"])
-
-    def get_average_salary(self) -> float:
+    def get_total_employee_salary(self) -> float:
         with self.db.connect() as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(salary), 0) AS v FROM employees",
@@ -144,12 +121,7 @@ class EmployeeRepository:
 
     def get_employees_with_higher_salary_than_average(self) -> list[Employee]:
         with self.db.connect() as conn:
-            avg_salary_query = 'SELECT AVG(salary) FROM employees'
-            cursor = conn.execute(avg_salary_query)
-            avg_salary_result = cursor.fetchone()
-            avg_salary = avg_salary_result[0] if avg_salary_result[0] is not None else 0
-            query = '\n                SELECT age, email, id, name, salary \n                FROM employees \n                WHERE salary > ?\n            '
-            cursor = conn.execute(query, (avg_salary,))
+            cursor = conn.execute('\n                SELECT * FROM employees\n                WHERE salary > (SELECT AVG(salary) FROM employees)\n            ')
             rows = cursor.fetchall()
             return [Employee(**dict(r)) for r in rows]
 
@@ -159,9 +131,14 @@ class EmployeeRepository:
             age_lte=max_age,
         )
 
-    def get_employees_with_salary_in_range(self, min_salary: float, max_salary: float) -> list[Employee]:
-        return self.list(
-            salary=min_salary,
-            salary_lte=max_salary,
-        )
+    def get_employee_with_highest_salary(self) -> Optional[Employee]:
+        with self.db.connect() as conn:
+            cursor = conn.execute('\n                SELECT * FROM employees\n                ORDER BY salary DESC\n                LIMIT 1\n            ')
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return Employee(**dict(row))
+
+    def get_employees_by_name_prefix(self, prefix: str) -> list[Employee]:
+        return []
 

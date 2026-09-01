@@ -61,7 +61,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             role TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS products (

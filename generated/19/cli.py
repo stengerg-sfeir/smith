@@ -8,60 +8,53 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('task-count')
-def task_count():
-    """task/count"""
-    svc = TaskService(Database(DB_PATH))
-    result = svc.get_task_count_by_status()
-
-@cli.command('task-create')
+@cli.command('task-add')
 @click.option('--title', required=True)
 @click.option('--description')
+@click.option('--status', required=True)
+@click.option('--priority', required=True)
+@click.option('--due-date')
+def task_add(title, description, status, priority, due_date):
+    """task/add"""
+    svc = TaskService(Database(DB_PATH))
+    result = svc.add_task(title=title, description=description, status=status, priority=priority, due_date=due_date)
+
+@cli.command('task-list')
+@click.option('--title')
 @click.option('--status')
 @click.option('--priority')
 @click.option('--due-date')
-def task_create(title, description, status, priority, due_date):
-    """task/create"""
+@click.option('--due-date-end')
+def task_list(title, status, priority, due_date, due_date_end):
+    """task/list"""
     svc = TaskService(Database(DB_PATH))
-    result = svc.create_task(title=title, description=description, status=status, priority=priority, due_date=due_date)
+    result = svc.list_task(title=title, status=status, priority=priority, due_date=due_date, due_date_end=due_date_end)
 
 @cli.command('task-update')
-@click.option('--task-id', type=int, required=True)
+@click.option('--id', type=int, required=True)
 @click.option('--title')
 @click.option('--description')
 @click.option('--status')
 @click.option('--priority')
 @click.option('--due-date')
-def task_update(task_id, title, description, status, priority, due_date):
+def task_update(id, title, description, status, priority, due_date):
     """task/update"""
     svc = TaskService(Database(DB_PATH))
-    result = svc.update_task(task_id=task_id, title=title, description=description, status=status, priority=priority, due_date=due_date)
+    result = svc.update_task(id=id, title=title, description=description, status=status, priority=priority, due_date=due_date)
 
 @cli.command('task-delete')
-@click.option('--task-id', type=int, required=True)
-def task_delete(task_id):
+@click.option('--id', type=int, required=True)
+def task_delete(id):
     """task/delete"""
     svc = TaskService(Database(DB_PATH))
-    result = svc.delete_task(task_id=task_id)
-
-@cli.command('task-export')
-def task_export():
-    """task/export"""
-    svc = TaskService(Database(DB_PATH))
-    result = svc.export_tasks_to_json()
+    result = svc.delete_task(id=id)
 
 @cli.command('task-import')
-@click.option('--json-file', required=True)
-def task_import(json_file):
+@click.option('--id', type=int, required=True)
+def task_import(id):
     """task/import"""
     svc = TaskService(Database(DB_PATH))
-    result = svc.import_tasks_from_json(json_data=json_file)
-
-@cli.command('task-overdue')
-def task_overdue():
-    """task/overdue"""
-    svc = TaskService(Database(DB_PATH))
-    result = svc.get_overdue_tasks()
+    result = svc.import_task(id=id)
 
 
 if __name__ == "__main__":

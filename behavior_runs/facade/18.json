@@ -58,7 +58,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "create-add",
+        "name": "contact-add",
         "options": [
           {
             "names": [
@@ -84,7 +84,7 @@
             ],
             "dest": "email",
             "type": "str",
-            "required": true,
+            "required": false,
             "flag": false
           },
           {
@@ -110,92 +110,174 @@
         "target": "add_contact"
       },
       {
-        "name": "read-count_by_last_name",
-        "options": [],
-        "arguments": [],
-        "target": "get_contact_count_by_last_name"
-      },
-      {
-        "name": "read-by_email_domain",
+        "name": "contact-list",
         "options": [
           {
             "names": [
-              "--domain"
+              "--first-name"
             ],
-            "dest": "domain",
+            "dest": "first_name",
             "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at"
+            ],
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at-end"
+            ],
+            "dest": "created_at_end",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_contact"
+      },
+      {
+        "name": "contact-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--first-name"
+            ],
+            "dest": "first_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--address"
+            ],
+            "dest": "address",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_contact"
+      },
+      {
+        "name": "contact-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_contacts_by_email_domain"
+        "target": "delete_contact"
       },
       {
-        "name": "read-by_last_name_prefix",
+        "name": "contact-report",
         "options": [
           {
             "names": [
-              "--prefix"
+              "--id"
             ],
-            "dest": "prefix",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_contacts_by_last_name_prefix"
-      },
-      {
-        "name": "read-invalid_emails",
-        "options": [],
-        "arguments": [],
-        "target": "get_contacts_with_invalid_email_format"
-      },
-      {
-        "name": "read-phone_and_email",
-        "options": [],
-        "arguments": [],
-        "target": "get_contacts_with_phone_and_email"
-      },
-      {
-        "name": "read-total_count",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_contact_count"
-      },
-      {
-        "name": "contact-export",
-        "options": [
-          {
-            "names": [
-              "--filename"
-            ],
-            "dest": "filename",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "export_to_csv"
+        "target": "get_contact_report"
       },
       {
         "name": "contact-import",
         "options": [
           {
             "names": [
-              "--filename"
+              "--id"
             ],
-            "dest": "filename",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "import_from_csv"
+        "target": "import_contact"
       }
     ],
     "invoker": "cli"

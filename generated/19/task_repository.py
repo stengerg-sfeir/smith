@@ -158,13 +158,17 @@ class TaskRepository:
                 return False
         return True
 
-    def get_overdue_tasks(self) -> list[Task]:
+    def get_tasks_with_priority_and_status_summary(self) -> dict[str, dict[str, int]]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM tasks WHERE due_date IS NOT NULL AND due_date < date('now')"
-            ).fetchall()
-            return [Task(**dict(r)) for r in rows]
-
-    def get_tasks_by_user(self, user_id: int) -> list[Task]:
-        return []
+            query = '\n                SELECT \n                    priority,\n                    status,\n                    COUNT(*) as count\n                FROM tasks\n                GROUP BY priority, status\n            '
+            rows = conn.execute(query).fetchall()
+            result: dict[str, dict[str, int]] = {}
+            for row in rows:
+                priority = row[0]
+                status = row[1]
+                count = row[2]
+                if priority not in result:
+                    result[priority] = {}
+                result[priority][status] = count
+            return result
 

@@ -60,7 +60,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             description TEXT,
             monthly_budget INTEGER,
-            icon TEXT
+            icon TEXT,
+            UNIQUE(name)
         );
 
         CREATE TABLE IF NOT EXISTS expenses (

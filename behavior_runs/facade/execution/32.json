@@ -16,7 +16,8 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "tenger/Documents/neurosymbolic/generated/32/order_service.py\", line 24, in add_order\n    return self.order_repo.create(order)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_repository.py\", line 20, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO orders (customer_id, status, created_at, updated_at, total_amount) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (order.customer_id, order.status, order.created_at, order.updated_at, order.total_amount),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.OperationalError: no such table: main.customers\n"
+      "stderr_tail": "tenger/Documents/neurosymbolic/generated/32/order_service.py\", line 24, in add_order\n    return self.order_repo.create(order)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_repository.py\", line 20, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO orders (customer_id, status, created_at, updated_at, total_amount) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (order.customer_id, order.status, order.created_at, order.updated_at, order.total_amount),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.OperationalError: no such table: main.customers\n",
+      "seed": false
     },
     {
       "intent_id": "I2",
@@ -26,7 +27,8 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/cli.py\", line 25, in order_confirm\n    result = svc.confirm_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_service.py\", line 29, in confirm_order\n    raise OrderNotFoundError(f'Order with id {id} not found')\nexceptions.OrderNotFoundError: Order with id 101 not found\n"
+      "stderr_tail": "return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/cli.py\", line 25, in order_confirm\n    result = svc.confirm_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_service.py\", line 29, in confirm_order\n    raise OrderNotFoundError(f'Order with id {id} not found')\nexceptions.OrderNotFoundError: Order with id 101 not found\n",
+      "seed": false
     },
     {
       "intent_id": "I3",
@@ -36,7 +38,8 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "voke\n    return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/cli.py\", line 32, in order_ship\n    result = svc.ship_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_service.py\", line 42, in ship_order\n    raise OrderNotFoundError(f'Order with id {id} not found')\nexceptions.OrderNotFoundError: Order with id 101 not found\n"
+      "stderr_tail": "voke\n    return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/cli.py\", line 32, in order_ship\n    result = svc.ship_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_service.py\", line 42, in ship_order\n    raise OrderNotFoundError(f'Order with id {id} not found')\nexceptions.OrderNotFoundError: Order with id 101 not found\n",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -46,7 +49,8 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "   return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/cli.py\", line 39, in order_cancel\n    result = svc.cancel_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_service.py\", line 55, in cancel_order\n    raise OrderNotFoundError(f'Order with id {id} not found')\nexceptions.OrderNotFoundError: Order with id 101 not found\n"
+      "stderr_tail": "   return _process_result(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/cli.py\", line 39, in order_cancel\n    result = svc.cancel_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/32/order_service.py\", line 55, in cancel_order\n    raise OrderNotFoundError(f'Order with id {id} not found')\nexceptions.OrderNotFoundError: Order with id 101 not found\n",
+      "seed": false
     }
   ],
   "unmapped": [

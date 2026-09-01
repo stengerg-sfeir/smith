@@ -1,12 +1,11 @@
 """Service layer."""
 from __future__ import annotations
 
-import csv
 import datetime
-from typing import Dict, List, Optional
+from typing import List
 
 from database import Database
-from models import Product
+from models import Order, Product, User
 from order_repository import OrderRepository
 from product_repository import ProductRepository
 from user_repository import UserRepository
@@ -19,40 +18,34 @@ class UserService:
         self.product_repo = ProductRepository(db)
         self.user_repo = UserRepository(db)
 
-    def create_product(self, name: str, description: Optional[str] = None, price: float = None, stock_quantity: int = None) -> Optional[Product]:
+    def add_product(self, name: str, description: str, price: str, stock_quantity: int) -> None:
         product = Product(name=name, description=description, price=price, stock_quantity=stock_quantity, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
         return self.product_repo.create(product)
 
-    def get_product_by_id(self, product_id: int) -> Optional[Product]:
-        return self.product_repo.get_by_id(product_id)
+    def list_product(self, name: str, price: str, price_end: str, created_at: str, created_at_end: str) -> List[Product]:
+        return self.product_repo.list(name=name, price=price, price_end=price_end, created_at=created_at, created_at_end=created_at_end)
 
-    def get_products_by_category_and_price_range(self, category: str, min_price: float, max_price: float) -> List[Product]:
-        """Retrieve products by category and price range."""
-        return self.product_repo.get_products_by_category(category, min_price, max_price)
+    def update_product(self, id: int, name: str, description: str, price: str, stock_quantity: int) -> None:
+        data = {k: v for k, v in {'name': name, 'description': description, 'price': price, 'stock_quantity': stock_quantity}.items() if v is not None}
+        return self.product_repo.update(id, data)
 
-    def get_top_selling_products(self, limit: int) -> List[Product]:
-        """Retrieve the top selling products based on sales volume."""
-        return self.product_repo.get_top_selling_products(limit)
+    def delete_product(self, id: int) -> None:
+        return self.product_repo.delete(id)
 
-    def get_products_with_low_stock(self) -> List[Product]:
-        """Retrieve products with low stock levels."""
-        return self.product_repo.get_products_with_low_stock()
+    def add_user(self, email: str, password_hash: str, role: str) -> None:
+        user = User(email=email, password_hash=password_hash, role=role, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
+        return self.user_repo.create(user)
 
-    def export_products_to_csv(self, file_path: str) -> None:
-        rows = self.product_repo.list()
-        with open(file_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'id', 'name', 'description', 'price',
-                'stock_quantity', 'created_at', 'updated_at',
-            ])
-            for row in rows:
-                writer.writerow([
-                    row.id, row.name, row.description, row.price,
-                    row.stock_quantity, row.created_at, row.updated_at,
-                ])
+    def list_user(self, email: str, role: str, created_at: str, created_at_end: str) -> List[User]:
+        return self.user_repo.list(email=email, role=role, created_at=created_at, created_at_end=created_at_end)
 
-    def get_product_sales_trend(self, start_date: datetime, end_date: datetime) -> Dict[str, float]:
-        """Retrieve sales trend data for products over a date range."""
-        return self.product_repo.get_product_sales_trend(start_date, end_date)
+    def update_user(self, id: int, email: str, password_hash: str, role: str) -> None:
+        data = {k: v for k, v in {'email': email, 'password_hash': password_hash, 'role': role}.items() if v is not None}
+        return self.user_repo.update(id, data)
+
+    def delete_user(self, id: int) -> None:
+        return self.user_repo.delete(id)
+
+    def list_order(self, user_id: str, status: str, created_at: str, created_at_end: str) -> List[Order]:
+        return self.order_repo.list(user_id=user_id, status=status, created_at=created_at, created_at_end=created_at_end)
 

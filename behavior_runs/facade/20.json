@@ -66,7 +66,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "crud-create",
+        "name": "product-add",
         "options": [
           {
             "names": [
@@ -91,29 +91,63 @@
         "target": "add_product"
       },
       {
-        "name": "crud-read",
+        "name": "product-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_product"
+      },
+      {
+        "name": "product-update",
         "options": [
           {
             "names": [
-              "--product-id"
+              "--id"
             ],
-            "dest": "product_id",
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_product"
+      },
+      {
+        "name": "product-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_sales_report_by_product"
+        "target": "delete_product"
       },
       {
-        "name": "crud-update",
-        "options": [],
-        "arguments": [],
-        "target": "get_sales_count_per_product"
-      },
-      {
-        "name": "sale-crud-create",
+        "name": "sale-add",
         "options": [
           {
             "names": [
@@ -132,126 +166,60 @@
             "type": "int",
             "required": true,
             "flag": false
-          },
-          {
-            "names": [
-              "--date"
-            ],
-            "dest": "date",
-            "type": "str",
-            "required": true,
-            "flag": false
           }
         ],
         "arguments": [],
         "target": "add_sale"
       },
       {
-        "name": "sale-crud-update",
-        "options": [
-          {
-            "names": [
-              "--threshold"
-            ],
-            "dest": "threshold",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_sales_with_low_quantity_threshold"
-      },
-      {
-        "name": "report-total",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_sales_amount"
-      },
-      {
-        "name": "report-per_product",
-        "options": [],
-        "arguments": [],
-        "target": "get_sales_count_per_product"
-      },
-      {
-        "name": "report-by_product",
+        "name": "sale-list",
         "options": [
           {
             "names": [
               "--product-id"
             ],
             "dest": "product_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_sales_report_by_product"
-      },
-      {
-        "name": "report-period",
-        "options": [
-          {
-            "names": [
-              "--start-date"
-            ],
-            "dest": "start_date",
             "type": "str",
-            "required": true,
+            "required": false,
             "flag": false
           },
           {
             "names": [
-              "--end-date"
+              "--sale-date-from"
             ],
-            "dest": "end_date",
+            "dest": "sale_date_from",
             "type": "str",
-            "required": true,
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--sale-date-to"
+            ],
+            "dest": "sale_date_to",
+            "type": "str",
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_sales_with_product_names"
+        "target": "list_sale"
       },
       {
-        "name": "report-low_quantity",
+        "name": "product-report",
         "options": [
           {
             "names": [
-              "--threshold"
+              "--id"
             ],
-            "dest": "threshold",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_sales_with_low_quantity_threshold"
-      },
-      {
-        "name": "report-export",
-        "options": [
-          {
-            "names": [
-              "--file-path"
-            ],
-            "dest": "file_path",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "export_sales_report_to_csv"
-      },
-      {
-        "name": "report-duplicates",
-        "options": [],
-        "arguments": [],
-        "target": "find_duplicate_sales_by_product"
+        "target": "get_product_report"
       }
     ],
     "invoker": "cli"

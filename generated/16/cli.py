@@ -8,56 +8,43 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('get-by_email')
+@cli.command('customer-add')
+@click.option('--first-name', required=True)
+@click.option('--last-name', required=True)
 @click.option('--email', required=True)
-def get_by_email(email):
-    """customer/get/by_email"""
+@click.option('--phone')
+def customer_add(first_name, last_name, email, phone):
+    """customer/add"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customer_by_email(email=email)
+    result = svc.add_customer(first_name=first_name, last_name=last_name, email=email, phone=phone)
 
-@cli.command('list-by_last_name_prefix')
-@click.option('--prefix', required=True)
-@click.option('--page', type=int)
-@click.option('--page-size', type=int)
-def list_by_last_name_prefix(prefix, page, page_size):
-    """customer/list/by_last_name_prefix"""
+@cli.command('customer-list')
+@click.option('--first-name')
+@click.option('--last-name')
+@click.option('--email')
+@click.option('--phone')
+def customer_list(first_name, last_name, email, phone):
+    """customer/list"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_by_last_name_prefix(last_name_prefix=prefix, page_number=page, page_size=page_size)
+    result = svc.list_customer(first_name=first_name, last_name=last_name, email=email, phone=phone)
 
-@cli.command('list-by_phone_pattern')
-@click.option('--pattern', required=True)
-@click.option('--page', type=int)
-@click.option('--page-size', type=int)
-def list_by_phone_pattern(pattern, page, page_size):
-    """customer/list/by_phone_pattern"""
+@cli.command('customer-update')
+@click.option('--id', type=int, required=True)
+@click.option('--first-name')
+@click.option('--last-name')
+@click.option('--email')
+@click.option('--phone')
+def customer_update(id, first_name, last_name, email, phone):
+    """customer/update"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_by_phone_pattern(phone_pattern=pattern, page_number=page, page_size=page_size)
+    result = svc.update_customer(id=id, first_name=first_name, last_name=last_name, email=email, phone=phone)
 
-@cli.command('list-active')
-@click.option('--page', type=int)
-@click.option('--page-size', type=int)
-def list_active(page, page_size):
-    """customer/list/active"""
+@cli.command('customer-delete')
+@click.option('--id', type=int, required=True)
+def customer_delete(id):
+    """customer/delete"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_with_active_status(page_number=page, page_size=page_size)
-
-@cli.command('list-by_domain')
-@click.option('--domain', required=True)
-@click.option('--page', type=int)
-@click.option('--page-size', type=int)
-def list_by_domain(domain, page, page_size):
-    """customer/list/by_domain"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_with_email_domain(domain=domain, page_number=page, page_size=page_size)
-
-@cli.command('list-recent_activity')
-@click.option('--days-ago', type=int, required=True)
-@click.option('--page', type=int)
-@click.option('--page-size', type=int)
-def list_recent_activity(days_ago, page, page_size):
-    """customer/list/recent_activity"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_with_recent_activity(days_ago=days_ago, page_number=page, page_size=page_size)
+    result = svc.delete_customer(id=id)
 
 
 if __name__ == "__main__":

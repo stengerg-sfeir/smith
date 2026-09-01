@@ -62,7 +62,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone TEXT
+            phone TEXT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS audit_records (

@@ -8,68 +8,61 @@ DB_PATH = "contacts.db"
 def cli():
     """Application root."""
 
-@cli.command('create-add')
+@cli.command('contact-add')
 @click.option('--first-name', required=True)
 @click.option('--last-name', required=True)
-@click.option('--email', required=True)
+@click.option('--email')
 @click.option('--phone')
 @click.option('--address')
-def create_add(first_name, last_name, email, phone, address):
-    """contact/create/add"""
+def contact_add(first_name, last_name, email, phone, address):
+    """contact/add"""
     svc = ContactService(Database(DB_PATH))
     result = svc.add_contact(first_name=first_name, last_name=last_name, email=email, phone=phone, address=address)
 
-@cli.command('read-count_by_last_name')
-def read_count_by_last_name():
-    """contact/read/count_by_last_name"""
+@cli.command('contact-list')
+@click.option('--first-name')
+@click.option('--last-name')
+@click.option('--email')
+@click.option('--phone')
+@click.option('--created-at')
+@click.option('--created-at-end')
+def contact_list(first_name, last_name, email, phone, created_at, created_at_end):
+    """contact/list"""
     svc = ContactService(Database(DB_PATH))
-    result = svc.get_contact_count_by_last_name()
+    result = svc.list_contact(first_name=first_name, last_name=last_name, email=email, phone=phone, created_at=created_at, created_at_end=created_at_end)
 
-@cli.command('read-by_email_domain')
-@click.option('--domain', required=True)
-def read_by_email_domain(domain):
-    """contact/read/by_email_domain"""
+@cli.command('contact-update')
+@click.option('--id', type=int, required=True)
+@click.option('--first-name')
+@click.option('--last-name')
+@click.option('--email')
+@click.option('--phone')
+@click.option('--address')
+def contact_update(id, first_name, last_name, email, phone, address):
+    """contact/update"""
     svc = ContactService(Database(DB_PATH))
-    result = svc.get_contacts_by_email_domain(domain=domain)
+    result = svc.update_contact(id=id, first_name=first_name, last_name=last_name, email=email, phone=phone, address=address)
 
-@cli.command('read-by_last_name_prefix')
-@click.option('--prefix', required=True)
-def read_by_last_name_prefix(prefix):
-    """contact/read/by_last_name_prefix"""
+@cli.command('contact-delete')
+@click.option('--id', type=int, required=True)
+def contact_delete(id):
+    """contact/delete"""
     svc = ContactService(Database(DB_PATH))
-    result = svc.get_contacts_by_last_name_prefix(prefix=prefix)
+    result = svc.delete_contact(id=id)
 
-@cli.command('read-invalid_emails')
-def read_invalid_emails():
-    """contact/read/invalid_emails"""
+@cli.command('contact-report')
+@click.option('--id', type=int, required=True)
+def contact_report(id):
+    """contact/report"""
     svc = ContactService(Database(DB_PATH))
-    result = svc.get_contacts_with_invalid_email_format()
-
-@cli.command('read-phone_and_email')
-def read_phone_and_email():
-    """contact/read/phone_and_email"""
-    svc = ContactService(Database(DB_PATH))
-    result = svc.get_contacts_with_phone_and_email()
-
-@cli.command('read-total_count')
-def read_total_count():
-    """contact/read/total_count"""
-    svc = ContactService(Database(DB_PATH))
-    result = svc.get_total_contact_count()
-
-@cli.command('contact-export')
-@click.option('--filename', required=True)
-def contact_export(filename):
-    """contact/export"""
-    svc = ContactService(Database(DB_PATH))
-    result = svc.export_to_csv(filename=filename)
+    result = svc.get_contact_report(id=id)
 
 @cli.command('contact-import')
-@click.option('--filename', required=True)
-def contact_import(filename):
+@click.option('--id', type=int, required=True)
+def contact_import(id):
     """contact/import"""
     svc = ContactService(Database(DB_PATH))
-    result = svc.import_from_csv(filename=filename)
+    result = svc.import_contact(id=id)
 
 
 if __name__ == "__main__":

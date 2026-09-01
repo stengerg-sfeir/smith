@@ -82,6 +82,40 @@
         ],
         "arguments": [],
         "target": "list_notification"
+      },
+      {
+        "name": "order-add",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--total-amount"
+            ],
+            "dest": "total_amount",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_order"
       }
     ],
     "invoker": "cli"

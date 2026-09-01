@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from database import Database
 from models import Order, Product
 from order_repository import OrderRepository
+from product_repository import ProductRepository
 
 
 class OrderService:
     def __init__(self, db: Database) -> None:
         self.db = db
         self.order_repo = OrderRepository(db)
+        self.product_repo = ProductRepository(db)
 
     def add_product(self, name: str, price: str) -> None:
         product = Product(name=name, price=price, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
@@ -28,14 +30,10 @@ class OrderService:
     def delete_order(self, id: int) -> None:
         return self.order_repo.delete(id)
 
-    def get_product_report(self) -> dict:
-        """
-            Generates a product report that includes total revenue by product and the most popular product.
-            Returns a dictionary with:
-            - 'total_revenue_by_product': dict mapping product name to total revenue
-            - 'most_popular_product': Product object with the highest total quantity sold
-            """
-        revenue_by_product = self.order_repo.get_total_revenue_by_product(start_date=datetime.date(2023, 1, 1), end_date=datetime.date(2023, 12, 31))
-        most_popular_product = self.order_repo.get_most_popular_product()
-        return {'total_revenue_by_product': revenue_by_product, 'most_popular_product': most_popular_product}
+    def get_product_report(self, id: int) -> Dict[str, Any]:
+        results = {}
+        for row in self.order_item_repo.list():
+            key = row.product_id
+            results[key] = results.get(key, 0) + row.unit_price
+        return results
 

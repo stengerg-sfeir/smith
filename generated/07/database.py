@@ -64,7 +64,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            genre TEXT
+            genre TEXT,
+            UNIQUE(isbn)
         );"""
     )
     conn.commit()

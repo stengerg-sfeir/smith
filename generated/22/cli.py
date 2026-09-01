@@ -42,10 +42,11 @@ def order_delete(id):
     result = svc.delete_order(id=id)
 
 @cli.command('product-report')
-def product_report():
+@click.option('--id', type=int, required=True)
+def product_report(id):
     """product/report"""
     svc = OrderService(Database(DB_PATH))
-    result = svc.get_product_report()
+    result = svc.get_product_report(id=id)
 
 
 if __name__ == "__main__":

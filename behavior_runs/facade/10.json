@@ -64,41 +64,41 @@
           }
         ],
         "arguments": [],
-        "target": "create_note"
+        "target": "add"
       },
       {
         "name": "notes-list",
         "options": [
           {
             "names": [
-              "--title-filter"
+              "--title"
             ],
-            "dest": "title_filter",
+            "dest": "title",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--created-after"
+              "--start-date"
             ],
-            "dest": "created_after",
+            "dest": "start_date",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--created-before"
+              "--end-date"
             ],
-            "dest": "created_before",
+            "dest": "end_date",
             "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "list_notes"
+        "target": "list"
       },
       {
         "name": "notes-update",
@@ -132,7 +132,7 @@
           }
         ],
         "arguments": [],
-        "target": "update_note"
+        "target": "update"
       },
       {
         "name": "notes-delete",
@@ -148,39 +148,7 @@
           }
         ],
         "arguments": [],
-        "target": "delete_note"
-      },
-      {
-        "name": "notes-search",
-        "options": [
-          {
-            "names": [
-              "--query"
-            ],
-            "dest": "query",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "search_notes"
-      },
-      {
-        "name": "notes-monthly",
-        "options": [
-          {
-            "names": [
-              "--year-month"
-            ],
-            "dest": "year_month",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_notes_by_month"
+        "target": "delete"
       }
     ],
     "invoker": "cli"

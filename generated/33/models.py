@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -22,6 +22,11 @@ class AuditRecord:
     operation: str
     timestamp: datetime
     id: Optional[int] = None
+
+
+UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
+    "Customer": [("email",)],
+}
 
 
 TABLE_NAMES: Dict[str, str] = {

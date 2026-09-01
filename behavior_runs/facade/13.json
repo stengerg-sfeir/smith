@@ -66,76 +66,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "read-list",
-        "options": [
-          {
-            "names": [
-              "--query"
-            ],
-            "dest": "query",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--category"
-            ],
-            "dest": "category",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "search_products"
-      },
-      {
-        "name": "read-by_sku",
-        "options": [
-          {
-            "names": [
-              "--sku"
-            ],
-            "dest": "sku",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_product_by_sku"
-      },
-      {
-        "name": "read-by_category",
-        "options": [
-          {
-            "names": [
-              "--category"
-            ],
-            "dest": "category",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_products_by_category"
-      },
-      {
-        "name": "read-low_stock",
-        "options": [],
-        "arguments": [],
-        "target": "get_low_stock_products"
-      },
-      {
-        "name": "read-count_by_category",
-        "options": [],
-        "arguments": [],
-        "target": "get_product_count_by_category"
-      },
-      {
-        "name": "write-create",
+        "name": "product-add",
         "options": [
           {
             "names": [
@@ -169,7 +100,7 @@
               "--price"
             ],
             "dest": "price",
-            "type": "int",
+            "type": "str",
             "required": true,
             "flag": false
           },
@@ -184,10 +115,10 @@
           }
         ],
         "arguments": [],
-        "target": "create_product"
+        "target": "add_product"
       },
       {
-        "name": "write-update_stock",
+        "name": "product-list",
         "options": [
           {
             "names": [
@@ -195,31 +126,137 @@
             ],
             "dest": "sku",
             "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--min-price"
+            ],
+            "dest": "min_price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-price"
+            ],
+            "dest": "max_price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--min-stock"
+            ],
+            "dest": "min_stock",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--max-stock"
+            ],
+            "dest": "max_stock",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_product"
+      },
+      {
+        "name": "product-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--new-stock"
-            ],
-            "dest": "new_stock",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "update_product_stock"
-      },
-      {
-        "name": "write-delete",
-        "options": [
-          {
-            "names": [
               "--sku"
             ],
             "dest": "sku",
             "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category"
+            ],
+            "dest": "category",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--stock-quantity"
+            ],
+            "dest": "stock_quantity",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_product"
+      },
+      {
+        "name": "product-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
@@ -228,20 +265,36 @@
         "target": "delete_product"
       },
       {
-        "name": "product-export",
+        "name": "product-search",
         "options": [
           {
             "names": [
-              "--file-path"
+              "--term"
             ],
-            "dest": "file_path",
+            "dest": "term",
             "type": "str",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "export_products_to_csv"
+        "target": "search_product"
+      },
+      {
+        "name": "product-filter",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "filter_product"
       }
     ],
     "invoker": "cli"

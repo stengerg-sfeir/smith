@@ -37,7 +37,7 @@ class SaleRepository:
             ).fetchall()
             return [Sale(**dict(r)) for r in rows]
 
-    def list(self, product_id: Optional[Any] = None, sale_date_from: Optional[Any] = None, sale_date_to: Optional[Any] = None, quantity: Optional[Any] = None, sale_date: Optional[Any] = None) -> List[Sale]:
+    def list(self, product_id: Optional[Any] = None, sale_date_from: Optional[Any] = None, sale_date_to: Optional[Any] = None, quantity: Optional[Any] = None) -> List[Sale]:
         with self.db.connect() as conn:
             query = "SELECT * FROM sales WHERE 1=1"
             params: List[Any] = []
@@ -53,9 +53,6 @@ class SaleRepository:
             if quantity is not None:
                 query += ' AND quantity = ?'
                 params.append(quantity)
-            if sale_date is not None:
-                query += ' AND sale_date = ?'
-                params.append(sale_date)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Sale(**dict(r)) for r in rows]
 

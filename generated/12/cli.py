@@ -8,48 +8,53 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('customer-create')
+@cli.command('customer-add')
 @click.option('--name', required=True)
 @click.option('--email', required=True)
 @click.option('--phone')
-def customer_create(name, email, phone):
-    """customer/create"""
+def customer_add(name, email, phone):
+    """customer/add"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.create_customer(name=name, email=email, phone=phone)
+    result = svc.add_customer(name=name, email=email, phone=phone)
 
 @cli.command('customer-list')
-@click.option('--domain')
-def customer_list(domain):
+@click.option('--name')
+@click.option('--email-domain')
+def customer_list(name, email_domain):
     """customer/list"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_by_domain(domain=domain)
+    result = svc.list_customer(name=name, email_domain=email_domain)
+
+@cli.command('customer-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+@click.option('--email')
+@click.option('--phone')
+def customer_update(id, name, email, phone):
+    """customer/update"""
+    svc = CustomerService(Database(DB_PATH))
+    result = svc.update_customer(id=id, name=name, email=email, phone=phone)
+
+@cli.command('customer-delete')
+@click.option('--id', type=int, required=True)
+def customer_delete(id):
+    """customer/delete"""
+    svc = CustomerService(Database(DB_PATH))
+    result = svc.delete_customer(id=id)
 
 @cli.command('customer-search')
-@click.option('--name', required=True)
-def customer_search(name):
+@click.option('--term', required=True)
+def customer_search(term):
     """customer/search"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.search_customers_by_name(name=name)
+    result = svc.search_customer(term=term)
 
 @cli.command('customer-filter')
-@click.option('--domain', required=True)
-def customer_filter(domain):
+@click.option('--id', type=int, required=True)
+def customer_filter(id):
     """customer/filter"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.filter_customers_by_email_domain(domain=domain)
-
-@cli.command('phone-prefix')
-@click.option('--prefix', required=True)
-def phone_prefix(prefix):
-    """customer/phone/prefix"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_with_phone_prefix(prefix=prefix)
-
-@cli.command('stats-count')
-def stats_count():
-    """customer/stats/count"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_total_customers()
+    result = svc.filter_customer(id=id)
 
 
 if __name__ == "__main__":

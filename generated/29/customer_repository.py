@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from database import Database
 from exceptions import CustomerNotFoundError
-from models import Customer, Order
+from models import Customer
 
 
 class CustomerRepository:
@@ -38,22 +38,16 @@ class CustomerRepository:
             ).fetchall()
             return [Customer(**dict(r)) for r in rows]
 
-    def list(self, name: Optional[Any] = None, email: Optional[Any] = None, created_at: Optional[Any] = None, created_at_end: Optional[Any] = None, phone: Optional[Any] = None) -> List[Customer]:
+    def list(self, email: Optional[Any] = None, name: Optional[Any] = None, phone: Optional[Any] = None) -> List[Customer]:
         with self.db.connect() as conn:
             query = "SELECT * FROM customers WHERE 1=1"
             params: List[Any] = []
-            if name is not None:
-                query += ' AND name = ?'
-                params.append(name)
             if email is not None:
                 query += ' AND email = ?'
                 params.append(email)
-            if created_at is not None:
-                query += ' AND created_at >= ?'
-                params.append(created_at)
-            if created_at_end is not None:
-                query += ' AND created_at <= ?'
-                params.append(created_at_end)
+            if name is not None:
+                query += ' AND name = ?'
+                params.append(name)
             if phone is not None:
                 query += ' AND phone = ?'
                 params.append(phone)
@@ -92,31 +86,33 @@ class CustomerRepository:
             email=email,
         )
 
-    def get_customer_orders(self, customer_id: int, status: Optional[str]=None, from_date: Optional[str]=None, to_date: Optional[str]=None) -> list[Order]:
-        query = 'SELECT * FROM orders WHERE customer_id = ?'
-        params = [customer_id]
-        if status is not None:
-            query += ' AND status = ?'
-            params.append(status)
-        if from_date is not None:
-            query += ' AND order_date >= ?'
-            params.append(from_date)
-        if to_date is not None:
-            query += ' AND order_date <= ?'
-            params.append(to_date)
-        with self.db.connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-            return [Order(**dict(r)) for r in rows]
+    def get_customer_by_phone(self, phone: str) -> Optional[Customer]:
+        return self.list(
+            phone=phone,
+        )
 
-    def get_customer_with_orders(self, customer_id: int) -> dict[Customer, list[Order]]:
+    def get_customers_with_order_count(self) -> list[Customer]:
         with self.db.connect() as conn:
-            customer_row = conn.execute('SELECT * FROM customers WHERE id = ?', (customer_id,)).fetchone()
-            if customer_row is None:
-                raise CustomerNotFoundError(f'Customer with id {customer_id} not found')
-            customer = Customer(**dict(customer_row))
-            orders_row = conn.execute('SELECT * FROM orders WHERE customer_id = ?', (customer_id,)).fetchall()
-            orders = [Order(**dict(r)) for r in orders_row]
-            return {customer: orders}
+            rows = conn.execute('SELECT c.id, c.name, c.email, c.phone, c.created_at, c.updated_at FROM customers c LEFT JOIN orders o ON c.id = o.customer_id GROUP BY c.id', ()).fetchall()
+            return [Customer(**dict(r)) for r in rows]
+
+    def get_customers_with_total_spent(self) -> list[Customer]:
+        with self.db.connect() as conn:
+            rows = conn.execute('SELECT c.id, c.name, c.email, c.phone, c.created_at, c.updated_at FROM customers c LEFT JOIN orders o ON c.id = o.customer_id GROUP BY c.id', ()).fetchall()
+            return [Customer(**dict(r)) for r in rows]
+
+    def get_customers_by_status_filter(self, status: str) -> list[Customer]:
+        with self.db.connect() as conn:
+            rows = conn.execute('SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders WHERE status = ?)', (status,)).fetchall()
+            return [Customer(**dict(r)) for r in rows]
+
+    def get_customers_in_date_range(self, start_date: datetime, end_date: datetime) -> list[Customer]:
+        return []
+
+    def get_customer_orders_summary(self, customer_id: int) -> dict:
+        with self.db.connect() as conn:
+            row = conn.execute('SELECT COUNT(*) as order_count, SUM(total_amount) as total_spent FROM orders WHERE customer_id = ?', (customer_id,)).fetchone()
+            return {'order_count': row[0] if row[0] is not None else 0, 'total_spent': row[1] if row[1] is not None else 0}
 
     def get_active_customers_count(self) -> int:
         with self.db.connect() as conn:
@@ -125,15 +121,8 @@ class CustomerRepository:
             ).fetchone()
             return int(row["n"])
 
-    def get_customers_by_name_prefix(self, prefix: str) -> list[Customer]:
-        return []
-
-    def get_customer_total_spent(self, customer_id: int) -> float:
+    def get_customers_with_pending_orders(self) -> list[Customer]:
         with self.db.connect() as conn:
-            row = conn.execute('SELECT SUM(total_amount) FROM orders WHERE customer_id = ?', (customer_id,)).fetchone()
-            total = row[0] if row[0] is not None else 0.0
-            return float(total)
-
-    def get_customer_order_summary(self, customer_id: int) -> dict[str, float]:
-        return {}
+            rows = conn.execute('SELECT DISTINCT c.id, c.name, c.email, c.phone, c.created_at, c.updated_at FROM customers c JOIN orders o ON c.id = o.customer_id WHERE o.status = ?', ('pending',)).fetchall()
+            return [Customer(**dict(r)) for r in rows]
 

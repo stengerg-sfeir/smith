@@ -2,28 +2,25 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from database import Database
 from document_repository import DocumentRepository
-from models import Document
+from models import Document, User
 from user_repository import UserRepository
 
 
-class AuthService:
+class DocumentService:
     def __init__(self, db: Database) -> None:
         self.db = db
         self.document_repo = DocumentRepository(db)
         self.user_repo = UserRepository(db)
 
-    def authenticate_user(self, user_id: int) -> bool:
-        """Authenticate a user by user_id. Returns True if user exists and is valid, False otherwise."""
-        user = self.user_repo.get_by_id(user_id)
-        if not user:
-            return False
-        return True
+    def authenticate_user(self, id: int) -> bool:
+        user = self.user_repo.get_by_id(id)
+        return user is not None
 
-    def list_document(self, title: Optional[str] = None, created_at: Optional[str] = None, created_at_end: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_document(self, title: Optional[str] = None, created_at: Optional[str] = None, created_at_end: Optional[str] = None) -> list[dict]:
         results = {}
         for row in self.document_repo.list(title=title, created_at=created_at, created_at_end=created_at_end):
             key = (row.title, row.created_at)
@@ -40,4 +37,8 @@ class AuthService:
 
     def delete_document(self, id: int) -> bool:
         return self.document_repo.delete(id)
+
+    def add_user(self, email: str, password_hash: str) -> bool:
+        user = User(email=email, password_hash=password_hash, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
+        return self.user_repo.create(user)
 

@@ -16,7 +16,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Hello, World!\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": []

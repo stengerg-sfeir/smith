@@ -58,7 +58,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
         """        CREATE TABLE IF NOT EXISTS customers (
             name TEXT NOT NULL,
             email TEXT NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS orders (
@@ -66,7 +67,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             order_date TEXT NOT NULL,
             status TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            FOREIGN KEY (customer_id) REFERENCES customers (id)
+            FOREIGN KEY (customer_id) REFERENCES customers (id),
+            UNIQUE(customer_id, order_date)
         );"""
     )
     conn.commit()

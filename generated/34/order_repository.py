@@ -76,9 +76,10 @@ class OrderRepository:
 
     def create_order_with_lines(self, order_data: dict, order_lines: list[dict]) -> None:
         with self.db.connect() as conn:
-            conn.execute('INSERT INTO orders (created_at, id, status, updated_at) VALUES (?, ?, ?, ?)', (order_data['created_at'], order_data['id'], order_data['status'], order_data['updated_at']))
+            conn.execute('INSERT INTO orders (created_at, status, updated_at) VALUES (?, ?, ?)', (order_data['created_at'], order_data['status'], order_data['updated_at']))
+            order_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
             for line in order_lines:
-                conn.execute('INSERT INTO order_lines (order_id, product_id, quantity, total_price, unit_price) VALUES (?, ?, ?, ?, ?)', (line['order_id'], line['product_id'], line['quantity'], line['total_price'], line['unit_price']))
+                conn.execute('INSERT INTO order_lines (order_id, product_id, quantity, total_price, unit_price) VALUES (?, ?, ?, ?, ?)', (order_id, line['product_id'], line['quantity'], line['total_price'], line['unit_price']))
             conn.commit()
 
     def get_order_by_id_with_lines(self, order_id: int) -> OrderWithLines:
@@ -90,12 +91,12 @@ class OrderRepository:
     def get_order_total_count(self, status: str, created_after: datetime, created_before: datetime) -> int:
         return 0
 
-    def generate_order_report_by_product(self, start_date: datetime, end_date: datetime) -> dict:
+    def generate_order_report_by_product(self, period_start: datetime, period_end: datetime) -> dict[str, float]:
         return {}
 
     def validate_order_lines(self, order_lines: list[dict]) -> bool:
         if not order_lines:
-            return False
+            return True
         for line in order_lines:
             if not all((k in line for k in ['product_id', 'quantity', 'total_price', 'unit_price'])):
                 return False
@@ -103,7 +104,7 @@ class OrderRepository:
                 return False
             if not isinstance(line['unit_price'], (int, float)) or line['unit_price'] <= 0:
                 return False
-            if not isinstance(line['total_price'], (int, float)) or line['total_price'] <= 0:
+            if not isinstance(line['total_price'], (int, float)):
                 return False
             if line['total_price'] != line['quantity'] * line['unit_price']:
                 return False

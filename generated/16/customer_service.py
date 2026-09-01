@@ -1,7 +1,8 @@
 """Service layer."""
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+import datetime
+from typing import Optional
 
 from customer_repository import CustomerRepository
 from database import Database
@@ -13,36 +14,21 @@ class CustomerService:
         self.db = db
         self.customer_repo = CustomerRepository(db)
 
-    def get_customer_by_email(self, email: str) -> Optional[Customer]:
-        return self.customer_repo.get_customer_by_email(email)
+    def add_customer(self, first_name: str, last_name: str, email: str, phone: str) -> bool:
+        customer = Customer(first_name=first_name, last_name=last_name, email=email, phone=phone, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
+        return self.customer_repo.create(customer)
 
-    def get_customers_by_last_name_prefix(self, last_name_prefix: str, page_number: int, page_size: int) -> List[Customer] & Dict[str, int]:
+    def list_customer(self, first_name: Optional[str] = None, last_name: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None) -> list[Customer] & dict[str, int]:
         results = {}
-        for row in self.customer_repo.list():
-            key = row.last_name
+        for row in self.customer_repo.list(first_name=first_name, last_name=last_name, email=email, phone=phone):
+            key = (row.first_name, row.last_name)
             results[key] = results.get(key, 0) + row.id
         return results
 
-    def get_customers_with_active_status(self, page_number: int, page_size: int) -> List[Customer] & Dict[str, int]:
-        return self.customer_repo.get_customers_with_active_status(page_number, page_size)
+    def update_customer(self, id: int, first_name: Optional[str] = None, last_name: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None) -> bool:
+        data = {k: v for k, v in {'first_name': first_name, 'last_name': last_name, 'email': email, 'phone': phone}.items() if v is not None}
+        return self.customer_repo.update(id, data)
 
-    def get_customers_with_email_domain(self, domain: str, page_number: int, page_size: int) -> List[Customer] & Dict[str, int]:
-        results = []
-        groups = {}
-        for row in self.customer_repo.list():
-            key = (row.email)
-            groups.setdefault(key, []).append(row)
-        for key, group in groups.items():
-            if len(group) >= 2:
-                results.append({
-                    'email': key[0],
-                    'count': len(group),
-                })
-        return results
-
-    def get_customers_by_phone_pattern(self, phone_pattern: str, page_number: int, page_size: int) -> List[Customer] & Dict[str, int]:
-        return self.customer_repo.get_customers_by_phone_pattern(phone_pattern, page_number, page_size)
-
-    def get_customers_with_recent_activity(self, days_ago: int, page_number: int, page_size: int) -> List[Customer] & Dict[str, int]:
-        return self.customer_repo.get_customers_with_recent_activity(days_ago, page_number, page_size)
+    def delete_customer(self, id: int) -> bool:
+        return self.customer_repo.delete(id)
 

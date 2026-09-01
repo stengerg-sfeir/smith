@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import re
 
+from agentlib.config import LLM_MAX_TOKENS_LONG
+from agentlib.llm.client import _json_complete
 from agentlib.naming import _camel, _snake, _plural
 
 
@@ -187,6 +189,188 @@ def _crud_target(verb, ent_snake):
     if verb == "delete":
         return "delete_" + ent_snake
     return None
+
+
+# --- LLM intention -> (entity, operation) classification --------------------
+
+def _intent_ops_schema():
+    return {
+        "type": "object",
+        "properties": {
+            "mappings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "intent_id": {"type": "string"},
+                        "entity": {"type": "string"},
+                        "operation": {"type": "string"},
+                    },
+                    "required": ["intent_id", "entity", "operation"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["mappings"],
+        "additionalProperties": False,
+    }
+
+
+_INTENT_OPS_SYSTEM = (
+    "You map user intentions to (entity, operation) pairs of the designed app.\n"
+    "ENTITIES:\n%s\n\n"
+    "For EACH intention, choose the ONE entity it addresses and the operation "
+    "it performs.\n"
+    "- entity: an entity name EXACTLY from the list above.\n"
+    "- operation: a snake_case verb. For CRUD/aggregate use add, list, delete, "
+    "update, report, total or summary. For a domain state-transition (confirm, "
+    "ship, approve, cancel, restock, calculate, export, ...) use that verb. "
+    "Never invent an entity; never use a phrase.\n"
+    "Return one mapping per intention (same intent_id)."
+)
+
+
+def classify_intentions(intentions, entities_by_class, verbose=False):
+    """LLM: classify each user intention into ``{intent_id, entity,
+    operation}`` semantically.
+
+    This is the semantic bridge that replaces the fragile regex ``_intent_entity``
+    / ``_intent_verb``: the model reads the intention's natural language (e.g.
+    "add a product to an invoice line") and picks the real entity (InvoiceLine)
+    and a verb (add). The operation is an OPEN vocabulary — any domain verb is
+    accepted; only the entity is constrained to the designed set.
+    """
+    if not entities_by_class:
+        return []
+    entity_lines = "\n".join("- %s" % e for e in sorted(entities_by_class))
+    messages = [
+        {"role": "system", "content": _INTENT_OPS_SYSTEM % entity_lines},
+        {"role": "user", "content": "\n".join(
+            "[%s] %s" % (it.get("intent_id", "?"), it.get("text", ""))
+            for it in (intentions or [])
+        )},
+    ]
+    for _ in range(2):
+        data = _json_complete(
+            messages, schema=_intent_ops_schema(), verbose=verbose,
+            max_tokens=LLM_MAX_TOKENS_LONG,
+        )
+        if isinstance(data, dict) and isinstance(data.get("mappings"), list):
+            out = []
+            for m in data["mappings"]:
+                if not isinstance(m, dict):
+                    continue
+                ent = m.get("entity")
+                op = m.get("operation")
+                if not isinstance(ent, str) or ent not in entities_by_class:
+                    continue
+                if not isinstance(op, str) or not op.strip():
+                    continue
+                op = re.sub(r"[\s-]+", "_", op.strip().lower())
+                if not op or not re.fullmatch(r"[a-z][a-z0-9_]*", op):
+                    continue
+                out.append({
+                    "intent_id": m.get("intent_id"),
+                    "entity": ent,
+                    "operation": op,
+                })
+            return out
+        if verbose:
+            print("    [intent-ops] retrying…")
+    return []
+
+
+def derive_cli_from_intents(classified, entities_by_class, verbose=False):
+    """Mechanically derive a CLI command design from LLM-classified
+    ``(entity, operation)`` pairs.
+
+    This is NOT a vocabulary parser. It maps a structured ``(entity, op)`` pair
+    to a command via a fixed rule table: CRUD/report ops get a rich shape
+    (``add_<entity>`` + fields, ``list_<entity>`` + filters, ``get_<entity>_total``
+    + id, ...); any OTHER operation (confirm, ship, approve, restock, ...) gets
+    the generic state-transition shape ``<op>_<entity>(id)``. Options come from
+    ``_derive_options`` which falls back to ``--id`` for unknown verbs.
+    """
+    if not entities_by_class:
+        return None
+    _CORE = {
+        "add", "create", "insert", "list", "view", "show", "display",
+        "delete", "remove", "update", "edit", "modify",
+        "report", "export", "summary", "aggregate", "total", "search",
+    }
+    commands = []
+    seen = set()
+    for m in classified or []:
+        ent = entities_by_class.get(m.get("entity"))
+        if not isinstance(ent, dict):
+            continue
+        op = str(m.get("operation") or "").strip().lower()
+        op = re.sub(r"[\s-]+", "_", op)
+        if not op:
+            continue
+        ent_snake = _snake(ent["name"])
+        # synonym normalization to the closed CRUD/report core
+        if op in ("create", "insert"):
+            op = "add"
+        elif op in ("view", "show", "display"):
+            op = "list"
+        elif op in ("remove",):
+            op = "delete"
+        elif op in ("edit", "modify"):
+            op = "update"
+        elif op in ("summary", "aggregate", "export"):
+            op = "report"
+        key = "%s/%s" % (ent_snake, op)
+        if key in seen:
+            continue
+        seen.add(key)
+        options = _derive_options(op, ent)
+        if op in ("add", "list", "update", "delete", "search"):
+            target = _crud_target(op, ent_snake) or ("search_" + ent_snake if op == "search" else "%s_%s" % (op, ent_snake))
+        elif op in ("report", "total"):
+            target = "get_%s_%s" % (ent_snake, op)
+        else:
+            # domain state-transition verb -> <op>_<entity>(id)
+            target = "%s_%s" % (op, ent_snake)
+        commands.append({
+            "group": [ent_snake],
+            "name": op,
+            "options": options,
+            "target": target,
+        })
+    # Seeding floor: parent-add for FK options (same as derive_cli_surface).
+    for c in list(commands):
+        owner = next(
+            (e for cls, e in entities_by_class.items() if _snake(cls) == c.get("group", [""])[0]),
+            None,
+        )
+        if owner is None:
+            continue
+        for o in c.get("options") or []:
+            if not isinstance(o, dict):
+                continue
+            field = o.get("field") or (o.get("name") or "").lstrip("-").replace("-", "_")
+            if not (isinstance(field, str) and field.endswith("_id") and field != "id"):
+                continue
+            parent_cls = _camel(field[: -len("_id")])
+            parent = entities_by_class.get(parent_cls)
+            if not isinstance(parent, dict):
+                continue
+            parent_snake = _snake(parent_cls)
+            if any(
+                cmd.get("group") == [parent_snake] and cmd.get("name") == "add"
+                for cmd in commands
+            ):
+                continue
+            commands.append({
+                "group": [parent_snake],
+                "name": "add",
+                "options": _derive_options("add", parent),
+                "target": "add_" + parent_snake,
+            })
+    if not commands:
+        return None
+    return {"commands": commands}
 
 
 # --- explicit command parsing -----------------------------------------------

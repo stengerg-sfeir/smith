@@ -102,7 +102,7 @@ class NoteRepository:
             ).fetchall()
             return {r["k"]: int(r["n"]) for r in rows}
 
-    def search_notes(self, query: str) -> list[Note]:
+    def search_notes_by_content(self, query: str) -> list[Note]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM notes WHERE (title LIKE ? OR content LIKE ?)",

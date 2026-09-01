@@ -8,74 +8,51 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('product-create')
+@cli.command('product-add')
 @click.option('--name', required=True)
 @click.option('--description')
-@click.option('--price', type=int, required=True)
+@click.option('--price', required=True)
 @click.option('--quantity', type=int, required=True)
-def product_create(name, description, price, quantity):
-    """product/create"""
+def product_add(name, description, price, quantity):
+    """product/add"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.create_product(name=name, description=description, price=price, quantity=quantity)
+    result = svc.add_product(name=name, description=description, price=price, quantity=quantity)
 
-@cli.command('get-by_name')
-@click.option('--name', required=True)
-def get_by_name(name):
-    """product/get/by_name"""
+@cli.command('product-list')
+@click.option('--name')
+@click.option('--price')
+@click.option('--price-max')
+@click.option('--quantity')
+@click.option('--quantity-max')
+def product_list(name, price, price_max, quantity, quantity_max):
+    """product/list"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_by_name(name=name)
+    result = svc.list_product(name=name, price=price, price_max=price_max, quantity=quantity, quantity_max=quantity_max)
 
-@cli.command('get-count')
-def get_count():
-    """product/get/count"""
+@cli.command('product-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+@click.option('--description')
+@click.option('--price')
+@click.option('--quantity', type=int)
+def product_update(id, name, description, price, quantity):
+    """product/update"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_count()
+    result = svc.update_product(id=id, name=name, description=description, price=price, quantity=quantity)
 
-@cli.command('get-highest_price')
-def get_highest_price():
-    """product/get/highest_price"""
+@cli.command('product-delete')
+@click.option('--id', type=int, required=True)
+def product_delete(id):
+    """product/delete"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_with_highest_price()
+    result = svc.delete_product(id=id)
 
-@cli.command('get-lowest_price')
-def get_lowest_price():
-    """product/get/lowest_price"""
+@cli.command('product-persist')
+@click.option('--id', type=int, required=True)
+def product_persist(id):
+    """product/persist"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_with_lowest_price()
-
-@cli.command('get-by_category')
-@click.option('--category', required=True)
-def get_by_category(category):
-    """product/get/by_category"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_by_category(category=category)
-
-@cli.command('get-by_price_range')
-@click.option('--min-price', type=int, required=True)
-@click.option('--max-price', type=int, required=True)
-def get_by_price_range(min_price, max_price):
-    """product/get/by_price_range"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_by_price_range(min_price=min_price, max_price=max_price)
-
-@cli.command('get-low_stock')
-def get_low_stock():
-    """product/get/low_stock"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_with_low_stock()
-
-@cli.command('get-total_value')
-def get_total_value():
-    """product/get/total_value"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_total_value_of_inventory()
-
-@cli.command('search-query')
-@click.option('--query', required=True)
-def search_query(query):
-    """product/search/query"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.search_products(query=query)
+    result = svc.persist_product(id=id)
 
 
 if __name__ == "__main__":

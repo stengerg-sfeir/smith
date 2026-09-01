@@ -35,5 +35,6 @@ class Budget:
 
 UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
     "Budget": [("category_id", "month")],
+    "Category": [("name",)],
 }
 

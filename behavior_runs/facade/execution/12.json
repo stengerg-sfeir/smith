@@ -1,71 +1,81 @@
 {
   "ident": "12",
   "generated_dir": "generated/12",
-  "status": "fail",
+  "status": "pass",
   "n_intentions": 8,
-  "n_mapped": 5,
-  "n_unmapped": 3,
-  "pass": 3,
-  "fail": 2,
+  "n_mapped": 6,
+  "n_unmapped": 2,
+  "pass": 6,
+  "fail": 0,
   "results": [
     {
       "intent_id": "I1",
-      "command": "customer-create",
-      "invocation": "python3 cli.py customer-create --name 'Alice Johnson' --email alice.johnson@example.com --phone 555-1234",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --name 'Alice Johnson' --email alice.johnson@example.com --phone 555-1234",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
       "command": "customer-list",
       "invocation": "python3 cli.py customer-list",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": "~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/12/cli.py\", line 25, in customer_list\n    result = svc.get_customers_by_domain(domain=domain)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/12/customer_service.py\", line 37, in get_customers_by_domain\n    raise DomainFilterError(f'Error filtering customers by domain: {str(e)}')\nexceptions.DomainFilterError: Error filtering customers by domain: can only concatenate str (not \"NoneType\") to str\n"
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
       "command": "customer-search",
-      "invocation": "python3 cli.py customer-search --name 'Alice Johnson'",
+      "invocation": "python3 cli.py customer-search --term Alice",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I4",
+      "command": "customer-update",
+      "invocation": "python3 cli.py customer-update --id 1 --name 'Bob Smith' --email bob.smith@example.com",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I6",
       "command": "customer-search",
-      "invocation": "python3 cli.py customer-search --name 'Bob Smith'",
+      "invocation": "python3 cli.py customer-search --term John",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I7",
       "command": "customer-filter",
-      "invocation": "python3 cli.py customer-filter --domain example.com",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
+      "invocation": "python3 cli.py customer-filter --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": "te-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/12/cli.py\", line 39, in customer_filter\n    result = svc.filter_customers_by_email_domain(domain=domain)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/12/customer_service.py\", line 51, in filter_customers_by_email_domain\n    raise DomainFilterError(f'Error filtering customers by email domain: {str(e)}')\nexceptions.DomainFilterError: Error filtering customers by email domain: 'CustomerService' object has no attribute 'customer_domain_filter'\n"
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [
-    {
-      "intent_id": "I4",
-      "text": "I can update an existing customer's name, email, or phone number.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
     {
       "intent_id": "I5",
       "text": "I can delete a customer by their name.",

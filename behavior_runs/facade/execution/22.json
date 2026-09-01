@@ -1,13 +1,24 @@
 {
   "ident": "22",
   "generated_dir": "generated/22",
-  "status": "pass",
+  "status": "fail",
   "n_intentions": 6,
   "n_mapped": 4,
   "n_unmapped": 2,
-  "pass": 4,
-  "fail": 0,
+  "pass": 3,
+  "fail": 1,
   "results": [
+    {
+      "intent_id": "__seed_Product",
+      "command": "product-add",
+      "invocation": "python3 cli.py product-add --name seed-product --price seed-product",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "ib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/cli.py\", line 17, in product_add\n    result = svc.add_product(name=name, price=price)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/order_service.py\", line 20, in add_product\n    product = Product(name=name, price=price, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())\nTypeError: Product.__init__() got an unexpected keyword argument 'updated_at'. Did you mean 'created_at'?\n",
+      "seed": true
+    },
     {
       "intent_id": "I2",
       "command": "order-list",
@@ -16,7 +27,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I5",
@@ -26,17 +38,19 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I6",
       "command": "product-report",
-      "invocation": "python3 cli.py product-report",
-      "status": "pass",
-      "reason": "ok",
-      "exit_code": 0,
+      "invocation": "python3 cli.py product-report --id 5",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "ke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/cli.py\", line 49, in product_report\n    result = svc.get_product_report(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/22/order_service.py\", line 35, in get_product_report\n    for row in self.order_item_repo.list():\n               ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'OrderService' object has no attribute 'order_item_repo'\n",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -46,7 +60,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [

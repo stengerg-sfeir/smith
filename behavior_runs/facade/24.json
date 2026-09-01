@@ -66,48 +66,8 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "project-create",
-        "options": [
-          {
-            "names": [
-              "--title"
-            ],
-            "dest": "title",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--description"
-            ],
-            "dest": "description",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "create_project"
-      },
-      {
         "name": "project-list",
-        "options": [],
-        "arguments": [],
-        "target": "list_projects"
-      },
-      {
-        "name": "project-update",
         "options": [
-          {
-            "names": [
-              "--project-id"
-            ],
-            "dest": "project_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
           {
             "names": [
               "--title"
@@ -125,19 +85,62 @@
             "type": "str",
             "required": false,
             "flag": false
+          },
+          {
+            "names": [
+              "--created-at"
+            ],
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at-end"
+            ],
+            "dest": "created_at_end",
+            "type": "str",
+            "required": false,
+            "flag": false
           }
         ],
         "arguments": [],
-        "target": "update_project"
+        "target": "list_project"
+      },
+      {
+        "name": "project-add",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_project"
       },
       {
         "name": "project-delete",
         "options": [
           {
             "names": [
-              "--project-id"
+              "--id"
             ],
-            "dest": "project_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
@@ -147,14 +150,32 @@
         "target": "delete_project"
       },
       {
-        "name": "task-list",
+        "name": "task-update",
         "options": [
           {
             "names": [
-              "--project-id"
+              "--id"
             ],
-            "dest": "project_id",
+            "dest": "id",
             "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
             "required": false,
             "flag": false
           },
@@ -175,22 +196,6 @@
             "type": "int",
             "required": false,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "list_task"
-      },
-      {
-        "name": "task-search",
-        "options": [
-          {
-            "names": [
-              "--query"
-            ],
-            "dest": "query",
-            "type": "str",
-            "required": true,
-            "flag": false
           },
           {
             "names": [
@@ -203,75 +208,7 @@
           }
         ],
         "arguments": [],
-        "target": "search_tasks_by_title"
-      },
-      {
-        "name": "project-summary",
-        "options": [
-          {
-            "names": [
-              "--project-id"
-            ],
-            "dest": "project_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--status-filter"
-            ],
-            "dest": "status_filter",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--priority-filter"
-            ],
-            "dest": "priority_filter",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_project_tasks_summary"
-      },
-      {
-        "name": "project-stats",
-        "options": [],
-        "arguments": [],
-        "target": "get_task_stats_by_project"
-      },
-      {
-        "name": "project-completion_rate",
-        "options": [
-          {
-            "names": [
-              "--project-id"
-            ],
-            "dest": "project_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_project_completion_rate"
-      },
-      {
-        "name": "project-task_distribution",
-        "options": [],
-        "arguments": [],
-        "target": "get_project_task_distribution"
-      },
-      {
-        "name": "project-total_status",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_tasks_by_status"
+        "target": "update_task"
       }
     ],
     "invoker": "cli"

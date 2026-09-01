@@ -42,224 +42,85 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "list-employees",
-        "options": [
-          {
-            "names": [
-              "--department-id"
-            ],
-            "dest": "department_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--active-only"
-            ],
-            "dest": "active_only",
-            "type": "str",
-            "required": false,
-            "flag": true
-          },
-          {
-            "names": [
-              "--min-hire-date"
-            ],
-            "dest": "min_hire_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--max-hire-date"
-            ],
-            "dest": "max_hire_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
+        "name": "department-list",
+        "options": [],
         "arguments": [],
-        "target": "get_employees_by_department"
+        "target": "list_department"
       },
       {
-        "name": "list-with_department_names",
+        "name": "department-add",
         "options": [
           {
             "names": [
-              "--department-id"
+              "--name"
             ],
-            "dest": "department_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page"
-            ],
-            "dest": "page",
-            "type": "int",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page-size"
-            ],
-            "dest": "page_size",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "list_employees_with_department_names"
-      },
-      {
-        "name": "create-add",
-        "options": [
-          {
-            "names": [
-              "--first-name"
-            ],
-            "dest": "first_name",
+            "dest": "name",
             "type": "str",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--last-name"
+              "--description"
             ],
-            "dest": "last_name",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--email"
-            ],
-            "dest": "email",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--department-id"
-            ],
-            "dest": "department_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--hire-date"
-            ],
-            "dest": "hire_date",
+            "dest": "description",
             "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "create_employee"
+        "target": "add_department"
       },
       {
-        "name": "employee-export",
+        "name": "department-update",
         "options": [
           {
             "names": [
-              "--file-path"
+              "--id"
             ],
-            "dest": "file_path",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--department-id"
-            ],
-            "dest": "department_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--active-only"
+              "--name"
             ],
-            "dest": "active_only",
+            "dest": "name",
             "type": "str",
             "required": false,
-            "flag": true
-          }
-        ],
-        "arguments": [],
-        "target": "export_employees_to_csv"
-      },
-      {
-        "name": "find-duplicates",
-        "options": [
-          {
-            "names": [
-              "--department-id"
-            ],
-            "dest": "department_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "find_duplicate_employees_by_department"
-      },
-      {
-        "name": "employee-count",
-        "options": [
-          {
-            "names": [
-              "--department-id"
-            ],
-            "dest": "department_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_employee_count_by_department"
-      },
-      {
-        "name": "employee-hired_in_period",
-        "options": [
-          {
-            "names": [
-              "--start-date"
-            ],
-            "dest": "start_date",
-            "type": "str",
-            "required": true,
             "flag": false
           },
           {
             "names": [
-              "--end-date"
+              "--description"
             ],
-            "dest": "end_date",
+            "dest": "description",
             "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_department"
+      },
+      {
+        "name": "department-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_employees_hired_in_period"
+        "target": "delete_department"
       }
     ],
     "invoker": "cli"

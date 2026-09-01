@@ -63,7 +63,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             phone TEXT,
-            address TEXT
+            address TEXT,
+            UNIQUE(email)
         );"""
     )
     conn.commit()

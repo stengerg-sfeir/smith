@@ -126,12 +126,3 @@ class PostRepository:
             rows = conn.execute('\n                SELECT \n                    p.id, \n                    p.title, \n                    p.content, \n                    p.created_at, \n                    p.updated_at, \n                    p.author_id,\n                    a.name AS author_name,\n                    a.email AS author_email,\n                    COUNT(t.id) AS tag_count\n                FROM posts p\n                JOIN authors a ON p.author_id = a.id\n                LEFT JOIN posttags pt ON p.id = pt.post_id\n                LEFT JOIN tags t ON pt.tag_id = t.id\n                GROUP BY p.id, p.title, p.content, p.created_at, p.updated_at, p.author_id, a.name, a.email\n            ').fetchall()
             return [{'id': row[0], 'title': row[1], 'content': row[2], 'created_at': row[3], 'updated_at': row[4], 'author_id': row[5], 'author_name': row[6], 'author_email': row[7], 'tag_count': row[8]} for row in rows]
 
-
-    def search_posts_by_tag(self, *args, **kwargs):
-        return self.search_posts(*args, **kwargs)
-
-
-    def get_posts_with_tag_counts(self, *args, **kwargs):
-        return self.get_posts_with_tag_counts_and_author_info(*args, **kwargs)
-
-

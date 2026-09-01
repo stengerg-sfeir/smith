@@ -39,6 +39,8 @@ class PostTag:
 
 
 UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
+    "Author": [("email",)],
     "PostTag": [("post_id", "tag_id")],
+    "Tag": [("name",)],
 }
 

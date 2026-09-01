@@ -50,7 +50,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "employee-create",
+        "name": "employee-add",
         "options": [
           {
             "names": [
@@ -84,160 +84,142 @@
               "--salary"
             ],
             "dest": "salary",
-            "type": "int",
+            "type": "str",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "create_employee"
+        "target": "add_employee"
       },
       {
-        "name": "get-by_email",
+        "name": "employee-list",
         "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
           {
             "names": [
               "--email"
             ],
             "dest": "email",
             "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_employee_by_email"
-      },
-      {
-        "name": "get-by_age_range",
-        "options": [
-          {
-            "names": [
-              "--min-age"
-            ],
-            "dest": "min_age",
-            "type": "int",
-            "required": true,
+            "required": false,
             "flag": false
           },
           {
             "names": [
-              "--max-age"
+              "--age"
             ],
-            "dest": "max_age",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_employees_by_age_range"
-      },
-      {
-        "name": "get-with_salary_above",
-        "options": [
-          {
-            "names": [
-              "--min-salary"
-            ],
-            "dest": "min_salary",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_employees_with_salary_above"
-      },
-      {
-        "name": "get-with_salary_in_range",
-        "options": [
-          {
-            "names": [
-              "--min-salary"
-            ],
-            "dest": "min_salary",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--max-salary"
-            ],
-            "dest": "max_salary",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_employees_with_salary_in_range"
-      },
-      {
-        "name": "get-with_valid_email_and_age_range",
-        "options": [
-          {
-            "names": [
-              "--min-age"
-            ],
-            "dest": "min_age",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--max-age"
-            ],
-            "dest": "max_age",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_employees_with_valid_email_and_age_range"
-      },
-      {
-        "name": "stats-age_group_count",
-        "options": [],
-        "arguments": [],
-        "target": "count_employees_by_age_group"
-      },
-      {
-        "name": "stats-average_salary",
-        "options": [],
-        "arguments": [],
-        "target": "get_average_salary"
-      },
-      {
-        "name": "stats-total_salary",
-        "options": [],
-        "arguments": [],
-        "target": "get_total_salary_spent"
-      },
-      {
-        "name": "stats-above_average",
-        "options": [],
-        "arguments": [],
-        "target": "get_employees_with_higher_salary_than_average"
-      },
-      {
-        "name": "export-to_csv",
-        "options": [
-          {
-            "names": [
-              "--file-path"
-            ],
-            "dest": "file_path",
+            "dest": "age",
             "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--age-lte"
+            ],
+            "dest": "age_lte",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--salary"
+            ],
+            "dest": "salary",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--salary-lte"
+            ],
+            "dest": "salary_lte",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_employee"
+      },
+      {
+        "name": "employee-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--age"
+            ],
+            "dest": "age",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--salary"
+            ],
+            "dest": "salary",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_employee"
+      },
+      {
+        "name": "employee-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "export_employees_to_csv"
+        "target": "delete_employee"
       }
     ],
     "invoker": "cli"

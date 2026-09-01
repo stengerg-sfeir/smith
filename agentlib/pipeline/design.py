@@ -125,15 +125,47 @@ _CLI_SYSTEM = (
     "one of the service methods already designed (never invent method names)."
 )
 
+_CLI_SYSTEM_ALLOW_NEW = (
+    "You are an expert Python architect. Design the click CLI command tree of a "
+    "Python project from its specification. Output JSON with a \"commands\" "
+    "array. Each command: "
+    '{"group": ["<top group>", "<nested group>", ...], "name": "single lowercase '
+    'token", "options": [{"name": "--flag", "required": bool, "type": "str"|"int"|"flag", '
+    '"field": "exact service method param this option maps to (omit when the '
+    'param name matches)"}], "target": "the exact service method name this '
+    'command calls"}. Use the exact command surface and option names the spec '
+    "names. Prefer reusing an ALREADY-DESIGNED service method when one matches "
+    "the capability. If the spec implies a capability that no existing method "
+    "covers, you MAY name a NEW method as the target — it will be synthesized "
+    "automatically with the right parameters, and its repository underneath. "
+    "Name new targets with a clear verb + entity (add_invoice_line, "
+    "delete_invoice_line, get_invoice_total).\n\n"
+    "Use a FLAT command tree: \"group\" is a SINGLE token naming the entity "
+    "(e.g. \"invoice_line\", \"customer\", \"invoice\"), and \"name\" is a SINGLE "
+    "verb token (add, list, delete, update, report, total). Do NOT nest "
+    "groups (never group=[entity, verb]) and do NOT repeat the verb inside the "
+    "group. For a child entity use its own snake token (invoice_line, not "
+    "invoice line)."
+)
 
-def _design_cli(prompt_text, context, service_methods, verbose=False):
-    """Design the CLI command tree; targets constrained to service methods."""
+
+def _design_cli(prompt_text, context, service_methods, verbose=False,
+                allow_new_targets=False):
+    """Design the CLI command tree.
+
+    ``allow_new_targets=False`` (default): every command target must be one of
+    the ALREADY-DESIGNED service methods. ``allow_new_targets=True``: the LLM
+    may name a NEW service method for a capability the spec implies but no
+    existing method covers; the caller's ``_reconcile_cli_design`` then
+    synthesizes the method (and its repository) before rendering.
+    """
     schema = _cli_schema()
-    allowed = {m.get("name") for m in service_methods if isinstance(m, dict)}
+    allowed = {m.get("name") for m in service_methods
+               if isinstance(m, dict) and m.get("name")}
     user = (
         "SPECIFICATION:\n%s\n\n"
         "PROJECT LAYOUT SO FAR:\n%s\n\n"
-        "AVAILABLE SERVICE METHODS (target must be one of these):\n%s\n\n"
+        "AVAILABLE SERVICE METHODS:\n%s\n\n"
         "Emit the CLI command JSON now."
         % (
             prompt_text,
@@ -142,7 +174,9 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
         )
     )
     messages = [
-        {"role": "system", "content": _CLI_SYSTEM},
+        {"role": "system", "content": (
+            _CLI_SYSTEM_ALLOW_NEW if allow_new_targets else _CLI_SYSTEM
+        )},
         {"role": "user", "content": user},
     ]
     data = None
@@ -183,16 +217,18 @@ def _design_cli(prompt_text, context, service_methods, verbose=False):
             if isinstance(tgt, str) and "." in tgt:
                 c["target"] = tgt.split(".")[-1].strip()
         errs = _v_cli(data)
-        # constrain targets to existing service methods (the renderer
-        # collapses group[-1]==name and suffixes flat collisions on its own,
-        # so no shape-level rejection is needed here)
-        for c in data.get("commands") or []:
-            if not isinstance(c, dict):
-                continue
-            if c.get("target") not in allowed:
-                errs.append(
-                    "target %r is not a designed service method" % c.get("target")
-                )
+        # Constrain targets to existing service methods UNLESS new targets are
+        # allowed, in which case _reconcile_cli_design synthesizes them. The
+        # renderer collapses group[-1]==name and suffixes flat collisions on
+        # its own, so no shape-level rejection is needed here.
+        if not allow_new_targets:
+            for c in data.get("commands") or []:
+                if not isinstance(c, dict):
+                    continue
+                if c.get("target") not in allowed:
+                    errs.append(
+                        "target %r is not a designed service method" % c.get("target")
+                    )
         # Inter-design consistency (CLI <-> services/models designs): every
         # option must map onto the TARGET's real parameters and every
         # required parameter of the target must be covered — otherwise the

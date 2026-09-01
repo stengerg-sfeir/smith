@@ -8,72 +8,62 @@ DB_PATH = "inventory.db"
 def cli():
     """Application root."""
 
-@cli.command('read-list')
-@click.option('--query')
-@click.option('--category')
-def read_list(query, category):
-    """product/read/list"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.search_products(query=query, category=category)
-
-@cli.command('read-by_sku')
-@click.option('--sku', required=True)
-def read_by_sku(sku):
-    """product/read/by_sku"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_by_sku(sku=sku)
-
-@cli.command('read-by_category')
-@click.option('--category', required=True)
-def read_by_category(category):
-    """product/read/by_category"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_by_category(category=category)
-
-@cli.command('read-low_stock')
-def read_low_stock():
-    """product/read/low_stock"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_low_stock_products()
-
-@cli.command('read-count_by_category')
-def read_count_by_category():
-    """product/read/count_by_category"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_count_by_category()
-
-@cli.command('write-create')
+@cli.command('product-add')
 @click.option('--sku', required=True)
 @click.option('--name', required=True)
 @click.option('--category', required=True)
-@click.option('--price', type=int, required=True)
+@click.option('--price', required=True)
 @click.option('--stock-quantity', type=int, required=True)
-def write_create(sku, name, category, price, stock_quantity):
-    """product/write/create"""
+def product_add(sku, name, category, price, stock_quantity):
+    """product/add"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.create_product(sku=sku, name=name, category=category, price=price, stock_quantity=stock_quantity)
+    result = svc.add_product(sku=sku, name=name, category=category, price=price, stock_quantity=stock_quantity)
 
-@cli.command('write-update_stock')
-@click.option('--sku', required=True)
-@click.option('--new-stock', type=int, required=True)
-def write_update_stock(sku, new_stock):
-    """product/write/update_stock"""
+@cli.command('product-list')
+@click.option('--sku')
+@click.option('--name')
+@click.option('--category')
+@click.option('--min-price')
+@click.option('--max-price')
+@click.option('--min-stock')
+@click.option('--max-stock')
+def product_list(sku, name, category, min_price, max_price, min_stock, max_stock):
+    """product/list"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.update_product_stock(sku=sku, new_stock=new_stock)
+    result = svc.list_product(sku=sku, name=name, category=category, min_price=min_price, max_price=max_price, min_stock=min_stock, max_stock=max_stock)
 
-@cli.command('write-delete')
-@click.option('--sku', required=True)
-def write_delete(sku):
-    """product/write/delete"""
+@cli.command('product-update')
+@click.option('--id', type=int, required=True)
+@click.option('--sku')
+@click.option('--name')
+@click.option('--category')
+@click.option('--price')
+@click.option('--stock-quantity', type=int)
+def product_update(id, sku, name, category, price, stock_quantity):
+    """product/update"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.delete_product(sku=sku)
+    result = svc.update_product(id=id, sku=sku, name=name, category=category, price=price, stock_quantity=stock_quantity)
 
-@cli.command('product-export')
-@click.option('--file-path', required=True)
-def product_export(file_path):
-    """product/export"""
+@cli.command('product-delete')
+@click.option('--id', type=int, required=True)
+def product_delete(id):
+    """product/delete"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.export_products_to_csv(file_path=file_path)
+    result = svc.delete_product(id=id)
+
+@cli.command('product-search')
+@click.option('--term', required=True)
+def product_search(term):
+    """product/search"""
+    svc = ProductService(Database(DB_PATH))
+    result = svc.search_product(term=term)
+
+@cli.command('product-filter')
+@click.option('--id', type=int, required=True)
+def product_filter(id):
+    """product/filter"""
+    svc = ProductService(Database(DB_PATH))
+    result = svc.filter_product(id=id)
 
 
 if __name__ == "__main__":

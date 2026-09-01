@@ -42,7 +42,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "project-create",
+        "name": "project-add",
         "options": [
           {
             "names": [
@@ -73,16 +73,16 @@
           }
         ],
         "arguments": [],
-        "target": "create_project"
+        "target": "add_project"
       },
       {
         "name": "project-update",
         "options": [
           {
             "names": [
-              "--project-id"
+              "--id"
             ],
-            "dest": "project_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
@@ -123,6 +123,15 @@
         "options": [
           {
             "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
               "--status"
             ],
             "dest": "status",
@@ -132,31 +141,34 @@
           },
           {
             "names": [
-              "--query"
+              "--created-at"
             ],
-            "dest": "query",
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at-end"
+            ],
+            "dest": "created_at_end",
             "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "list_projects"
-      },
-      {
-        "name": "list-active",
-        "options": [],
-        "arguments": [],
-        "target": "list_active_projects"
+        "target": "list_project"
       },
       {
         "name": "project-delete",
         "options": [
           {
             "names": [
-              "--project-id"
+              "--id"
             ],
-            "dest": "project_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
@@ -164,37 +176,6 @@
         ],
         "arguments": [],
         "target": "delete_project"
-      },
-      {
-        "name": "project-export",
-        "options": [
-          {
-            "names": [
-              "--file-path"
-            ],
-            "dest": "file_path",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--status-filter"
-            ],
-            "dest": "status_filter",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "export_projects_to_csv"
-      },
-      {
-        "name": "project-stats",
-        "options": [],
-        "arguments": [],
-        "target": "get_project_stats"
       }
     ],
     "invoker": "cli"

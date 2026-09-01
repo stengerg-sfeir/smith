@@ -42,8 +42,26 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "get-by_email",
+        "name": "customer-add",
         "options": [
+          {
+            "names": [
+              "--first-name"
+            ],
+            "dest": "first_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
           {
             "names": [
               "--email"
@@ -52,171 +70,130 @@
             "type": "str",
             "required": true,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customer_by_email"
-      },
-      {
-        "name": "list-by_last_name_prefix",
-        "options": [
+          },
           {
             "names": [
-              "--prefix"
+              "--phone"
             ],
-            "dest": "prefix",
+            "dest": "phone",
             "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page"
-            ],
-            "dest": "page",
-            "type": "int",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page-size"
-            ],
-            "dest": "page_size",
-            "type": "int",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customers_by_last_name_prefix"
+        "target": "add_customer"
       },
       {
-        "name": "list-by_phone_pattern",
+        "name": "customer-list",
         "options": [
           {
             "names": [
-              "--pattern"
+              "--first-name"
             ],
-            "dest": "pattern",
+            "dest": "first_name",
             "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page"
-            ],
-            "dest": "page",
-            "type": "int",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--page-size"
+              "--last-name"
             ],
-            "dest": "page_size",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customers_by_phone_pattern"
-      },
-      {
-        "name": "list-active",
-        "options": [
-          {
-            "names": [
-              "--page"
-            ],
-            "dest": "page",
-            "type": "int",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page-size"
-            ],
-            "dest": "page_size",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customers_with_active_status"
-      },
-      {
-        "name": "list-by_domain",
-        "options": [
-          {
-            "names": [
-              "--domain"
-            ],
-            "dest": "domain",
+            "dest": "last_name",
             "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--page"
-            ],
-            "dest": "page",
-            "type": "int",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--page-size"
+              "--email"
             ],
-            "dest": "page_size",
-            "type": "int",
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customers_with_email_domain"
+        "target": "list_customer"
       },
       {
-        "name": "list-recent_activity",
+        "name": "customer-update",
         "options": [
           {
             "names": [
-              "--days-ago"
+              "--id"
             ],
-            "dest": "days_ago",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--page"
+              "--first-name"
             ],
-            "dest": "page",
-            "type": "int",
+            "dest": "first_name",
+            "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--page-size"
+              "--last-name"
             ],
-            "dest": "page_size",
-            "type": "int",
+            "dest": "last_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customers_with_recent_activity"
+        "target": "update_customer"
+      },
+      {
+        "name": "customer-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_customer"
       }
     ],
     "invoker": "cli"

@@ -135,11 +135,3 @@ class DocumentRepository:
             ).fetchall()
             return [Document(**dict(r)) for r in rows]
 
-
-    def get_documents_by_user_id(self, user_id: int) -> List[Document]:
-        with self.db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE user_id = ?", (user_id,)
-            ).fetchall()
-            return [Document(**dict(r)) for r in rows]
-

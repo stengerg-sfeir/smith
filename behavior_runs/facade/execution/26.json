@@ -1,29 +1,40 @@
 {
   "ident": "26",
   "generated_dir": "generated/26",
-  "status": "no_mapped",
+  "status": "fail",
   "n_intentions": 3,
-  "n_mapped": 0,
-  "n_unmapped": 3,
-  "pass": 0,
-  "fail": 0,
-  "results": [],
+  "n_mapped": 2,
+  "n_unmapped": 1,
+  "pass": 1,
+  "fail": 1,
+  "results": [
+    {
+      "intent_id": "I2",
+      "command": "book-close",
+      "invocation": "python3 cli.py book-close --id 1",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/cli.py\", line 25, in book_close\n    result = svc.close_book(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/loan_service.py\", line 51, in close_book\n    raise e\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/26/loan_service.py\", line 43, in close_book\n    raise BookNotFoundError(f'Book with ID {id} not found')\nexceptions.BookNotFoundError: Book with ID 1 not found\n",
+      "seed": false
+    },
+    {
+      "intent_id": "I3",
+      "command": "book-check",
+      "invocation": "python3 cli.py book-check --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    }
+  ],
   "unmapped": [
     {
       "intent_id": "I1",
       "text": "I can create a loan for a book by a member.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I2",
-      "text": "I can close an existing loan for a book.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I3",
-      "text": "I can check which books are currently available for borrowing.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     }

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 
 from customer_repository import CustomerRepository
 from database import Database
@@ -19,58 +19,38 @@ class CustomerService:
         self.customer_repo = CustomerRepository(db)
         self.order_repo = OrderRepository(db)
 
-    def create_customer(self, name: str, email: str, phone: Optional[str] = None) -> bool:
+    def add_customer(self, name: str, email: str, phone: str) -> None:
         customer = Customer(name=name, email=email, phone=phone, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
         return self.customer_repo.create(customer)
 
-    def get_customer_by_email(self, email: str) -> Optional[Customer]:
-        return self.customer_repo.get_customer_by_email(email)
+    def list_customer(self) -> list[dict]:
+        return self.customer_repo.list()
 
-    def get_customer_orders(self, customer_id: int, status: Optional[str]=None, from_date: Optional[datetime.datetime]=None, to_date: Optional[datetime.datetime]=None) -> List[Order]:
-        return self.customer_repo.get_customer_orders(customer_id, status, from_date, to_date)
+    def update_customer(self, id: int, name: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None) -> None:
+        data = {k: v for k, v in {'name': name, 'email': email, 'phone': phone}.items() if v is not None}
+        return self.customer_repo.update(id, data)
 
-    def get_customer_with_orders(self, customer_id: int) -> Dict[Customer, List[Order]]:
-        results = []
-        groups = {}
-        for row in self.order_repo.list(customer_id=customer_id):
-            key = (row.status)
-            groups.setdefault(key, []).append(row)
-        for key, group in groups.items():
-            if len(group) >= 2:
-                results.append({
-                    'status': key[0],
-                    'count': len(group),
-                })
-        return results
+    def delete_customer(self, id: int) -> None:
+        return self.customer_repo.delete(id)
 
-    def get_active_customers_count(self) -> int:
-        return self.customer_repo.get_active_customers_count()
-
-    def get_customers_by_name_prefix(self, prefix: str) -> List[Customer]:
-        return self.customer_repo.get_customers_by_name_prefix(prefix)
-
-    def get_customer_total_spent(self, customer_id: int) -> float:
-        rows = self.order_repo.list(
-            order_date=str(customer_id) + '-01-01',
-            order_date_end=str(customer_id) + '-12-31',
-        )
-        return sum(e.total_amount for e in rows)
-
-    def get_customer_order_summary(self, customer_id: int) -> Dict[str, float]:
+    def list_order(self, customer_id: str, status: Optional[str] = None) -> list[dict]:
         results = {}
-        for row in self.order_repo.list(customer_id=customer_id):
-            key = row.status
+        for row in self.order_repo.list(customer_id=customer_id, status=status):
+            key = row.customer_id
             results[key] = results.get(key, 0) + row.total_amount
         return results
 
-    def update_customer_phone(self, customer_id: int, phone: str) -> bool:
-        try:
-            customer = self.customer_repo.get_by_id(customer_id)
-            if not customer:
-                raise CustomerNotFoundError(f'Customer with id {customer_id} not found')
-            updated_data = {'phone': phone}
-            self.customer_repo.update(customer_id, updated_data)
-            return True
-        except Exception as e:
-            raise e
+    def update_order(self, id: int, customer_id: int, total_amount: str, status: str) -> None:
+        data = {k: v for k, v in {'customer_id': customer_id, 'total_amount': total_amount, 'status': status}.items() if v is not None}
+        return self.order_repo.update(id, data)
+
+    def delete_order(self, id: int) -> None:
+        return self.order_repo.delete(id)
+
+    def add_order(self, customer_id: int, total_amount: str, status: str) -> int:
+        if customer_id is not None:
+            if self.customer_repo.get_by_id(customer_id) is None:
+                raise CustomerNotFoundError(customer_id)
+        order = Order(customer_id=customer_id, total_amount=total_amount, status=status, created_at=datetime.datetime.now().isoformat(), order_date=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
+        return self.order_repo.create(order)
 

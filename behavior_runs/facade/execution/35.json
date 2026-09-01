@@ -16,7 +16,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
@@ -26,7 +27,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
@@ -36,7 +38,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I5",
@@ -46,7 +49,8 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/cli.py\", line 63, in product_bulk_update\n    result = svc.bulk_update_product(ids=ids, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/product_service.py\", line 46, in bulk_update_product\n    raise NotFoundError(f'Product with ID {product_id} not found.')\nexceptions.NotFoundError: Product with ID 3 not found.\n"
+      "stderr_tail": "/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/cli.py\", line 63, in product_bulk_update\n    result = svc.bulk_update_product(ids=ids, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/product_service.py\", line 46, in bulk_update_product\n    raise NotFoundError(f'Product with ID {product_id} not found.')\nexceptions.NotFoundError: Product with ID 3 not found.\n",
+      "seed": false
     },
     {
       "intent_id": "I6",
@@ -56,7 +60,8 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/cli.py\", line 63, in product_bulk_update\n    result = svc.bulk_update_product(ids=ids, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/product_service.py\", line 46, in bulk_update_product\n    raise NotFoundError(f'Product with ID {product_id} not found.')\nexceptions.NotFoundError: Product with ID 2 not found.\n"
+      "stderr_tail": "/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/cli.py\", line 63, in product_bulk_update\n    result = svc.bulk_update_product(ids=ids, name=name, description=description, price=price, stock_quantity=stock_quantity, category=category)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/35/product_service.py\", line 46, in bulk_update_product\n    raise NotFoundError(f'Product with ID {product_id} not found.')\nexceptions.NotFoundError: Product with ID 2 not found.\n",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -66,7 +71,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": []

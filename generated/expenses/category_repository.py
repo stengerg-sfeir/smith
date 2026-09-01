@@ -38,7 +38,7 @@ class CategoryRepository:
             ).fetchall()
             return [Category(**dict(r)) for r in rows]
 
-    def list(self, description: Optional[Any] = None, icon: Optional[Any] = None, monthly_budget: Optional[Any] = None, name: Optional[Any] = None) -> List[Category]:
+    def list(self, description: Optional[Any] = None, icon: Optional[Any] = None, name: Optional[Any] = None) -> List[Category]:
         with self.db.connect() as conn:
             query = "SELECT * FROM categories WHERE 1=1"
             params: List[Any] = []
@@ -48,9 +48,6 @@ class CategoryRepository:
             if icon is not None:
                 query += ' AND icon = ?'
                 params.append(icon)
-            if monthly_budget is not None:
-                query += ' AND monthly_budget = ?'
-                params.append(monthly_budget)
             if name is not None:
                 query += ' AND name = ?'
                 params.append(name)

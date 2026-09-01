@@ -66,79 +66,101 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "category-summary",
-        "options": [],
-        "arguments": [],
-        "target": "get_category_product_summary"
-      },
-      {
-        "name": "product-count",
-        "options": [],
-        "arguments": [],
-        "target": "get_product_count_by_category"
-      },
-      {
-        "name": "product-by_category",
+        "name": "category-add",
         "options": [
           {
             "names": [
-              "--category-name"
+              "--name"
             ],
-            "dest": "category_name",
+            "dest": "name",
             "type": "str",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_products_by_category_name"
+        "target": "add_category"
       },
       {
-        "name": "product-price_range",
+        "name": "category-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_category"
+      },
+      {
+        "name": "product-list",
         "options": [
           {
             "names": [
-              "--min-price"
+              "--name"
             ],
-            "dest": "min_price",
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--category-id"
+            ],
+            "dest": "category_id",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_product"
+      },
+      {
+        "name": "category-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_category"
+      },
+      {
+        "name": "category-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           },
           {
             "names": [
-              "--max-price"
+              "--name"
             ],
-            "dest": "max_price",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_products_in_price_range"
-      },
-      {
-        "name": "product-details",
-        "options": [],
-        "arguments": [],
-        "target": "get_products_with_category_details"
-      },
-      {
-        "name": "product-search",
-        "options": [
-          {
-            "names": [
-              "--query"
-            ],
-            "dest": "query",
+            "dest": "name",
             "type": "str",
-            "required": true,
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "search_products_by_name"
+        "target": "update_category"
       }
     ],
     "invoker": "cli"

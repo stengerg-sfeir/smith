@@ -1,80 +1,90 @@
 {
   "ident": "20",
   "generated_dir": "generated/20",
-  "status": "pass",
+  "status": "fail",
   "n_intentions": 7,
-  "n_mapped": 6,
-  "n_unmapped": 1,
+  "n_mapped": 7,
+  "n_unmapped": 0,
   "pass": 6,
-  "fail": 0,
+  "fail": 1,
   "results": [
     {
       "intent_id": "I1",
-      "command": "crud-create",
-      "invocation": "python3 cli.py crud-create --name Laptop --price 1000",
+      "command": "product-add",
+      "invocation": "python3 cli.py product-add --name Laptop --price 1000",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I5",
-      "command": "sale-crud-create",
-      "invocation": "python3 cli.py sale-crud-create --product-id 1 --quantity 2 --date 2023-10-01",
+      "command": "sale-add",
+      "invocation": "python3 cli.py sale-add --product-id 1 --quantity 2",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
-      "command": "report-per_product",
-      "invocation": "python3 cli.py report-per_product",
+      "command": "product-list",
+      "invocation": "python3 cli.py product-list",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
-      "command": "crud-update",
-      "invocation": "python3 cli.py crud-update",
+      "command": "product-update",
+      "invocation": "python3 cli.py product-update --id 1 --name 'Gaming Laptop' --price 1200",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I6",
-      "command": "report-by_product",
-      "invocation": "python3 cli.py report-by_product --product-id 1",
+      "command": "sale-list",
+      "invocation": "python3 cli.py sale-list --product-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I7",
-      "command": "report-total",
-      "invocation": "python3 cli.py report-total",
+      "command": "product-report",
+      "invocation": "python3 cli.py product-report --id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
-    }
-  ],
-  "unmapped": [
+      "stderr_tail": "",
+      "seed": false
+    },
     {
       "intent_id": "I4",
-      "text": "I can remove a product from the inventory",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "product-delete",
+      "invocation": "python3 cli.py product-delete --id 1",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/20/cli.py\", line 39, in product_delete\n    result = svc.delete_product(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/20/sale_service.py\", line 32, in delete_product\n    return self.product_repo.delete(id)\n           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/20/product_repository.py\", line 74, in delete\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"DELETE FROM products WHERE id = ?\", (id,)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.IntegrityError: FOREIGN KEY constraint failed\n",
+      "seed": false
     }
-  ]
+  ],
+  "unmapped": []
 }

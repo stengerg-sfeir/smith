@@ -8,51 +8,66 @@ DB_PATH = "blog.db"
 def cli():
     """Application root."""
 
-@cli.command('author-list')
-@click.option('--author-id', type=int)
-def author_list(author_id):
-    """author/list"""
+@cli.command('author-add')
+@click.option('--name', required=True)
+@click.option('--email', required=True)
+def author_add(name, email):
+    """author/add"""
     svc = PostService(Database(DB_PATH))
-    result = svc.get_posts_by_author(author_id=author_id)
+    result = svc.add_author(name=name, email=email)
 
-@cli.command('post-read')
-@click.option('--id', type=int, required=True)
-def post_read(id):
-    """post/read"""
+@cli.command('post-add')
+@click.option('--title', required=True)
+@click.option('--content', required=True)
+@click.option('--author-id', type=int, required=True)
+def post_add(title, content, author_id):
+    """post/add"""
     svc = PostService(Database(DB_PATH))
-    result = svc.get_post_by_id(post_id=id)
+    result = svc.add_post(title=title, content=content, author_id=author_id)
+
+@cli.command('post-list')
+@click.option('--author-id')
+def post_list(author_id):
+    """post/list"""
+    svc = PostService(Database(DB_PATH))
+    result = svc.list_post(author_id=author_id)
+
+@cli.command('tag-list')
+def tag_list():
+    """tag/list"""
+    svc = PostService(Database(DB_PATH))
+    result = svc.list_tag()
 
 @cli.command('post-update')
 @click.option('--id', type=int, required=True)
 @click.option('--title')
 @click.option('--content')
-@click.option('--tags')
-def post_update(id, title, content, tags):
+@click.option('--author-id', type=int)
+def post_update(id, title, content, author_id):
     """post/update"""
     svc = PostService(Database(DB_PATH))
-    result = svc.update_post(post_id=id, title=title, content=content, tags=tags)
+    result = svc.update_post(id=id, title=title, content=content, author_id=author_id)
 
 @cli.command('post-delete')
 @click.option('--id', type=int, required=True)
 def post_delete(id):
     """post/delete"""
     svc = PostService(Database(DB_PATH))
-    result = svc.delete_post(post_id=id)
+    result = svc.delete_post(id=id)
 
-@cli.command('post-search')
-@click.option('--title')
-@click.option('--author-id', type=int)
-@click.option('--tag')
-def post_search(title, author_id, tag):
-    """post/search"""
+@cli.command('author-delete')
+@click.option('--id', type=int, required=True)
+def author_delete(id):
+    """author/delete"""
     svc = PostService(Database(DB_PATH))
-    result = svc.search_posts(title_contains=title, author_id=author_id, tag_name=tag)
+    result = svc.delete_author(id=id)
 
-@cli.command('post-info')
-def post_info():
-    """post/info"""
+@cli.command('tag-delete')
+@click.option('--id', type=int, required=True)
+def tag_delete(id):
+    """tag/delete"""
     svc = PostService(Database(DB_PATH))
-    result = svc.get_posts_with_tag_counts_and_author_info()
+    result = svc.delete_tag(id=id)
 
 
 if __name__ == "__main__":

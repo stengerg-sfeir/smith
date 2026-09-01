@@ -8,69 +8,44 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('customer-create')
+@cli.command('customer-add')
 @click.option('--first-name', required=True)
 @click.option('--last-name', required=True)
 @click.option('--email', required=True)
 @click.option('--phone')
-def customer_create(first_name, last_name, email, phone):
-    """customer/create"""
+def customer_add(first_name, last_name, email, phone):
+    """customer/add"""
     svc = CustomerService(Database(DB_PATH))
     result = svc.add_customer(first_name=first_name, last_name=last_name, email=email, phone=phone)
 
+@cli.command('customer-update')
+@click.option('--id', type=int, required=True)
+@click.option('--first-name')
+@click.option('--last-name')
+@click.option('--email')
+@click.option('--phone')
+def customer_update(id, first_name, last_name, email, phone):
+    """customer/update"""
+    svc = CustomerService(Database(DB_PATH))
+    result = svc.update_customer(id=id, first_name=first_name, last_name=last_name, email=email, phone=phone)
+
 @cli.command('customer-delete')
-@click.option('--customer-id', type=int, required=True)
-def customer_delete(customer_id):
+@click.option('--id', type=int, required=True)
+def customer_delete(id):
     """customer/delete"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.delete_customer(customer_id=customer_id)
+    result = svc.delete_customer(id=id)
 
-@cli.command('get-by_email')
-@click.option('--email', required=True)
-def get_by_email(email):
-    """customer/get/by_email"""
+@cli.command('customer-list')
+@click.option('--first-name')
+@click.option('--last-name')
+@click.option('--email')
+@click.option('--created-at')
+@click.option('--created-at-end')
+def customer_list(first_name, last_name, email, created_at, created_at_end):
+    """customer/list"""
     svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customer_by_email(email=email)
-
-@cli.command('get-by_last_name_prefix')
-@click.option('--prefix', required=True)
-def get_by_last_name_prefix(prefix):
-    """customer/get/by_last_name_prefix"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_by_last_name_prefix(prefix=prefix)
-
-@cli.command('get-active')
-def get_active():
-    """customer/get/active"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_with_active_status()
-
-@cli.command('get-count')
-def get_count():
-    """customer/get/count"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customer_count()
-
-@cli.command('get-spending')
-def get_spending():
-    """customer/get/spending"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_customers_with_total_spending()
-
-@cli.command('get-by_customer')
-@click.option('--customer-id', type=int, required=True)
-@click.option('--start-date')
-@click.option('--end-date')
-def get_by_customer(customer_id, start_date, end_date):
-    """audit/get/by_customer"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_audit_records_for_customer(customer_id=customer_id, start_date=start_date, end_date=end_date)
-
-@cli.command('get-recent')
-def get_recent():
-    """audit/get/recent"""
-    svc = CustomerService(Database(DB_PATH))
-    result = svc.get_recent_activity_summary()
+    result = svc.list_customer(first_name=first_name, last_name=last_name, email=email, created_at=created_at, created_at_end=created_at_end)
 
 
 if __name__ == "__main__":

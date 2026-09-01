@@ -10,33 +10,36 @@
   "results": [
     {
       "intent_id": "I1",
-      "command": "contact-create",
-      "invocation": "python3 cli.py contact-create --name 'Alice Johnson' --email alice.johnson@example.com --phone 555-1234",
+      "command": "contact-add",
+      "invocation": "python3 cli.py contact-add --name 'Alice Johnson' --email alice.johnson@example.com --phone 555-1234",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
       "command": "contact-list",
-      "invocation": "python3 cli.py contact-list",
+      "invocation": "python3 cli.py contact-list --name 'Alice Johnson' --email alice.johnson@example.com --phone 555-1234",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
       "command": "contact-update",
-      "invocation": "python3 cli.py contact-update --id 1 --name 'Bob Smith' --email bob.smith@company.com",
+      "invocation": "python3 cli.py contact-update --id 1 --name 'Bob Smith' --email bob.smith@example.com",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -46,7 +49,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": []

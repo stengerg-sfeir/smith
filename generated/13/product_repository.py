@@ -136,11 +136,3 @@ class ProductRepository:
             max_price=max_price,
         )
 
-
-    def get_product_by_sku(self, sku: str) -> Optional[Product]:
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM products WHERE sku = ?", (sku,)
-            ).fetchone()
-            return Product(**dict(row)) if row else None
-

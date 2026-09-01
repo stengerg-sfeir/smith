@@ -82,7 +82,47 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "manage-create",
+        "name": "customer-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_customer"
+      },
+      {
+        "name": "order-add",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--total-amount"
+            ],
+            "dest": "total_amount",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_order"
+      },
+      {
+        "name": "customer-add",
         "options": [
           {
             "names": [
@@ -113,33 +153,78 @@
           }
         ],
         "arguments": [],
-        "target": "create_customer"
+        "target": "add_customer"
       },
       {
-        "name": "retrieve-by_email",
+        "name": "customer-update",
         "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
           {
             "names": [
               "--email"
             ],
             "dest": "email",
             "type": "str",
-            "required": true,
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customer_by_email"
+        "target": "update_customer"
       },
       {
-        "name": "orders-list",
+        "name": "order-update",
         "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
           {
             "names": [
               "--customer-id"
             ],
             "dest": "customer_id",
             "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--total-amount"
+            ],
+            "dest": "total_amount",
+            "type": "str",
             "required": true,
             "flag": false
           },
@@ -151,123 +236,42 @@
             "type": "str",
             "required": false,
             "flag": false
-          },
-          {
-            "names": [
-              "--from-date"
-            ],
-            "dest": "from_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--to-date"
-            ],
-            "dest": "to_date",
-            "type": "str",
-            "required": false,
-            "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customer_orders"
+        "target": "update_order"
       },
       {
-        "name": "orders-with_details",
+        "name": "customer-delete",
         "options": [
           {
             "names": [
-              "--customer-id"
+              "--id"
             ],
-            "dest": "customer_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customer_with_orders"
+        "target": "delete_customer"
       },
       {
-        "name": "summary-spend",
+        "name": "order-delete",
         "options": [
           {
             "names": [
-              "--customer-id"
+              "--id"
             ],
-            "dest": "customer_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_customer_total_spent"
-      },
-      {
-        "name": "summary-order_summary",
-        "options": [
-          {
-            "names": [
-              "--customer-id"
-            ],
-            "dest": "customer_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customer_order_summary"
-      },
-      {
-        "name": "search-by_prefix",
-        "options": [
-          {
-            "names": [
-              "--prefix"
-            ],
-            "dest": "prefix",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customers_by_name_prefix"
-      },
-      {
-        "name": "update-phone",
-        "options": [
-          {
-            "names": [
-              "--customer-id"
-            ],
-            "dest": "customer_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--phone"
-            ],
-            "dest": "phone",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "update_customer_phone"
-      },
-      {
-        "name": "count-active",
-        "options": [],
-        "arguments": [],
-        "target": "get_active_customers_count"
+        "target": "delete_order"
       }
     ],
     "invoker": "cli"

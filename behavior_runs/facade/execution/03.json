@@ -16,7 +16,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Task 'Write project proposal' added successfully.\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
@@ -26,7 +27,8 @@
       "reason": "exit_code=2, expected 0",
       "exit_code": 2,
       "stdout_tail": "",
-      "stderr_tail": "Usage: todo_app.py [OPTIONS] COMMAND [ARGS]...\nTry 'todo_app.py --help' for help.\n\nError: No such command 'list_tasks'. Did you mean 'list-tasks'?\n"
+      "stderr_tail": "Usage: todo_app.py [OPTIONS] COMMAND [ARGS]...\nTry 'todo_app.py --help' for help.\n\nError: No such command 'list_tasks'. Did you mean 'list-tasks'?\n",
+      "seed": false
     },
     {
       "intent_id": "I3",
@@ -36,7 +38,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Task 1 not found.\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -46,7 +49,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Task 2 not found.\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": []

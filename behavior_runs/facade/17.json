@@ -50,97 +50,52 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "products-search",
+        "name": "product-search",
         "options": [
           {
             "names": [
-              "--name"
+              "--term"
             ],
-            "dest": "name",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--category"
-            ],
-            "dest": "category",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--max-price"
-            ],
-            "dest": "max_price",
-            "type": "int",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--min-quantity"
-            ],
-            "dest": "min_quantity",
-            "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "search_products"
-      },
-      {
-        "name": "report-count",
-        "options": [],
-        "arguments": [],
-        "target": "get_product_count"
-      },
-      {
-        "name": "report-summary",
-        "options": [],
-        "arguments": [],
-        "target": "get_product_summary"
-      },
-      {
-        "name": "category_threshold-below_threshold",
-        "options": [
-          {
-            "names": [
-              "--category"
-            ],
-            "dest": "category",
+            "dest": "term",
             "type": "str",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_products_below_category_threshold"
+        "target": "search_product"
       },
       {
-        "name": "export",
+        "name": "product-filter",
         "options": [
           {
             "names": [
-              "--file-path"
+              "--id"
             ],
-            "dest": "file_path",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "export_products_to_csv"
+        "target": "filter_product"
       },
       {
-        "name": "diagnostic-duplicates",
-        "options": [],
+        "name": "product-specify",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
         "arguments": [],
-        "target": "find_duplicate_products"
+        "target": "specify_product"
       }
     ],
     "invoker": "cli"

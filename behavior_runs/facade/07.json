@@ -50,7 +50,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "manage-create",
+        "name": "book-add",
         "options": [
           {
             "names": [
@@ -68,6 +68,119 @@
             "dest": "author",
             "type": "str",
             "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--isbn"
+            ],
+            "dest": "isbn",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year"
+            ],
+            "dest": "publication_year",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--genre"
+            ],
+            "dest": "genre",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--pages"
+            ],
+            "dest": "pages",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_book"
+      },
+      {
+        "name": "book-list",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--author"
+            ],
+            "dest": "author",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year"
+            ],
+            "dest": "publication_year",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--publication-year-end"
+            ],
+            "dest": "publication_year_end",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_book"
+      },
+      {
+        "name": "book-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--author"
+            ],
+            "dest": "author",
+            "type": "str",
+            "required": false,
             "flag": false
           },
           {
@@ -108,19 +221,39 @@
           }
         ],
         "arguments": [],
-        "target": "add_book"
+        "target": "update_book"
       },
       {
-        "name": "book-list",
-        "options": [],
+        "name": "book-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
         "arguments": [],
-        "target": "list_books"
+        "target": "delete_book"
       },
       {
-        "name": "book-report",
-        "options": [],
+        "name": "book-search",
+        "options": [
+          {
+            "names": [
+              "--term"
+            ],
+            "dest": "term",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
         "arguments": [],
-        "target": "generate_genre_distribution_report"
+        "target": "search_book"
       }
     ],
     "invoker": "cli"

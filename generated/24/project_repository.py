@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from database import Database
 from exceptions import ProjectNotFoundError
-from models import Project
+from models import Project, Task
 
 
 class ProjectRepository:
@@ -38,16 +38,22 @@ class ProjectRepository:
             ).fetchall()
             return [Project(**dict(r)) for r in rows]
 
-    def list(self, description: Optional[Any] = None, title: Optional[Any] = None) -> List[Project]:
+    def list(self, title: Optional[Any] = None, description: Optional[Any] = None, created_at: Optional[Any] = None, created_at_end: Optional[Any] = None) -> List[Project]:
         with self.db.connect() as conn:
             query = "SELECT * FROM projects WHERE 1=1"
             params: List[Any] = []
-            if description is not None:
-                query += ' AND description = ?'
-                params.append(description)
             if title is not None:
                 query += ' AND title = ?'
                 params.append(title)
+            if description is not None:
+                query += ' AND description = ?'
+                params.append(description)
+            if created_at is not None:
+                query += ' AND created_at >= ?'
+                params.append(created_at)
+            if created_at_end is not None:
+                query += ' AND created_at <= ?'
+                params.append(created_at_end)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Project(**dict(r)) for r in rows]
 
@@ -78,71 +84,63 @@ class ProjectRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def get_project_tasks_summary(self, project_id: int, status_filter: str, priority_filter: int) -> dict:
+    def get_project_tasks_by_status_and_priority(self, status: str, priority: int) -> list[Task]:
         with self.db.connect() as conn:
-            query = '\n                SELECT \n                    COUNT(*) AS total_tasks,\n                    COUNT(CASE WHEN status = ? THEN 1 END) AS completed_tasks,\n                    COUNT(CASE WHEN status = ? THEN 1 END) AS in_progress_tasks,\n                    COUNT(CASE WHEN status = ? THEN 1 END) AS pending_tasks\n                FROM tasks \n                WHERE project_id = ? \n                  AND status = ? \n                  AND priority = ?\n            '
-            rows = conn.execute(query, (status_filter, status_filter, status_filter, project_id, status_filter, priority_filter)).fetchone()
-            if rows is None:
-                return {}
-            return {'total_tasks': rows[0], 'completed_tasks': rows[1], 'in_progress_tasks': rows[2], 'pending_tasks': rows[3]}
+            rows = conn.execute('SELECT * FROM tasks WHERE status = ? AND priority = ?', (status, priority)).fetchall()
+            return [Task(**dict(r)) for r in rows]
 
-    def list_projects_with_task_count(self) -> list[dict]:
+    def get_project_tasks_with_filter(self, title: Optional[str]=None, status: Optional[str]=None, priority: Optional[int]=None, project_id: Optional[int]=None) -> list[Task]:
         with self.db.connect() as conn:
-            query = '\n                SELECT \n                    p.id,\n                    p.title,\n                    p.description,\n                    COUNT(t.id) AS task_count\n                FROM projects p\n                LEFT JOIN tasks t ON p.id = t.project_id\n                GROUP BY p.id\n            '
-            rows = conn.execute(query).fetchall()
-            return [dict(row) for row in rows]
+            query = 'SELECT * FROM tasks WHERE 1=1'
+            params = []
+            if title is not None:
+                query += ' AND title LIKE ?'
+                params.append(f'%{title}%')
+            if status is not None:
+                query += ' AND status = ?'
+                params.append(status)
+            if priority is not None:
+                query += ' AND priority = ?'
+                params.append(priority)
+            if project_id is not None:
+                query += ' AND project_id = ?'
+                params.append(project_id)
+            rows = conn.execute(query, params).fetchall()
+            return [Task(**dict(r)) for r in rows]
 
-    def get_project_with_tasks(self, project_id: int) -> dict:
+    def get_project_task_count_by_status(self) -> dict[str, int]:
         with self.db.connect() as conn:
-            query = '\n                SELECT \n                    p.id,\n                    p.title,\n                    p.description,\n                    p.created_at,\n                    p.updated_at,\n                    t.id AS task_id,\n                    t.title AS task_title,\n                    t.description AS task_description,\n                    t.status,\n                    t.priority,\n                    t.created_at AS task_created_at,\n                    t.updated_at AS task_updated_at\n                FROM projects p\n                LEFT JOIN tasks t ON p.id = t.project_id\n                WHERE p.id = ?\n            '
-            rows = conn.execute(query, (project_id,)).fetchall()
-            project_data = next((row for row in rows if row['id'] == project_id), None)
-            if not project_data:
-                raise ProjectNotFoundError(f'Project with id {project_id} not found')
-            project_dict = {'id': project_data['id'], 'title': project_data['title'], 'description': project_data['description'], 'created_at': project_data['created_at'], 'updated_at': project_data['updated_at'], 'tasks': []}
-            for row in rows:
-                if row['id'] == project_id:
-                    project_dict['tasks'].append({'id': row['task_id'], 'title': row['task_title'], 'description': row['task_description'], 'status': row['status'], 'priority': row['priority'], 'created_at': row['task_created_at'], 'updated_at': row['task_updated_at']})
-            return project_dict
+            rows = conn.execute(
+                "SELECT project_id AS k, COUNT(*) AS n FROM tasks GROUP BY project_id ORDER BY n DESC"
+            ).fetchall()
+            return {r["k"]: int(r["n"]) for r in rows}
 
-    def get_task_stats_by_project(self) -> dict:
+    def get_project_task_completion_rate(self) -> float:
         with self.db.connect() as conn:
-            query = "\n                SELECT \n                    p.id,\n                    p.title,\n                    COUNT(t.id) AS total_tasks,\n                    SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS completed_tasks,\n                    SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress_tasks,\n                    SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) AS pending_tasks\n                FROM projects p\n                LEFT JOIN tasks t ON p.id = t.project_id\n                GROUP BY p.id\n            "
-            rows = conn.execute(query).fetchall()
-            result = {}
-            for row in rows:
-                result[row['id']] = {'title': row['title'], 'total_tasks': row['total_tasks'], 'completed_tasks': row['completed_tasks'], 'in_progress_tasks': row['in_progress_tasks'], 'pending_tasks': row['pending_tasks']}
-            return result
-
-    def search_tasks_by_title(self, query: str, project_id: int) -> list[dict]:
-        with self.db.connect() as conn:
-            query = '\n                SELECT \n                    t.id,\n                    t.title,\n                    t.description,\n                    t.status,\n                    t.priority,\n                    t.created_at,\n                    t.updated_at\n                FROM tasks t\n                WHERE t.project_id = ? \n                  AND t.title LIKE ?\n            '
-            rows = conn.execute(query, (project_id, f'%{query}%')).fetchall()
-            return [dict(row) for row in rows]
-
-    def get_project_completion_rate(self, project_id: int) -> float:
-        with self.db.connect() as conn:
-            query = "\n                SELECT \n                    COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed,\n                    COUNT(*) AS total\n                FROM tasks \n                WHERE project_id = ?\n            "
-            row = conn.execute(query, (project_id,)).fetchone()
-            if row is None or row[1] == 0:
+            total_tasks_query = 'SELECT COUNT(*) FROM tasks'
+            completed_tasks_query = "SELECT COUNT(*) FROM tasks WHERE status = 'completed'"
+            total_tasks_result = conn.execute(total_tasks_query).fetchone()
+            completed_tasks_result = conn.execute(completed_tasks_query).fetchone()
+            total_tasks = total_tasks_result[0] if total_tasks_result[0] is not None else 0
+            completed_tasks = completed_tasks_result[0] if completed_tasks_result[0] is not None else 0
+            if total_tasks == 0:
                 return 0.0
-            return round(row[0] / row[1], 2)
+            return completed_tasks / total_tasks
 
-    def list_tasks_by_status_and_priority(self, status: str, priority: int) -> list[dict]:
+    def get_project_tasks_overdue(self) -> list[Task]:
         with self.db.connect() as conn:
-            query = '\n                SELECT \n                    t.id,\n                    t.title,\n                    t.description,\n                    t.status,\n                    t.priority,\n                    t.created_at,\n                    t.updated_at\n                FROM tasks t\n                WHERE t.status = ? \n                  AND t.priority = ?\n            '
-            rows = conn.execute(query, (status, priority)).fetchall()
-            return [dict(row) for row in rows]
+            rows = conn.execute('SELECT * FROM tasks').fetchall()
+            return [Task(**dict(r)) for r in rows]
 
-    def get_total_tasks_by_status(self) -> dict:
+    def get_project_task_summary(self) -> dict:
         with self.db.connect() as conn:
-            query = '\n                SELECT \n                    status,\n                    COUNT(*) AS task_count\n                FROM tasks\n                GROUP BY status\n            '
+            query = '\n                SELECT \n                    status, \n                    priority, \n                    COUNT(*) as count\n                FROM tasks \n                GROUP BY status, priority\n            '
             rows = conn.execute(query).fetchall()
-            return {row[0]: row[1] for row in rows}
-
-    def get_project_task_distribution(self) -> dict:
-        with self.db.connect() as conn:
-            query = "\n                SELECT \n                    p.id,\n                    p.title,\n                    COUNT(t.id) AS task_count,\n                    SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS completed,\n                    SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,\n                    SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) AS pending\n                FROM projects p\n                LEFT JOIN tasks t ON p.id = t.project_id\n                GROUP BY p.id\n            "
-            rows = conn.execute(query).fetchall()
-            return {row['id']: {'title': row['title'], 'task_count': row['task_count'], 'completed': row['completed'], 'in_progress': row['in_progress'], 'pending': row['pending']} for row in rows}
+            summary = {}
+            for row in rows:
+                status = row[0]
+                priority = row[1]
+                count = row[2]
+                summary[status, priority] = count
+            return summary
 

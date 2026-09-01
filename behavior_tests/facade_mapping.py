@@ -349,7 +349,15 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
             field = _match_param_key(dest, params) if params else dest
         if not field:
             continue
-        ref_ent = fk_by_param.get(field)
+        # Resolve the option's field onto the target's real parameter name
+        # (--category -> category_id) so FK references are detected even when
+        # the CLI option name differs from the FK column name. Without this,
+        # product-add --category 1 would not seed Category before running,
+        # and the (correct) generated FK check raises CategoryNotFoundError.
+        resolved = _match_param_key(field, params) if params else field
+        if resolved is None:
+            resolved = field
+        ref_ent = fk_by_param.get(resolved)
         if ref_ent:
             refs.append({"flag": flag, "entity": ref_ent})
             continue
@@ -361,9 +369,9 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
         # (prompt 32's order-confirm/ship/cancel).
         if (target_entity and not create_style):
             id_like = (
-                field in pk_by_entity.get(target_entity, [])
-                or field == _snake(target_entity) + "_id"
-                or field == "id"
+                resolved in pk_by_entity.get(target_entity, [])
+                or resolved == _snake(target_entity) + "_id"
+                or resolved == "id"
             )
             if id_like:
                 refs.append({"flag": flag, "entity": target_entity})
@@ -440,6 +448,105 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
         "entry": entry,
         "kind": kind,
     }
+
+
+# ---------------------------------------------------------------------------
+# Seed-plan synthesis (order-of-operations fix)
+# ---------------------------------------------------------------------------
+
+def _find_create_cmd(facade: dict, entity: str, design: dict | None) -> dict | None:
+    """Find a facade command that creates ``entity`` (e.g. ``customer-add``)."""
+    ent_snake = _snake(entity)
+    want = f"{ent_snake}-add"
+    for cmd in facade.get("commands", []):
+        if cmd.get("name") == want:
+            return cmd
+    if design:
+        for cmd in facade.get("commands", []):
+            if _entity_for_target(cmd.get("target", ""), design) == entity:
+                return cmd
+    return None
+
+
+def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None) -> dict:
+    """Build a minimal create-plan for ``entity`` so the executor can seed it.
+
+    The mapper only creates plans for real user intentions, so a consumer that
+    references a parent entity (``--customer-id`` -> Customer) has no plan that
+    CREATES that parent. The executor's topo sort then has nothing to run first
+    and the consumer hits ``FOREIGN KEY constraint failed``. This synthesizes a
+    create-plan (flagged ``seed: True``) using the real facade command, so the
+    executor can run it first and substitute the real parent id.
+    """
+    args: list[dict] = []
+    for opt in cmd.get("options", []):
+        flag = _opt_flag_name(opt)
+        if not flag or opt.get("flag"):
+            continue  # boolean flags are never required by the surface
+        if not opt.get("required"):
+            continue
+        val = "1" if opt.get("type") == "int" else f"seed-{_snake(entity)}"
+        args.append({"flag": flag, "value": val})
+    for arg in cmd.get("arguments", []):
+        dest = arg.get("dest") or ""
+        if not dest:
+            dest = next(
+                (n for n in (arg.get("names") or []) if n and not n.startswith("-")),
+                "",
+            )
+        if arg.get("required") and dest:
+            args.append({"flag": dest, "value": "seed"})
+    m = {
+        "intent_id": f"__seed_{entity}",
+        "command": cmd.get("name", ""),
+        "args": args,
+    }
+    plan = _build_plan(
+        {"intent_id": m["intent_id"], "text": f"seed {entity}"},
+        m, facade, design=design,
+    )
+    plan["seed"] = True
+    # Force the creates-entity: the seed is synthesized for a SPECIFIC
+    # entity, but the underlying facade command's target may be a generic
+    # verb ("add", not "add_category") so _infer_refs_and_creates returns a
+    # blank creates. Without this, the seed is not a "provider", the topo
+    # sort treats it as a non-create, and it runs AFTER consumers — the
+    # exact FK-order bug this synthesis exists to prevent.
+    plan["creates"] = entity
+    return plan
+
+
+def _synthesize_seed_plans(plans: list[dict], facade: dict,
+                           design: dict | None) -> list[dict]:
+    """Add seed create-plans for ref'd entities that no plan creates.
+
+    Fixpoint loop: a seed may itself reference a parent (FK), which then needs
+    its own seed. Each synthesized plan is marked ``seed: True`` so the
+    executor can order it first and exclude it from the pass/fail aggregate.
+    """
+    if not plans or not design:
+        return plans
+    updated = list(plans)
+    created = {p.get("creates") for p in updated if p.get("creates")}
+    changed = True
+    while changed:
+        changed = False
+        for plan in updated:
+            if plan.get("status") != "mapped":
+                continue
+            for ref in plan.get("refs", []):
+                if not isinstance(ref, dict):
+                    continue
+                ent = ref.get("entity")
+                if not ent or ent in created:
+                    continue
+                cmd = _find_create_cmd(facade, ent, design)
+                if cmd is None:
+                    continue
+                updated.append(_make_seed_plan(cmd, ent, facade, design))
+                created.add(ent)
+                changed = True
+    return updated
 
 
 def _unmapped(intent: dict, reason: str) -> dict:
@@ -529,7 +636,7 @@ def map_intentions(intentions: list[dict], facade: dict,
     for p in plans:
         assert p is not None
         out.append(p)
-    return out
+    return _synthesize_seed_plans(out, facade, design)
 
 
 def _call_mapping(intentions: list[dict], facade: dict,

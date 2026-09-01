@@ -172,7 +172,7 @@
           }
         ],
         "arguments": [],
-        "target": "search_books"
+        "target": "search"
       },
       {
         "name": "member-add",
@@ -197,7 +197,7 @@
           }
         ],
         "arguments": [],
-        "target": "add_member"
+        "target": "add"
       },
       {
         "name": "member-list",
@@ -213,54 +213,7 @@
           }
         ],
         "arguments": [],
-        "target": "list_member"
-      },
-      {
-        "name": "library-borrow",
-        "options": [
-          {
-            "names": [
-              "--member-id"
-            ],
-            "dest": "member_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--book-id"
-            ],
-            "dest": "book_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "borrow_book"
-      },
-      {
-        "name": "library-return",
-        "options": [
-          {
-            "names": [
-              "--loan-id"
-            ],
-            "dest": "loan_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "return_book"
-      },
-      {
-        "name": "library-overdue",
-        "options": [],
-        "arguments": [],
-        "target": "get_overdue_loans"
+        "target": "list"
       },
       {
         "name": "member-history",

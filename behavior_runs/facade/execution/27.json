@@ -9,34 +9,59 @@
   "fail": 2,
   "results": [
     {
+      "intent_id": "__seed_Customer",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --name seed-customer --email seed-customer",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": true
+    },
+    {
+      "intent_id": "__seed_Room",
+      "command": "room-add",
+      "invocation": "python3 cli.py room-add --room-number seed-room --floor 1 --capacity 1 --room-type seed-room",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": true
+    },
+    {
       "intent_id": "I1",
       "command": "reservation-add",
-      "invocation": "python3 cli.py reservation-add --customer-id 1 --room-id 101 --status confirmed",
+      "invocation": "python3 cli.py reservation-add --customer-id 1 --room-id 1 --status confirmed",
       "status": "fail",
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "_reservation\n    return self.reservation_repo.create(reservation)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/27/reservation_repository.py\", line 19, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO reservations (customer_id, room_id, start_date, end_date, status) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (reservation.customer_id, reservation.room_id, reservation.start_date, reservation.end_date, reservation.status),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.IntegrityError: FOREIGN KEY constraint failed\n"
+      "stderr_tail": "_reservation\n    return self.reservation_repo.create(reservation)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/27/reservation_repository.py\", line 19, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO reservations (customer_id, room_id, start_date, end_date, status) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (reservation.customer_id, reservation.room_id, reservation.start_date, reservation.end_date, reservation.status),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.IntegrityError: FOREIGN KEY constraint failed\n",
+      "seed": false
     },
     {
       "intent_id": "I2",
       "command": "reservation-list",
-      "invocation": "python3 cli.py reservation-list",
+      "invocation": "python3 cli.py reservation-list --customer-id 1 --room-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
       "command": "reservation-update",
-      "invocation": "python3 cli.py reservation-update --id 5 --status completed",
+      "invocation": "python3 cli.py reservation-update --id 5 --status completed --customer-id 1 --room-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I5",
@@ -46,27 +71,30 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "ult(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/27/cli.py\", line 53, in reservation_check\n    result = svc.check_reservation(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/27/reservation_service.py\", line 44, in check_reservation\n    raise NotFoundError(f'Reservation with id {id} not found')\nexceptions.NotFoundError: Reservation with id 15 not found\n"
+      "stderr_tail": "ult(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/27/cli.py\", line 53, in reservation_check\n    result = svc.check_reservation(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/27/reservation_service.py\", line 44, in check_reservation\n    raise NotFoundError(f'Reservation with id {id} not found')\nexceptions.NotFoundError: Reservation with id 15 not found\n",
+      "seed": false
     },
     {
       "intent_id": "I6",
       "command": "reservation-list",
-      "invocation": "python3 cli.py reservation-list --room-id 101",
+      "invocation": "python3 cli.py reservation-list --room-id 1 --customer-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I7",
       "command": "reservation-list",
-      "invocation": "python3 cli.py reservation-list --customer-id 2",
+      "invocation": "python3 cli.py reservation-list --customer-id 1 --room-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -76,7 +104,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": []

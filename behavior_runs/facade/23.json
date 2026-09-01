@@ -90,36 +90,85 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "author-list",
+        "name": "author-add",
         "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_author"
+      },
+      {
+        "name": "post-add",
+        "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--content"
+            ],
+            "dest": "content",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
           {
             "names": [
               "--author-id"
             ],
             "dest": "author_id",
             "type": "int",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_posts_by_author"
-      },
-      {
-        "name": "post-read",
-        "options": [
-          {
-            "names": [
-              "--id"
-            ],
-            "dest": "id",
-            "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_post_by_id"
+        "target": "add_post"
+      },
+      {
+        "name": "post-list",
+        "options": [
+          {
+            "names": [
+              "--author-id"
+            ],
+            "dest": "author_id",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_post"
+      },
+      {
+        "name": "tag-list",
+        "options": [],
+        "arguments": [],
+        "target": "list_tag"
       },
       {
         "name": "post-update",
@@ -153,10 +202,10 @@
           },
           {
             "names": [
-              "--tags"
+              "--author-id"
             ],
-            "dest": "tags",
-            "type": "str",
+            "dest": "author_id",
+            "type": "int",
             "required": false,
             "flag": false
           }
@@ -181,44 +230,36 @@
         "target": "delete_post"
       },
       {
-        "name": "post-search",
+        "name": "author-delete",
         "options": [
           {
             "names": [
-              "--title"
+              "--id"
             ],
-            "dest": "title",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--author-id"
-            ],
-            "dest": "author_id",
+            "dest": "id",
             "type": "int",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--tag"
-            ],
-            "dest": "tag",
-            "type": "str",
-            "required": false,
+            "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "search_posts"
+        "target": "delete_author"
       },
       {
-        "name": "post-info",
-        "options": [],
+        "name": "tag-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
         "arguments": [],
-        "target": "get_posts_with_tag_counts_and_author_info"
+        "target": "delete_tag"
       }
     ],
     "invoker": "cli"

@@ -9,6 +9,17 @@
   "fail": 1,
   "results": [
     {
+      "intent_id": "__seed_Order",
+      "command": "order-add",
+      "invocation": "python3 cli.py order-add --customer-id 1 --status seed-order --total-amount seed-order",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "Documents/neurosymbolic/generated/40/notification_service.py\", line 53, in add_order\n    return self.order_repo.create(order)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/40/order_repository.py\", line 19, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO orders (customer_id, status, created_at, updated_at, total_amount) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (order.customer_id, order.status, order.created_at, order.updated_at, order.total_amount),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.OperationalError: no such table: main.customers\n",
+      "seed": true
+    },
+    {
       "intent_id": "I1",
       "command": "notification-confirm",
       "invocation": "python3 cli.py notification-confirm --id 123",
@@ -16,17 +27,19 @@
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "ommand.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/40/cli.py\", line 16, in notification_confirm\n    result = svc.confirm_notification(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/40/notification_service.py\", line 20, in confirm_notification\n    raise NotFoundError(f'Notification with id {id} not found')\nexceptions.NotFoundError: Notification with id 123 not found\n"
+      "stderr_tail": "ommand.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/40/cli.py\", line 16, in notification_confirm\n    result = svc.confirm_notification(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/40/notification_service.py\", line 23, in confirm_notification\n    raise NotFoundError(f'Notification with id {id} not found')\nexceptions.NotFoundError: Notification with id 123 not found\n",
+      "seed": false
     },
     {
       "intent_id": "I2",
       "command": "notification-list",
-      "invocation": "python3 cli.py notification-list --order-id 123",
+      "invocation": "python3 cli.py notification-list --order-id 1001",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [

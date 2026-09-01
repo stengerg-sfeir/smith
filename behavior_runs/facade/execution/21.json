@@ -3,76 +3,99 @@
   "generated_dir": "generated/21",
   "status": "fail",
   "n_intentions": 8,
-  "n_mapped": 4,
-  "n_unmapped": 4,
-  "pass": 1,
-  "fail": 3,
+  "n_mapped": 8,
+  "n_unmapped": 0,
+  "pass": 4,
+  "fail": 4,
   "results": [
     {
       "intent_id": "I1",
-      "command": "customer-create",
-      "invocation": "python3 cli.py customer-create --customer-id 101 --order-date 2023-10-01 --status pending",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
-      "stdout_tail": "",
-      "stderr_tail": "sult(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 28, in customer_create\n    result = svc.create_order(customer_id=customer_id, order_date=order_date, status=status)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 27, in create_order\n    raise CustomerNotFoundError(customer_id)\nexceptions.CustomerNotFoundError: 101\n"
-    },
-    {
-      "intent_id": "I3",
-      "command": "customer-create",
-      "invocation": "python3 cli.py customer-create --customer-id 102 --order-date 2023-10-02 --status shipped",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
-      "stdout_tail": "",
-      "stderr_tail": "sult(sub_ctx.command.invoke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 28, in customer_create\n    result = svc.create_order(customer_id=customer_id, order_date=order_date, status=status)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 27, in create_order\n    raise CustomerNotFoundError(customer_id)\nexceptions.CustomerNotFoundError: 102\n"
-    },
-    {
-      "intent_id": "I4",
-      "command": "orders-list",
-      "invocation": "python3 cli.py orders-list --customer-id 101",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --name 'Alice Johnson' --email alice.johnson@example.com",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
-      "intent_id": "I5",
-      "command": "customer-update_status",
-      "invocation": "python3 cli.py customer-update_status --order-id 501 --new-status completed",
+      "intent_id": "I7",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --name 'Bob Smith' --email bob.smith@example.com",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I2",
+      "command": "customer-list",
+      "invocation": "python3 cli.py customer-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I3",
+      "command": "order-update",
+      "invocation": "python3 cli.py order-update --id 101 --customer-id 2 --order-date 2023-10-01 --status pending",
       "status": "fail",
       "reason": "exit_code=1, expected 0",
       "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": "  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 36, in customer_update_status\n    result = svc.update_order_status(order_id=order_id, new_status=new_status)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 80, in update_order_status\n    raise e\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 72, in update_order_status\n    raise InvalidOrderStatusError(f'Invalid status: {new_status}. Must be one of {valid_statuses}')\nexceptions.InvalidOrderStatusError: Invalid status: completed. Must be one of ['pending', 'processing', 'shipped', 'delivered', 'cancelled']\n"
-    }
-  ],
-  "unmapped": [
+      "stderr_tail": "\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 33, in order_update\n    result = svc.update_order(id=id, customer_id=customer_id, order_date=order_date, status=status)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 27, in update_order\n    return self.order_repo.update(id, data)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_repository.py\", line 82, in update\n    raise OrderNotFoundError(id)\nexceptions.OrderNotFoundError: 101\n",
+      "seed": false
+    },
     {
-      "intent_id": "I2",
-      "text": "I can retrieve a list of all customers.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "intent_id": "I4",
+      "command": "order-update",
+      "invocation": "python3 cli.py order-update --id 101 --customer-id 2",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 33, in order_update\n    result = svc.update_order(id=id, customer_id=customer_id, order_date=order_date, status=status)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 27, in update_order\n    return self.order_repo.update(id, data)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_repository.py\", line 82, in update\n    raise OrderNotFoundError(id)\nexceptions.OrderNotFoundError: 101\n",
+      "seed": false
+    },
+    {
+      "intent_id": "I5",
+      "command": "order-update",
+      "invocation": "python3 cli.py order-update --id 101 --status shipped --customer-id 2",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 33, in order_update\n    result = svc.update_order(id=id, customer_id=customer_id, order_date=order_date, status=status)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 27, in update_order\n    return self.order_repo.update(id, data)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_repository.py\", line 82, in update\n    raise OrderNotFoundError(id)\nexceptions.OrderNotFoundError: 101\n",
+      "seed": false
     },
     {
       "intent_id": "I6",
-      "text": "I can delete an existing order.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I7",
-      "text": "I can update a customer's information.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "order-delete",
+      "invocation": "python3 cli.py order-delete --id 101",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "voke(sub_ctx))\n                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/cli.py\", line 40, in order_delete\n    result = svc.delete_order(id=id)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/21/order_service.py\", line 30, in delete_order\n    return self.order_repo.delete(id)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^\nTypeError: OrderRepository.delete() missing 1 required positional argument: 'order_date'\n",
+      "seed": false
     },
     {
       "intent_id": "I8",
-      "text": "I can delete a customer.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "customer-delete",
+      "invocation": "python3 cli.py customer-delete --id 2",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     }
-  ]
+  ],
+  "unmapped": []
 }

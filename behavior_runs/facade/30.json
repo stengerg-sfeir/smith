@@ -62,12 +62,30 @@
     }
   ],
   "facade": {
-    "entry": "task_cli.py",
+    "entry": "cli.py",
     "kind": "click_group",
     "commands": [
       {
-        "name": "list-by_status_and_priority",
+        "name": "manage-add",
         "options": [
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
           {
             "names": [
               "--status"
@@ -85,66 +103,22 @@
             "type": "int",
             "required": true,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_tasks_by_status_and_priority"
-      },
-      {
-        "name": "list-by_user_id",
-        "options": [
-          {
-            "names": [
-              "--user-id"
-            ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_tasks_by_user_id"
-      },
-      {
-        "name": "list-by_due_date_range",
-        "options": [
-          {
-            "names": [
-              "--start-date"
-            ],
-            "dest": "start_date",
-            "type": "str",
-            "required": true,
-            "flag": false
           },
           {
             "names": [
-              "--end-date"
+              "--due-date"
             ],
-            "dest": "end_date",
+            "dest": "due_date",
             "type": "str",
-            "required": true,
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_tasks_with_due_date_range"
+        "target": "add"
       },
       {
-        "name": "list-overdue",
-        "options": [],
-        "arguments": [],
-        "target": "get_overdue_tasks"
-      },
-      {
-        "name": "list-high_priority_due_soon",
-        "options": [],
-        "arguments": [],
-        "target": "get_tasks_with_high_priority_and_due_soon"
-      },
-      {
-        "name": "list-by_status_and_created_range",
+        "name": "manage-list",
         "options": [
           {
             "names": [
@@ -152,98 +126,116 @@
             ],
             "dest": "status",
             "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--start-created"
-            ],
-            "dest": "start_created",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--end-created"
-            ],
-            "dest": "end_created",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_tasks_with_status_and_created_range"
-      },
-      {
-        "name": "stats-count_by_status",
-        "options": [],
-        "arguments": [],
-        "target": "get_task_count_by_status"
-      },
-      {
-        "name": "stats-priority_by_status",
-        "options": [],
-        "arguments": [],
-        "target": "sum_task_priority_by_status"
-      },
-      {
-        "name": "export-to_csv",
-        "options": [
-          {
-            "names": [
-              "--file-path"
-            ],
-            "dest": "file_path",
-            "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--filter-status"
-            ],
-            "dest": "filter_status",
-            "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--filter-priority"
+              "--priority"
             ],
-            "dest": "filter_priority",
+            "dest": "priority",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--page"
+            ],
+            "dest": "page",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--page-size"
+            ],
+            "dest": "page_size",
             "type": "int",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "export_tasks_to_csv"
+        "target": "list"
       },
       {
-        "name": "analyze-duplicates_by_title",
-        "options": [],
-        "arguments": [],
-        "target": "find_duplicate_tasks_by_title"
-      },
-      {
-        "name": "filter-below_priority_threshold",
+        "name": "manage-update",
         "options": [
           {
             "names": [
-              "--user-id"
+              "--task-id"
             ],
-            "dest": "user_id",
+            "dest": "task_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--title"
+            ],
+            "dest": "title",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--status"
+            ],
+            "dest": "status",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--priority"
+            ],
+            "dest": "priority",
+            "type": "int",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--due-date"
+            ],
+            "dest": "due_date",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update"
+      },
+      {
+        "name": "manage-delete",
+        "options": [
+          {
+            "names": [
+              "--task-id"
+            ],
+            "dest": "task_id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_tasks_below_user_priority_threshold"
+        "target": "delete"
       }
     ],
     "invoker": "cli"

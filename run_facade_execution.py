@@ -82,8 +82,9 @@ def main(argv: list[str] | None = None) -> int:
         design = extract_design(proj) if proj.is_dir() else None
         plans = map_intentions(intents, facade, design=design, fixtures=FIXTURES)
         unmapped = [p for p in plans if p["status"] == "unmapped"]
-        mapped = [p for p in plans if p["status"] == "mapped"]
-        outcome = execute_prompt(mapped, proj, fresh_db=True, fixtures=FIXTURES)
+        mapped_all = [p for p in plans if p["status"] == "mapped"]
+        mapped = [p for p in mapped_all if not p.get("seed")]
+        outcome = execute_prompt(mapped_all, proj, fresh_db=True, fixtures=FIXTURES)
         outcome["unmapped"] = unmapped
 
         status = "ok"

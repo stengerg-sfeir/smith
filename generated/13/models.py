@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -13,4 +13,9 @@ class Product:
     price: float
     stock_quantity: int
     id: Optional[int] = None
+
+
+UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
+    "Product": [("sku",)],
+}
 

@@ -1,12 +1,12 @@
 {
-  "started_at": "2026-08-31T04:40:35.941998+00:00",
-  "finished_at": "2026-08-31T04:40:36.082063+00:00",
+  "started_at": "2026-09-01T08:44:06.799182+00:00",
+  "finished_at": "2026-09-01T08:44:41.094787+00:00",
   "prompts_dir": "/Users/gillesstenger/Documents/neurosymbolic/prompts",
   "generated_root": "/Users/gillesstenger/Documents/neurosymbolic/generated",
   "total": 1,
-  "pass": 0,
+  "pass": 1,
   "pass_uncovered": 0,
-  "fail": 1,
+  "fail": 0,
   "no_generated_output": 0,
   "oracle_failed": 0,
   "conformity_failed": 0,
@@ -15,102 +15,20 @@
     {
       "prompt": "28",
       "prompt_file": "/Users/gillesstenger/Documents/neurosymbolic/prompts/prompt_28.txt",
-      "started_at": "2026-08-31T04:40:35.941998+00:00",
+      "started_at": "2026-09-01T08:44:06.799182+00:00",
       "generated_dir": "/Users/gillesstenger/Documents/neurosymbolic/generated/28",
       "output_exists": true,
       "test_spec": "/Users/gillesstenger/Documents/neurosymbolic/behavior_runs/28/test_spec.json",
       "business_logic_coverage": "full",
       "unexpressed_rules": [],
-      "exit_code": 1,
+      "exit_code": 0,
       "stderr_tail": "",
-      "stdout_tail": "{\n  \"tests\": [\n    {\n      \"id\": \"crud:Invoice\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_customer_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"crud:InvoiceLine\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"fk:fk_invoice_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"fk:fk_product_id\",\n      \"status\": \"pass\",\n      \"detail\": \"raised 'IntegrityError'\"\n    },\n    {\n      \"id\": \"business_rule:scn_1\",\n      \"status\": \"fail\",\n      \"detail\": \"error: AttributeError(\\\"'NoneType' object has no attribute 'total_amount'\\\")\"\n    },\n    {\n      \"id\": \"exceptions:exc_InvoiceNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_CustomerNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ProductNotFoundError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_InvalidQuantityError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_ValidationError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    },\n    {\n      \"id\": \"exceptions:exc_InvoiceTotalCalculationError\",\n      \"status\": \"pass\",\n      \"detail\": \"\"\n    }\n  ],\n  \"coverage\": {\n    \"crud\": {\n      \"Invoice\": \"pass\",\n      \"InvoiceLine\": \"pass\"\n    },\n    \"fk\": {\n      \"fk_customer_id\": \"pass\",\n      \"fk_invoice_id\": \"pass\",\n      \"fk_product_id\": \"pass\"\n    },\n    \"business_rule\": {\n      \"scn_1\": \"fail\"\n    },\n    \"exceptions\": {\n      \"exc_InvoiceNotFoundError\": \"pass\",\n      \"exc_CustomerNotFoundError\": \"pass\",\n      \"exc_ProductNotFoundError\": \"pass\",\n      \"exc_InvalidQuantityError\": \"pass\",\n      \"exc_ValidationError\": \"pass\",\n      \"exc_InvoiceTotalCalculationError\": \"pass\"\n    }\n  },\n  \"build_errors\": [],\n  \"status\": \"fail\"\n}\n",
-      "status": "fail",
-      "tests": [
-        {
-          "id": "crud:Invoice",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "fk:fk_customer_id",
-          "status": "pass",
-          "detail": "raised 'IntegrityError'"
-        },
-        {
-          "id": "crud:InvoiceLine",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "fk:fk_invoice_id",
-          "status": "pass",
-          "detail": "raised 'IntegrityError'"
-        },
-        {
-          "id": "fk:fk_product_id",
-          "status": "pass",
-          "detail": "raised 'IntegrityError'"
-        },
-        {
-          "id": "business_rule:scn_1",
-          "status": "fail",
-          "detail": "error: AttributeError(\"'NoneType' object has no attribute 'total_amount'\")"
-        },
-        {
-          "id": "exceptions:exc_InvoiceNotFoundError",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "exceptions:exc_CustomerNotFoundError",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "exceptions:exc_ProductNotFoundError",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "exceptions:exc_InvalidQuantityError",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "exceptions:exc_ValidationError",
-          "status": "pass",
-          "detail": ""
-        },
-        {
-          "id": "exceptions:exc_InvoiceTotalCalculationError",
-          "status": "pass",
-          "detail": ""
-        }
-      ],
-      "coverage": {
-        "crud": {
-          "Invoice": "pass",
-          "InvoiceLine": "pass"
-        },
-        "fk": {
-          "fk_customer_id": "pass",
-          "fk_invoice_id": "pass",
-          "fk_product_id": "pass"
-        },
-        "business_rule": {
-          "scn_1": "fail"
-        },
-        "exceptions": {
-          "exc_InvoiceNotFoundError": "pass",
-          "exc_CustomerNotFoundError": "pass",
-          "exc_ProductNotFoundError": "pass",
-          "exc_InvalidQuantityError": "pass",
-          "exc_ValidationError": "pass",
-          "exc_InvoiceTotalCalculationError": "pass"
-        }
-      },
+      "stdout_tail": "{\n  \"tests\": [],\n  \"coverage\": {},\n  \"build_errors\": [],\n  \"status\": \"pass\"\n}\n",
+      "status": "pass",
+      "tests": [],
+      "coverage": {},
       "build_errors": [],
-      "finished_at": "2026-08-31T04:40:36.081948+00:00"
+      "finished_at": "2026-09-01T08:44:41.094659+00:00"
     }
   ]
 }

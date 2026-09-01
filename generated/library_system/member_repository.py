@@ -37,7 +37,7 @@ class MemberRepository:
             ).fetchall()
             return [Member(**dict(r)) for r in rows]
 
-    def list(self, is_active: Optional[Any] = None, email: Optional[Any] = None, name: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None, start_year: Optional[Any] = None, end_year: Optional[Any] = None, active_only: Optional[Any] = None) -> List[Member]:
+    def list(self, is_active: Optional[Any] = None, email: Optional[Any] = None, name: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None, start_year: Optional[Any] = None, end_year: Optional[Any] = None) -> List[Member]:
         with self.db.connect() as conn:
             query = "SELECT * FROM members WHERE 1=1"
             params: List[Any] = []
@@ -62,8 +62,6 @@ class MemberRepository:
             if end_year is not None:
                 query += ' AND membership_date <= ?'
                 params.append(end_year)
-            if active_only:
-                query += ' AND is_active = 1'
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Member(**dict(r)) for r in rows]
 

@@ -73,6 +73,7 @@ def execute_plan(plan: dict, project_dir: Path) -> dict:
         "exit_code": result["exit_code"],
         "stdout_tail": result["stdout"][-800:],
         "stderr_tail": result["stderr"][-800:],
+        "seed": plan.get("seed", False),
     }
 
 
@@ -297,10 +298,11 @@ def execute_prompt(plans: list[dict], project_dir: Path,
             entity_counts[created] = entity_counts.get(created, 0) + 1
             entity_provided[created] = entity_counts[created]
         results.append(res)
-    n_pass = sum(1 for r in results if r["status"] == "pass")
+    real = [r for r in results if not r.get("seed")]
+    n_pass = sum(1 for r in real if r["status"] == "pass")
     return {
-        "total": len(results),
+        "total": len(real),
         "pass": n_pass,
-        "fail": len(results) - n_pass,
+        "fail": len(real) - n_pass,
         "results": results,
     }

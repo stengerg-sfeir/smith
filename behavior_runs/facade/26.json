@@ -66,6 +66,38 @@
         ],
         "arguments": [],
         "target": "add_member"
+      },
+      {
+        "name": "book-close",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "close_book"
+      },
+      {
+        "name": "book-check",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "check_book"
       }
     ],
     "invoker": "cli"

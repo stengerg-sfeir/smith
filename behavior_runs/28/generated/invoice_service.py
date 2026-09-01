@@ -1,83 +1,68 @@
 """Service layer."""
 from __future__ import annotations
 
-import csv
 import datetime
 from typing import Dict, List, Optional
 
+from customer_repository import CustomerRepository
 from database import Database
 from exceptions import (
+    CustomerNotFoundError,
     InvoiceNotFoundError,
 )
+from invoice_line_repository import InvoiceLineRepository
 from invoice_repository import InvoiceRepository
-from models import Invoice, InvoiceLine
+from models import Customer, Invoice, Product
+from product_repository import ProductRepository
 
 
 class InvoiceService:
     def __init__(self, db: Database) -> None:
         self.db = db
+        self.customer_repo = CustomerRepository(db)
         self.invoice_repo = InvoiceRepository(db)
+        self.invoice_line_repo = InvoiceLineRepository(db)
+        self.product_repo = ProductRepository(db)
 
-    def get_invoice_with_lines(self, invoice_id: int) -> Optional[Invoice]:
-        invoice = self.invoice_repo.get_by_id(invoice_id)
+    def add_customer(self, name: str, email: str, phone: Optional[str] = None) -> None:
+        customer = Customer(name=name, email=email, phone=phone)
+        return self.customer_repo.create(customer)
+
+    def list_invoice(self, customer_id: int, total_amount: Optional[str] = None, created_at: Optional[str] = None) -> List[Invoice]:
+        return self.invoice_repo.list(customer_id=customer_id, total_amount=total_amount, created_at=created_at)
+
+    def list_customer(self, name: Optional[str] = None, email: Optional[str] = None) -> List[Customer]:
+        return self.customer_repo.list(name=name, email=email)
+
+    def add_invoice(self, customer_id: int, total_amount: str) -> None:
+        if customer_id is not None:
+            if self.customer_repo.get_by_id(customer_id) is None:
+                raise CustomerNotFoundError(customer_id)
+        invoice = Invoice(customer_id=customer_id, total_amount=total_amount, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
+        return self.invoice_repo.create(invoice)
+
+    def delete_invoice(self, id: int) -> None:
+        return self.invoice_repo.delete(id)
+
+    def update_invoice(self, id: int, customer_id: Optional[int] = None, total_amount: Optional[str] = None) -> None:
+        data = {k: v for k, v in {'customer_id': customer_id, 'total_amount': total_amount}.items() if v is not None}
+        return self.invoice_repo.update(id, data)
+
+    def get_invoice_report(self, id: int) -> Dict:
+        invoice = self.invoice_repo.get_by_id(id)
         if not invoice:
-            raise InvoiceNotFoundError(f'Invoice with id {invoice_id} not found')
-        invoice_lines = self.invoice_repo.get_invoice_lines_by_invoice_id(invoice_id)
-        invoice.lines = invoice_lines
-        return invoice
+            raise InvoiceNotFoundError(f'Invoice with id {id} not found')
+        invoice_lines = self.invoice_line_repo.get_invoice_lines_by_invoice_id(invoice.id)
+        customer = self.customer_repo.get_by_id(invoice.customer_id)
+        if not customer:
+            raise CustomerNotFoundError(f'Customer with id {invoice.customer_id} not found')
+        invoice_product_summary = self.invoice_repo.get_invoices_with_product_summary(customer_id=invoice.customer_id, date_range_start=invoice.created_at, date_range_end=invoice.created_at)
+        return {
+            'invoice': invoice,
+            'customer': customer,
+            'lines': invoice_lines,
+            'product_summary': invoice_product_summary
+        }
 
-    def get_invoices_by_customer(self, customer_id: int, created_after: Optional[datetime.datetime] = None, created_before: Optional[datetime.datetime] = None) -> List[Invoice]:
-        return self.invoice_repo.get_invoices_by_customer(customer_id, created_after, created_before)
-
-    def get_invoices_with_total_range(self, min_total: float, max_total: float) -> List[Invoice]:
-        return self.invoice_repo.get_invoices_with_total_range(min_total, max_total)
-
-    def get_total_invoices_by_customer(self, customer_id: int) -> int:
-        return self.invoice_repo.get_total_invoices_by_customer(customer_id)
-
-    def get_total_revenue_by_product(self, product_id: int, start_date: datetime.datetime, end_date: datetime.datetime) -> float:
-        return self.invoice_repo.get_total_revenue_by_product(product_id, start_date, end_date)
-
-    def get_top_products_by_revenue(self, period: str, limit: int) -> List[tuple[str, float]]:
-        return self.invoice_repo.get_top_products_by_revenue(period, limit)
-
-    def get_invoice_lines_by_product(self, product_id: int, start_date: datetime.datetime, end_date: datetime.datetime) -> List[InvoiceLine]:
-        invoice_lines = self.invoice_repo.get_invoice_lines_by_product_id(product_id, start_date, end_date)
-        return invoice_lines
-
-    def get_customer_invoice_summary(self, customer_id: int) -> Dict[str, float]:
-        rows = self.invoice_repo.list(customer_id=customer_id)
-        total = sum(e.total_amount for e in rows)
-        return {'total_revenue': total}
-
-    def export_invoice_lines_to_csv(self, file_path: str, product_id: Optional[int] = None, start_date: Optional[datetime.datetime] = None, end_date: Optional[datetime.datetime] = None) -> None:
-        rows = self.invoice_repo.get_invoice_lines_by_product_id(product_id, start_date, end_date)
-        with open(file_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["product_id", "invoice_id", "quantity", "unit_price", "total_price"])
-            for row in rows:
-                writer.writerow([
-                    row.product_id,
-                    row.invoice_id,
-                    row.quantity,
-                    row.unit_price,
-                    row.total_price
-                ])
-
-    def find_invoices_with_low_total_vs_product_price(self) -> List[Invoice]:
-        # This method identifies invoices where the total invoice amount is less than the product price
-        # We assume the product price is stored in the Product table and can be joined
-        # This is a simplified implementation based on available data
-        low_total_invoices = []
-        invoices = self.invoice_repo.list()
-        for invoice in invoices:
-            # For each invoice, we need to find the product(s) it references
-            # This requires joining with InvoiceLine and Product tables
-            # We assume the product price is available in the Product table
-            invoice_lines = self.invoice_repo.get_invoice_lines_by_invoice_id(invoice.id)
-            for line in invoice_lines:
-                product = self.db.get_product_by_id(line.product_id)
-                if product and invoice.total_amount < product.price:
-                    low_total_invoices.append(invoice)
-                    break
-        return low_total_invoices
+    def list_product(self) -> List[Product]:
+        return self.product_repo.list()

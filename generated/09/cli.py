@@ -8,84 +8,45 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('employee-create')
+@cli.command('employee-add')
 @click.option('--name', required=True)
 @click.option('--email', required=True)
 @click.option('--age', type=int, required=True)
-@click.option('--salary', type=int, required=True)
-def employee_create(name, email, age, salary):
-    """employee/create"""
+@click.option('--salary', required=True)
+def employee_add(name, email, age, salary):
+    """employee/add"""
     svc = EmployeeService(Database(DB_PATH))
-    result = svc.create_employee(name=name, email=email, age=age, salary=salary)
+    result = svc.add_employee(name=name, email=email, age=age, salary=salary)
 
-@cli.command('get-by_email')
-@click.option('--email', required=True)
-def get_by_email(email):
-    """employee/get/by_email"""
+@cli.command('employee-list')
+@click.option('--name')
+@click.option('--email')
+@click.option('--age')
+@click.option('--age-lte')
+@click.option('--salary')
+@click.option('--salary-lte')
+def employee_list(name, email, age, age_lte, salary, salary_lte):
+    """employee/list"""
     svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_employee_by_email(email=email)
+    result = svc.list_employee(name=name, email=email, age=age, age_lte=age_lte, salary=salary, salary_lte=salary_lte)
 
-@cli.command('get-by_age_range')
-@click.option('--min-age', type=int, required=True)
-@click.option('--max-age', type=int, required=True)
-def get_by_age_range(min_age, max_age):
-    """employee/get/by_age_range"""
+@cli.command('employee-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+@click.option('--email')
+@click.option('--age', type=int)
+@click.option('--salary')
+def employee_update(id, name, email, age, salary):
+    """employee/update"""
     svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_employees_by_age_range(min_age=min_age, max_age=max_age)
+    result = svc.update_employee(id=id, name=name, email=email, age=age, salary=salary)
 
-@cli.command('get-with_salary_above')
-@click.option('--min-salary', type=int, required=True)
-def get_with_salary_above(min_salary):
-    """employee/get/with_salary_above"""
+@cli.command('employee-delete')
+@click.option('--id', type=int, required=True)
+def employee_delete(id):
+    """employee/delete"""
     svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_employees_with_salary_above(min_salary=min_salary)
-
-@cli.command('get-with_salary_in_range')
-@click.option('--min-salary', type=int, required=True)
-@click.option('--max-salary', type=int, required=True)
-def get_with_salary_in_range(min_salary, max_salary):
-    """employee/get/with_salary_in_range"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_employees_with_salary_in_range(min_salary=min_salary, max_salary=max_salary)
-
-@cli.command('get-with_valid_email_and_age_range')
-@click.option('--min-age', type=int, required=True)
-@click.option('--max-age', type=int, required=True)
-def get_with_valid_email_and_age_range(min_age, max_age):
-    """employee/get/with_valid_email_and_age_range"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_employees_with_valid_email_and_age_range(min_age=min_age, max_age=max_age)
-
-@cli.command('stats-age_group_count')
-def stats_age_group_count():
-    """employee/stats/age_group_count"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.count_employees_by_age_group()
-
-@cli.command('stats-average_salary')
-def stats_average_salary():
-    """employee/stats/average_salary"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_average_salary()
-
-@cli.command('stats-total_salary')
-def stats_total_salary():
-    """employee/stats/total_salary"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_total_salary_spent()
-
-@cli.command('stats-above_average')
-def stats_above_average():
-    """employee/stats/above_average"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.get_employees_with_higher_salary_than_average()
-
-@cli.command('export-to_csv')
-@click.option('--file-path', required=True)
-def export_to_csv(file_path):
-    """employee/export/to_csv"""
-    svc = EmployeeService(Database(DB_PATH))
-    result = svc.export_employees_to_csv(file_path=file_path)
+    result = svc.delete_employee(id=id)
 
 
 if __name__ == "__main__":

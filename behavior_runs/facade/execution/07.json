@@ -3,20 +3,21 @@
   "generated_dir": "generated/07",
   "status": "pass",
   "n_intentions": 5,
-  "n_mapped": 2,
-  "n_unmapped": 3,
-  "pass": 2,
+  "n_mapped": 3,
+  "n_unmapped": 2,
+  "pass": 3,
   "fail": 0,
   "results": [
     {
-      "intent_id": "I1",
-      "command": "manage-create",
-      "invocation": "python3 cli.py manage-create --title 'The Great Gatsby' --author 'F. Scott Fitzgerald' --isbn 978-0-7475-3269-9 --publication-year 1925 --genre Fiction --pages 180",
+      "intent_id": "__seed_Book",
+      "command": "book-add",
+      "invocation": "python3 cli.py book-add --title seed-book --author seed-book --isbn seed-book --publication-year 1 --pages 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": true
     },
     {
       "intent_id": "I2",
@@ -26,27 +27,44 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I5",
+      "command": "book-search",
+      "invocation": "python3 cli.py book-search --term 'The Great Gatsby'",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I4",
+      "command": "book-delete",
+      "invocation": "python3 cli.py book-delete --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [
     {
+      "intent_id": "I1",
+      "text": "I can create a new book in the library system.",
+      "status": "unmapped",
+      "reason": "option --publication-year expects int, got 'testing'; option --pages expects int, got 'testing'"
+    },
+    {
       "intent_id": "I3",
       "text": "I can update the details of an existing book.",
       "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I4",
-      "text": "I can delete a book from the library system.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I5",
-      "text": "I can search for books by title.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "reason": "option --publication-year expects int, got 'testing'; option --pages expects int, got 'testing'"
     }
   ]
 }

@@ -1,56 +1,84 @@
 {
-  "database_file": "app.db",
   "entities": [
     {
-      "name": "Invoice",
-      "table_name": "",
+      "name": "Customer",
       "fields": [
-        {
-          "name": "customer_id",
-          "type": "int",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "total_amount",
-          "type": "float",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "created_at",
-          "type": "date",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "updated_at",
-          "type": "date",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
         {
           "name": "id",
           "type": "int",
           "nullable": false,
-          "unique": false,
-          "primary_key": true,
-          "auto": "autoincrement",
-          "default": "None"
+          "unique": true,
+          "auto": "autoincrement"
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "nullable": false,
+          "unique": false
         }
       ],
+      "table_name": "customers",
+      "unique_together": [],
+      "fks": []
+    },
+    {
+      "name": "Product",
+      "fields": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": true,
+          "auto": "autoincrement"
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "unit_price",
+          "type": "float",
+          "nullable": false,
+          "unique": false
+        }
+      ],
+      "table_name": "products",
+      "unique_together": [],
+      "fks": []
+    },
+    {
+      "name": "Invoice",
+      "fields": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": true,
+          "auto": "autoincrement"
+        },
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "total",
+          "type": "float",
+          "nullable": false,
+          "unique": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "nullable": false,
+          "unique": false,
+          "auto": "now"
+        }
+      ],
+      "table_name": "invoices",
       "unique_together": [],
       "fks": [
         {
@@ -61,54 +89,40 @@
     },
     {
       "name": "InvoiceLine",
-      "table_name": "",
       "fields": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "unique": true,
+          "auto": "autoincrement"
+        },
         {
           "name": "invoice_id",
           "type": "int",
           "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
+          "unique": false
         },
         {
           "name": "product_id",
           "type": "int",
           "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
+          "unique": false
         },
         {
           "name": "quantity",
           "type": "int",
           "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
+          "unique": false
         },
         {
           "name": "unit_price",
           "type": "float",
           "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "id",
-          "type": "int",
-          "nullable": false,
-          "unique": false,
-          "primary_key": true,
-          "auto": "autoincrement",
-          "default": "None"
+          "unique": false
         }
       ],
+      "table_name": "invoice_lines",
       "unique_together": [],
       "fks": [
         {
@@ -120,613 +134,78 @@
           "ref": "Product"
         }
       ]
-    },
-    {
-      "name": "Customer",
-      "table_name": "",
-      "fields": [
-        {
-          "name": "name",
-          "type": "str",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "email",
-          "type": "str",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "id",
-          "type": "int",
-          "nullable": false,
-          "unique": false,
-          "primary_key": true,
-          "auto": "autoincrement",
-          "default": "None"
-        },
-        {
-          "name": "phone",
-          "type": "str",
-          "nullable": true,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": "None"
-        }
-      ],
-      "unique_together": [],
-      "fks": []
-    },
-    {
-      "name": "Product",
-      "table_name": "",
-      "fields": [
-        {
-          "name": "name",
-          "type": "str",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "price",
-          "type": "float",
-          "nullable": false,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": null
-        },
-        {
-          "name": "id",
-          "type": "int",
-          "nullable": false,
-          "unique": false,
-          "primary_key": true,
-          "auto": "autoincrement",
-          "default": "None"
-        },
-        {
-          "name": "description",
-          "type": "str",
-          "nullable": true,
-          "unique": false,
-          "primary_key": false,
-          "auto": null,
-          "default": "None"
-        }
-      ],
-      "unique_together": [],
-      "fks": []
     }
   ],
-  "exceptions": [
-    {
-      "name": "InvoiceNotFoundError",
-      "trigger": "not_found"
-    },
-    {
-      "name": "CustomerNotFoundError",
-      "trigger": "not_found"
-    },
-    {
-      "name": "ProductNotFoundError",
-      "trigger": "not_found"
-    },
-    {
-      "name": "InvalidQuantityError",
-      "trigger": "validation"
-    },
-    {
-      "name": "ValidationError",
-      "trigger": "validation"
-    },
-    {
-      "name": "InvoiceTotalCalculationError",
-      "trigger": "custom"
-    }
-  ],
-  "repositories": [
-    {
-      "module": "invoice_line_repository",
-      "class": "InvoiceLineRepository",
-      "entity": "InvoiceLine",
-      "methods": [
-        {
-          "name": "create",
-          "params": [
-            {
-              "name": "invoice_line",
-              "type": "InvoiceLine"
-            }
-          ],
-          "returns": "int"
-        },
-        {
-          "name": "get_by_id",
-          "params": [
-            {
-              "name": "id",
-              "type": "int"
-            }
-          ],
-          "returns": "Optional[InvoiceLine]"
-        },
-        {
-          "name": "get_all",
-          "params": [],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "list",
-          "params": [
-            {
-              "name": "invoice_id",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "product_id",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "quantity",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "unit_price",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "max_quantity",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "max_unit_price",
-              "type": "Optional[Any]"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "update",
-          "params": [
-            {
-              "name": "id",
-              "type": "int"
-            },
-            {
-              "name": "data",
-              "type": "Dict[str, Any]"
-            }
-          ],
-          "returns": "bool"
-        },
-        {
-          "name": "delete",
-          "params": [
-            {
-              "name": "id",
-              "type": "int"
-            }
-          ],
-          "returns": "bool"
-        },
-        {
-          "name": "get_invoice_lines_by_invoice_id",
-          "params": [
-            {
-              "name": "invoice_id",
-              "type": "int"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_invoice_lines_by_product_id",
-          "params": [
-            {
-              "name": "product_id",
-              "type": "int"
-            },
-            {
-              "name": "start_date",
-              "type": "datetime"
-            },
-            {
-              "name": "end_date",
-              "type": "datetime"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_invoice_lines_with_quantity_range",
-          "params": [
-            {
-              "name": "min_quantity",
-              "type": "int"
-            },
-            {
-              "name": "max_quantity",
-              "type": "int"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_invoice_lines_by_date_range",
-          "params": [
-            {
-              "name": "start_date",
-              "type": "datetime"
-            },
-            {
-              "name": "end_date",
-              "type": "datetime"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_total_invoice_lines_by_product",
-          "params": [
-            {
-              "name": "product_id",
-              "type": "int"
-            },
-            {
-              "name": "start_date",
-              "type": "str"
-            },
-            {
-              "name": "end_date",
-              "type": "str"
-            }
-          ],
-          "returns": "int"
-        },
-        {
-          "name": "get_invoice_lines_with_unit_price_range",
-          "params": [
-            {
-              "name": "min_unit_price",
-              "type": "float"
-            },
-            {
-              "name": "max_unit_price",
-              "type": "float"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_invoice_lines_by_customer",
-          "params": [
-            {
-              "name": "customer_id",
-              "type": "int"
-            },
-            {
-              "name": "start_date",
-              "type": "str"
-            },
-            {
-              "name": "end_date",
-              "type": "str"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_invoice_lines_summary_by_product",
-          "params": [
-            {
-              "name": "start_date",
-              "type": "str"
-            },
-            {
-              "name": "end_date",
-              "type": "str"
-            }
-          ],
-          "returns": "dict"
-        }
-      ]
-    },
-    {
-      "module": "invoice_repository",
-      "class": "InvoiceRepository",
-      "entity": "Invoice",
-      "methods": [
-        {
-          "name": "create",
-          "params": [
-            {
-              "name": "invoice",
-              "type": "Invoice"
-            }
-          ],
-          "returns": "int"
-        },
-        {
-          "name": "get_by_id",
-          "params": [
-            {
-              "name": "id",
-              "type": "int"
-            }
-          ],
-          "returns": "Optional[Invoice]"
-        },
-        {
-          "name": "get_all",
-          "params": [],
-          "returns": "List[Invoice]"
-        },
-        {
-          "name": "list",
-          "params": [
-            {
-              "name": "customer_id",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "total_amount",
-              "type": "Optional[Any]"
-            },
-            {
-              "name": "created_at",
-              "type": "Optional[Any]"
-            }
-          ],
-          "returns": "List[Invoice]"
-        },
-        {
-          "name": "update",
-          "params": [
-            {
-              "name": "id",
-              "type": "int"
-            },
-            {
-              "name": "data",
-              "type": "Dict[str, Any]"
-            }
-          ],
-          "returns": "bool"
-        },
-        {
-          "name": "delete",
-          "params": [
-            {
-              "name": "id",
-              "type": "int"
-            }
-          ],
-          "returns": "bool"
-        }
-      ]
-    }
-  ],
+  "exceptions": [],
+  "repositories": [],
   "services": [
     {
-      "module": "invoice_service",
+      "module": "services",
       "class": "InvoiceService",
-      "entity": "Invoice",
       "methods": [
         {
-          "name": "get_invoice_with_lines",
+          "name": "calculate_invoice_total",
           "params": [
             {
-              "name": "invoice_id",
-              "type": "int"
-            }
-          ],
-          "returns": "Optional[Invoice]"
-        },
-        {
-          "name": "get_invoices_by_customer",
-          "params": [
-            {
-              "name": "customer_id",
-              "type": "int"
-            },
-            {
-              "name": "created_after",
-              "type": "Optional[datetime.datetime]"
-            },
-            {
-              "name": "created_before",
-              "type": "Optional[datetime.datetime]"
-            }
-          ],
-          "returns": "List[Invoice]"
-        },
-        {
-          "name": "get_invoices_with_total_range",
-          "params": [
-            {
-              "name": "min_total",
-              "type": "float"
-            },
-            {
-              "name": "max_total",
-              "type": "float"
-            }
-          ],
-          "returns": "List[Invoice]"
-        },
-        {
-          "name": "get_total_invoices_by_customer",
-          "params": [
-            {
-              "name": "customer_id",
-              "type": "int"
-            }
-          ],
-          "returns": "int"
-        },
-        {
-          "name": "get_total_revenue_by_product",
-          "params": [
-            {
-              "name": "product_id",
-              "type": "int"
-            },
-            {
-              "name": "start_date",
-              "type": "datetime.datetime"
-            },
-            {
-              "name": "end_date",
-              "type": "datetime.datetime"
+              "name": "invoice_lines",
+              "type": "list"
             }
           ],
           "returns": "float"
-        },
-        {
-          "name": "get_top_products_by_revenue",
-          "params": [
-            {
-              "name": "period",
-              "type": "str"
-            },
-            {
-              "name": "limit",
-              "type": "int"
-            }
-          ],
-          "returns": "List[tuple[str, float]]"
-        },
-        {
-          "name": "get_invoice_lines_by_product",
-          "params": [
-            {
-              "name": "product_id",
-              "type": "int"
-            },
-            {
-              "name": "start_date",
-              "type": "datetime.datetime"
-            },
-            {
-              "name": "end_date",
-              "type": "datetime.datetime"
-            }
-          ],
-          "returns": "List[InvoiceLine]"
-        },
-        {
-          "name": "get_customer_invoice_summary",
-          "params": [
-            {
-              "name": "customer_id",
-              "type": "int"
-            }
-          ],
-          "returns": "Dict[str, float]"
-        },
-        {
-          "name": "export_invoice_lines_to_csv",
-          "params": [
-            {
-              "name": "file_path",
-              "type": "str"
-            },
-            {
-              "name": "product_id",
-              "type": "Optional[int]"
-            },
-            {
-              "name": "start_date",
-              "type": "Optional[datetime.datetime]"
-            },
-            {
-              "name": "end_date",
-              "type": "Optional[datetime.datetime]"
-            }
-          ],
-          "returns": "None"
-        },
-        {
-          "name": "find_invoices_with_low_total_vs_product_price",
-          "params": [],
-          "returns": "List[Invoice]"
-        }
-      ]
-    }
-  ],
-  "foreign_keys_enabled": true,
-  "scenarios": [
-    {
-      "requirement_id": "1",
-      "setup": [
-        {
-          "entity": "Customer",
-          "ref": "cust",
-          "fields": {
-            "name": "Alice",
-            "email": "alice@example.com"
-          }
-        },
-        {
-          "entity": "Product",
-          "ref": "prod",
-          "fields": {
-            "name": "Laptop",
-            "price": 1000.0
-          }
-        },
-        {
-          "entity": "Invoice",
-          "ref": "inv",
-          "fields": {
-            "customer_id": "@cust",
-            "total_amount": 0
-          }
-        },
-        {
-          "entity": "InvoiceLine",
-          "ref": "line1",
-          "fields": {
-            "invoice_id": "@inv",
-            "product_id": "@prod",
-            "quantity": 2,
-            "unit_price": 500.0
-          }
-        },
-        {
-          "entity": "InvoiceLine",
-          "ref": "line2",
-          "fields": {
-            "invoice_id": "@inv",
-            "product_id": "@prod",
-            "quantity": 1,
-            "unit_price": 500.0
-          }
         }
       ],
-      "action": {
-        "method": "get_invoice_with_lines",
-        "args": [
-          "@inv.id"
-        ]
-      },
-      "assertion": "result.total_amount == @line1.quantity * @line1.unit_price + @line2.quantity * @line2.unit_price",
-      "rationale": "The total amount of the invoice should be the sum of (quantity × unit_price) for each line: 2×500 + 1×500 = 1500.",
-      "semantic": "fully"
+      "entity": ""
     }
   ],
-  "business_logic_coverage": "full",
-  "unexpressed_rules": []
+  "seed": {
+    "data": [
+      {
+        "entity": "Customer",
+        "data": [
+          {
+            "name": "Acme Corp"
+          }
+        ]
+      },
+      {
+        "entity": "Product",
+        "data": [
+          {
+            "name": "Laptop",
+            "unit_price": 1000.0
+          },
+          {
+            "name": "Mouse",
+            "unit_price": 25.0
+          }
+        ]
+      },
+      {
+        "entity": "Invoice",
+        "data": [
+          {
+            "customer_id": 1,
+            "total": 0.0
+          }
+        ]
+      },
+      {
+        "entity": "InvoiceLine",
+        "data": [
+          {
+            "invoice_id": 1,
+            "product_id": 1,
+            "quantity": 1,
+            "unit_price": 1000.0
+          },
+          {
+            "invoice_id": 1,
+            "product_id": 2,
+            "quantity": 2,
+            "unit_price": 25.0
+          }
+        ]
+      }
+    ]
+  }
 }

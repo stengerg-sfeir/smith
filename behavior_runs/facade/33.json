@@ -50,7 +50,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "customer-create",
+        "name": "customer-add",
         "options": [
           {
             "names": [
@@ -93,13 +93,65 @@
         "target": "add_customer"
       },
       {
+        "name": "customer-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--first-name"
+            ],
+            "dest": "first_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_customer"
+      },
+      {
         "name": "customer-delete",
         "options": [
           {
             "names": [
-              "--customer-id"
+              "--id"
             ],
-            "dest": "customer_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
@@ -109,94 +161,56 @@
         "target": "delete_customer"
       },
       {
-        "name": "get-by_email",
+        "name": "customer-list",
         "options": [
+          {
+            "names": [
+              "--first-name"
+            ],
+            "dest": "first_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--last-name"
+            ],
+            "dest": "last_name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
           {
             "names": [
               "--email"
             ],
             "dest": "email",
             "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customer_by_email"
-      },
-      {
-        "name": "get-by_last_name_prefix",
-        "options": [
-          {
-            "names": [
-              "--prefix"
-            ],
-            "dest": "prefix",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customers_by_last_name_prefix"
-      },
-      {
-        "name": "get-active",
-        "options": [],
-        "arguments": [],
-        "target": "get_customers_with_active_status"
-      },
-      {
-        "name": "get-count",
-        "options": [],
-        "arguments": [],
-        "target": "get_customer_count"
-      },
-      {
-        "name": "get-spending",
-        "options": [],
-        "arguments": [],
-        "target": "get_customers_with_total_spending"
-      },
-      {
-        "name": "get-by_customer",
-        "options": [
-          {
-            "names": [
-              "--customer-id"
-            ],
-            "dest": "customer_id",
-            "type": "int",
-            "required": true,
+            "required": false,
             "flag": false
           },
           {
             "names": [
-              "--start-date"
+              "--created-at"
             ],
-            "dest": "start_date",
+            "dest": "created_at",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--end-date"
+              "--created-at-end"
             ],
-            "dest": "end_date",
+            "dest": "created_at_end",
             "type": "str",
             "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_audit_records_for_customer"
-      },
-      {
-        "name": "get-recent",
-        "options": [],
-        "arguments": [],
-        "target": "get_recent_activity_summary"
+        "target": "list_customer"
       }
     ],
     "invoker": "cli"

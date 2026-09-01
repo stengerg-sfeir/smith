@@ -72,7 +72,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             description TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects (id)
+            FOREIGN KEY (project_id) REFERENCES projects (id),
+            UNIQUE(project_id, title)
         );"""
     )
     conn.commit()

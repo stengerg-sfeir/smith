@@ -37,7 +37,7 @@ class EmployeeRepository:
             ).fetchall()
             return [Employee(**dict(r)) for r in rows]
 
-    def list(self, department_id: Optional[Any] = None, hire_date: Optional[Any] = None, email: Optional[Any] = None, first_name: Optional[Any] = None, last_name: Optional[Any] = None, max_hire_date: Optional[Any] = None) -> List[Employee]:
+    def list(self, department_id: Optional[Any] = None, hire_date: Optional[Any] = None, max_hire_date: Optional[Any] = None) -> List[Employee]:
         with self.db.connect() as conn:
             query = "SELECT * FROM employees WHERE 1=1"
             params: List[Any] = []
@@ -47,15 +47,6 @@ class EmployeeRepository:
             if hire_date is not None:
                 query += ' AND hire_date >= ?'
                 params.append(hire_date)
-            if email is not None:
-                query += ' AND email = ?'
-                params.append(email)
-            if first_name is not None:
-                query += ' AND first_name = ?'
-                params.append(first_name)
-            if last_name is not None:
-                query += ' AND last_name = ?'
-                params.append(last_name)
             if max_hire_date is not None:
                 query += ' AND hire_date <= ?'
                 params.append(max_hire_date)

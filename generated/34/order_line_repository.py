@@ -83,7 +83,7 @@ class OrderLineRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def create_order_line_with_validation(self, order_id: int, product_id: int, quantity: int, unit_price: float) -> bool:
+    def create_order_line_with_order(self, order_id: int, product_id: int, quantity: int, unit_price: float) -> None:
         return self.list(
             order_id=order_id,
             product_id=product_id,
@@ -94,39 +94,41 @@ class OrderLineRepository:
     def get_order_line_by_id_with_order(self, order_line_id: int) -> OrderLineWithOrder:
         return None
 
-    def list_order_lines_by_order_id(self, order_id: int, product_id: int) -> list[OrderLineWithOrder]:
-        return self.list(
-            order_id=order_id,
-            product_id=product_id,
-        )
-
-    def get_order_line_total_by_product(self, product_id: int, start_date: str, end_date: str) -> float:
+    def list_order_lines_with_filters(self, order_id: int, product_id: int, quantity_min: int, quantity_max: int, unit_price_min: float, unit_price_max: float) -> list[OrderLineWithOrder]:
         with self.db.connect() as conn:
-            cursor = conn.execute('SELECT total_price FROM order_lines WHERE product_id = ?', (product_id,))
-            rows = cursor.fetchall()
-            total = 0.0
-            for row in rows:
-                total += row[0]
-            return total
+            rows = conn.execute(
+                "SELECT r.* FROM order_lines r JOIN orders o ON r.order_id = o.id WHERE o.id = ?",
+                (order_id,)
+            ).fetchall()
+            return [OrderLine(**dict(r)) for r in rows]
+
+    def get_order_line_total_count(self, order_id: int, product_id: int) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM order_lines WHERE order_id = ? AND product_id = ?",
+                (order_id, product_id)
+            ).fetchone()
+            return int(row["n"])
 
     def validate_order_line_data(self, order_line_data: dict) -> bool:
         required_fields = ['order_id', 'product_id', 'quantity', 'total_price', 'unit_price']
         for field in required_fields:
-            if field not in order_line_data:
+            if field not in order_line_data or order_line_data[field] is None:
                 return False
-        try:
-            order_id = int(order_line_data['order_id'])
-            product_id = int(order_line_data['product_id'])
-            quantity = int(order_line_data['quantity'])
-            total_price = float(order_line_data['total_price'])
-            unit_price = float(order_line_data['unit_price'])
-        except (ValueError, TypeError):
+        if not isinstance(order_line_data['quantity'], (int, float)) or order_line_data['quantity'] <= 0:
             return False
-        if quantity <= 0:
+        if not isinstance(order_line_data['total_price'], (int, float)) or order_line_data['total_price'] <= 0:
             return False
-        if total_price <= 0 or unit_price <= 0:
-            return False
-        if abs(total_price - quantity * unit_price) > 1e-06:
+        if not isinstance(order_line_data['unit_price'], (int, float)) or order_line_data['unit_price'] <= 0:
             return False
         return True
+
+    def get_order_line_summary_by_product(self, period_start: str, period_end: str) -> dict[str, float]:
+        with self.db.connect() as conn:
+            query = '\n                SELECT ol.product_id, SUM(ol.quantity * ol.unit_price) AS total_revenue\n                FROM order_lines ol\n                WHERE ol.order_id IN (\n                    SELECT o.id \n                    FROM orders o \n                    WHERE o.created_at BETWEEN ? AND ?\n                )\n                GROUP BY ol.product_id\n            '
+            rows = conn.execute(query, (period_start, period_end)).fetchall()
+            result = {}
+            for row in rows:
+                result[str(row[0])] = float(row[1])
+            return result
 

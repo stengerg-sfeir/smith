@@ -10,23 +10,25 @@
   "results": [
     {
       "intent_id": "I1",
-      "command": "project-create",
-      "invocation": "python3 cli.py project-create --name 'New Project' --description 'A description for the new project' --status active",
+      "command": "project-add",
+      "invocation": "python3 cli.py project-add --name 'New Project' --description 'A description for the new project' --status active",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
       "command": "project-update",
-      "invocation": "python3 cli.py project-update --project-id 1 --name 'Updated Project Name' --description 'Updated description'",
+      "invocation": "python3 cli.py project-update --id 1 --name 'Updated Project Name' --status inactive",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
@@ -36,17 +38,19 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I4",
       "command": "project-delete",
-      "invocation": "python3 cli.py project-delete --project-id 1",
+      "invocation": "python3 cli.py project-delete --id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": []

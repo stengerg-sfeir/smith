@@ -61,7 +61,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             category TEXT NOT NULL,
             price REAL NOT NULL,
             stock_quantity INTEGER NOT NULL,
-            id INTEGER PRIMARY KEY AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            UNIQUE(sku)
         );"""
     )
     conn.commit()

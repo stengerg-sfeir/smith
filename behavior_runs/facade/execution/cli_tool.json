@@ -16,7 +16,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "[\n  {\n    \"name\": \"Alice\",\n    \"age\": \"30\",\n    \"city\": \"Paris\"\n  },\n  {\n    \"name\": \"Bob\",\n    \"age\": \"25\",\n    \"city\": \"Lyon\"\n  }\n]\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
@@ -26,7 +27,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Data successfully written to output.json\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
@@ -36,7 +38,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "[\n  {\n    \"id\": \"1\",\n    \"title\": \"The Hobbit\",\n    \"author\": \"Tolkien\"\n  },\n  {\n    \"id\": \"2\",\n    \"title\": \"Dune\",\n    \"author\": \"Herbert\"\n  }\n]\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [

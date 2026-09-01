@@ -37,10 +37,13 @@ class AuthorRepository:
             ).fetchall()
             return [Author(**dict(r)) for r in rows]
 
-    def list(self, name: Optional[Any] = None) -> List[Author]:
+    def list(self, email: Optional[Any] = None, name: Optional[Any] = None) -> List[Author]:
         with self.db.connect() as conn:
             query = "SELECT * FROM authors WHERE 1=1"
             params: List[Any] = []
+            if email is not None:
+                query += ' AND email = ?'
+                params.append(email)
             if name is not None:
                 query += ' AND name = ?'
                 params.append(name)

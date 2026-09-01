@@ -29,12 +29,12 @@ class BookService:
             Search for books by title or ISBN containing the given term.
         
             Args:
-                term: The search term to look for in titles or ISBNs.
+                term: Search term to look for in title or ISBN
             
             Returns:
-                A list of Book objects that match the search term in title or ISBN.
+                List of Book objects matching the search term
             """
-        return self.book_repo.search_books_by_isbn_or_title(search_term=term)
+        return self.book_repo.search_books_by_isbn_or_title(term)
 
     def delete_book(self, id: int) -> None:
         return self.book_repo.delete(id)

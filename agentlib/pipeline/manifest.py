@@ -24,7 +24,8 @@ from agentlib.pipeline.intents import (
     _prompt_specifies_cli,
 )
 from agentlib.pipeline.cli_surface import (
-    derive_cli_surface,
+    classify_intentions,
+    derive_cli_from_intents,
     cli_surface_constraint,
 )
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
@@ -261,15 +262,19 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         kept.append(spec)
     manifest[:] = kept
 
-    # Approach B: derive the CLI command surface from the user intentions,
-    # now that the designed entities are known (options are enriched from
-    # entity fields). This is the single source of truth for the CLI tree and
-    # the service-design constraint. Only meaningful when the app is a CLI.
+    # CLI surface from the USER INTENTIONS. The LLM classifies each intention
+    # into (entity, operation) semantically (fixing "invoice line" -> InvoiceLine
+    # that the regex could not), then a mechanical rule table derives the
+    # command shape (rich for CRUD/report, generic <op>_<entity>(id) otherwise).
     cli_surface = None
     if needs_cli and entities_by_class:
-        cli_surface = derive_cli_surface(
-            intentions, prompt_text, entities_by_class, verbose=verbose
+        classified = classify_intentions(
+            intentions, entities_by_class, verbose=verbose
         )
+        if classified:
+            cli_surface = derive_cli_from_intents(
+                classified, entities_by_class, verbose=verbose
+            )
 
     # 3. repositories (custom methods only; CRUD is generated)
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
@@ -296,16 +301,20 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     svc_design = next((d for p, k, d in designs if k == "services"), None)
     service_methods = (svc_design or {}).get("methods") or []
     cli_failed = False
-    # Approach B: for non-explicit prompts, the CLI command tree is the
-    # intent-derived deterministic surface (no independent LLM design).
-    # For prompts that name a CLI explicitly (click/argparse/`--flag`), keep
-    # the LLM design — the constrained service now wires its targets cleanly.
+    # CLI ← intentions (Approach B, LLM-classified). For prompts that NAME a
+    # CLI explicitly (click/argparse/--flag), keep the LLM design. Otherwise
+    # the command tree is the intent-derived surface, so the CLI matches
+    # exactly what the user asked (no over-generation). _reconcile_cli_design
+    # synthesizes any missing service method/repository below.
     explicit_cli = _prompt_specifies_cli(prompt_text) or any(
         (i.get("cli_command") or "").strip() for i in intentions
     )
     for cp in cli_paths:
         if explicit_cli or cli_surface is None:
-            data = _design_cli(prompt_text, _fmt_design_context(designs), service_methods, verbose)
+            data = _design_cli(
+                prompt_text, _fmt_design_context(designs), service_methods,
+                verbose, allow_new_targets=True,
+            )
         else:
             data = cli_surface
         if data is None:

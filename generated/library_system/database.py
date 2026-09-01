@@ -62,7 +62,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             available_copies INTEGER NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             author_id INTEGER,
-            FOREIGN KEY (author_id) REFERENCES authors (id)
+            FOREIGN KEY (author_id) REFERENCES authors (id),
+            UNIQUE(isbn)
         );
 
         CREATE TABLE IF NOT EXISTS authors (
@@ -77,7 +78,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             email TEXT NOT NULL,
             is_active BOOLEAN NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            membership_date TEXT
+            membership_date TEXT,
+            UNIQUE(email)
         );
 
         CREATE TABLE IF NOT EXISTS loans (

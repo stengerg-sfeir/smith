@@ -3,58 +3,82 @@
   "generated_dir": "generated/38",
   "status": "fail",
   "n_intentions": 6,
-  "n_mapped": 3,
-  "n_unmapped": 3,
-  "pass": 2,
-  "fail": 1,
+  "n_mapped": 5,
+  "n_unmapped": 1,
+  "pass": 3,
+  "fail": 2,
   "results": [
     {
-      "intent_id": "I3",
-      "command": "documents-add",
-      "invocation": "python3 cli.py documents-add --title 'My New Document' --content 'This is the content of my new document.' --user-id 1",
-      "status": "fail",
-      "reason": "exit_code=1, expected 0",
-      "exit_code": 1,
+      "intent_id": "__seed_User",
+      "command": "user-add",
+      "invocation": "python3 cli.py user-add --email seed-user --password seed-user",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": "ments/neurosymbolic/generated/38/auth_service.py\", line 35, in add_document\n    return self.document_repo.create(document)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/38/document_repository.py\", line 19, in create\n    cur.execute(\n    ~~~~~~~~~~~^\n        \"INSERT INTO documents (title, content, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        (document.title, document.content, document.user_id, document.created_at, document.updated_at),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.IntegrityError: FOREIGN KEY constraint failed\n"
+      "stderr_tail": "",
+      "seed": true
+    },
+    {
+      "intent_id": "I3",
+      "command": "document-create",
+      "invocation": "python3 cli.py document-create --title 'My First Document' --content 'This is the content of my first document.' --user-id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I2",
+      "command": "document-list",
+      "invocation": "python3 cli.py document-list --title  --created-after  --created-before ",
+      "status": "fail",
+      "reason": "exit_code=2, expected 0",
+      "exit_code": 2,
+      "stdout_tail": "",
+      "stderr_tail": "Error: Option '--created-before' requires an argument.\n",
+      "seed": false
     },
     {
       "intent_id": "I4",
-      "command": "documents-update",
-      "invocation": "python3 cli.py documents-update --id 1 --title 'Updated Title' --content 'Updated content.' --user-id 1",
+      "command": "document-update",
+      "invocation": "python3 cli.py document-update --id 1 --title 'Updated Title' --content 'Updated content.' --user-id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I6",
+      "command": "document-list",
+      "invocation": "python3 cli.py document-list --title  --created-after  --created-before ",
+      "status": "fail",
+      "reason": "exit_code=2, expected 0",
+      "exit_code": 2,
+      "stdout_tail": "",
+      "stderr_tail": "Error: Option '--created-before' requires an argument.\n",
+      "seed": false
     },
     {
       "intent_id": "I5",
-      "command": "documents-delete",
-      "invocation": "python3 cli.py documents-delete --id 1",
+      "command": "document-delete",
+      "invocation": "python3 cli.py document-delete --id 1",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [
     {
       "intent_id": "I1",
       "text": "I can authenticate as a user to gain access to the system.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I2",
-      "text": "I can view my own documents after authenticating.",
-      "status": "unmapped",
-      "reason": "stray flag/arg '--user-id' not declared on documents-list"
-    },
-    {
-      "intent_id": "I6",
-      "text": "I am prevented from accessing documents that do not belong to me.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     }

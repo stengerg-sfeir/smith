@@ -2,7 +2,7 @@ import click
 from database import Database
 from note_service import NoteService
 
-DB_PATH = "notes.db"
+DB_PATH = "app.db"
 
 @click.group()
 def cli():
@@ -14,16 +14,16 @@ def cli():
 def notes_create(title, content):
     """notes/create"""
     svc = NoteService(Database(DB_PATH))
-    result = svc.create_note(title=title, content=content)
+    result = svc.add(title=title, content=content)
 
 @cli.command('notes-list')
-@click.option('--title-filter')
-@click.option('--created-after')
-@click.option('--created-before')
-def notes_list(title_filter, created_after, created_before):
+@click.option('--title')
+@click.option('--start-date')
+@click.option('--end-date')
+def notes_list(title, start_date, end_date):
     """notes/list"""
     svc = NoteService(Database(DB_PATH))
-    result = svc.list_notes(title_filter=title_filter, created_after=created_after, created_before=created_before)
+    result = svc.list(title=title, start_date=start_date, end_date=end_date)
 
 @cli.command('notes-update')
 @click.option('--note-id', type=int, required=True)
@@ -32,28 +32,14 @@ def notes_list(title_filter, created_after, created_before):
 def notes_update(note_id, title, content):
     """notes/update"""
     svc = NoteService(Database(DB_PATH))
-    result = svc.update_note(note_id=note_id, title=title, content=content)
+    result = svc.update(note_id=note_id, new_title=title, new_content=content)
 
 @cli.command('notes-delete')
 @click.option('--note-id', type=int, required=True)
 def notes_delete(note_id):
     """notes/delete"""
     svc = NoteService(Database(DB_PATH))
-    result = svc.delete_note(note_id=note_id)
-
-@cli.command('notes-search')
-@click.option('--query', required=True)
-def notes_search(query):
-    """notes/search"""
-    svc = NoteService(Database(DB_PATH))
-    result = svc.search_notes(query=query)
-
-@cli.command('notes-monthly')
-@click.option('--year-month', required=True)
-def notes_monthly(year_month):
-    """notes/monthly"""
-    svc = NoteService(Database(DB_PATH))
-    result = svc.get_notes_by_month(year_month=year_month)
+    result = svc.delete(note_id=note_id)
 
 
 if __name__ == "__main__":

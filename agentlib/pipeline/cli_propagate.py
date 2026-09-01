@@ -50,6 +50,34 @@ svc_design, designs):
         if isinstance(m, dict) and m.get("name")
     }
 
+    # Option 2 (LLM CLI) may emit nested groups (["invoice","list"], name="list")
+    # or synonym verbs. Flatten a nested group to the owning entity's snake
+    # token and normalize the verb so the CRUD/report branches below recognize
+    # the command. Only flatten when the group is actually nested (a single
+    # token group is already flat) and only when an entity resolves.
+    _VERB_SYN = {
+        "add": "add", "create": "add", "insert": "add",
+        "list": "list", "view": "list", "show": "list", "display": "list",
+        "fetch": "list", "read": "list", "retrieve": "list",
+        "update": "update", "edit": "update", "modify": "update",
+        "delete": "delete", "remove": "delete",
+        "report": "report", "export": "report", "summary": "report",
+        "aggregate": "report", "total": "report", "calculate": "report",
+    }
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        cls = _command_entity(c, entities_by_class)
+        if cls is None:
+            continue
+        grp = c.get("group") or []
+        if len(grp) > 1:
+            c["group"] = [_snake(cls)]
+        cname = str(c.get("name") or "").strip().lower()
+        norm = _VERB_SYN.get(cname)
+        if norm is not None:
+            c["name"] = norm
+
     def required_missing(cls, covered):
         fields = [
             f for f in (entities_by_class[cls].get("fields") or [])
@@ -508,6 +536,84 @@ svc_design, designs):
                 "%s -> %s (delegates to %s.%s)"
                 % (label, sname, attr, meth)
             )
+            continue
+
+        # Aggregate / report verb (report, total, summary, aggregate,
+        # calculate, export): synthesize a report/scalar method on the
+        # owning entity from the non-flag options. The body is LLM-filled
+        # against the repo custom methods. Prefer the LLM's target name when
+        # it is a plain identifier, else fall back to get_<entity>_report.
+        if cname == "report":
+            mapped = []
+            ok = True
+            for o in opts:
+                if not isinstance(o, dict):
+                    continue
+                if o.get("type") == "flag":
+                    continue
+                key = o.get("field") or _optvar(o)
+                fm = _match_param(
+                    key, sorted(_entity_field_names(entities_by_class[cls]))
+                )
+                if fm is None:
+                    ok = False
+                    break
+                if fm not in [p for p, _ in mapped]:
+                    mapped.append(
+                        (fm, "int" if o.get("type") == "int" else "str")
+                    )
+            if not ok:
+                continue
+            raw_tgt = str(c.get("target") or "")
+            meth_name = (
+                raw_tgt.split(".")[-1].strip()
+                if "." in raw_tgt else raw_tgt.strip()
+            )
+            if not meth_name or not re.fullmatch(r"[a-z][a-z0-9_]*", meth_name):
+                meth_name = "get_%s_report" % sn
+            meth = synth(meth_name, mapped, "Dict")
+            c["target"] = meth
+            notes.append("%s -> %s" % (label, meth))
+            continue
+
+        # Fallback (Option 2, allow_new_targets): the LLM named an explicit,
+        # well-formed target for a capability the deterministic verb branches
+        # above did not recognize (e.g. top_revenue, sales_summary,
+        # lines_by_invoice). Trust the LLM's identifier and synthesize a
+        # service method with that exact name. Params are derived from the
+        # non-flag options: an option that maps onto an owning-entity field is
+        # bound to that field; an unmapped option (e.g. --limit, --price-min)
+        # is bound to THE OPTION'S OWN NAME. This makes the fallback permissive
+        # so no command with a well-formed LLM target is dropped by the
+        # sanitizer; the body is LLM-filled against the repo custom methods.
+        if (
+            isinstance(tgt, str) and tgt
+            and re.fullmatch(r"[a-z][a-z0-9_]*", tgt)
+        ):
+            field_names = sorted(_entity_field_names(entities_by_class[cls]))
+            mapped = []
+            ok = True
+            seen = set()
+            for o in opts:
+                if not isinstance(o, dict):
+                    continue
+                if o.get("type") == "flag":
+                    continue
+                key = o.get("field") or _optvar(o)
+                fm = _match_param(key, field_names)
+                if fm is None:
+                    fm = key
+                if not fm or fm in seen:
+                    continue
+                seen.add(fm)
+                mapped.append(
+                    (fm, "int" if o.get("type") == "int" else "str")
+                )
+            if ok:
+                meth = synth(tgt, mapped, "Dict")
+                c["target"] = meth
+                notes.append("%s -> %s (trusted LLM target)" % (label, meth))
+                continue
     return notes
 
 

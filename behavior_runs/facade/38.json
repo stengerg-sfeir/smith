@@ -58,7 +58,7 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "documents-add",
+        "name": "document-create",
         "options": [
           {
             "names": [
@@ -92,7 +92,7 @@
         "target": "add_document"
       },
       {
-        "name": "documents-update",
+        "name": "document-update",
         "options": [
           {
             "names": [
@@ -135,23 +135,7 @@
         "target": "update_document"
       },
       {
-        "name": "documents-delete",
-        "options": [
-          {
-            "names": [
-              "--id"
-            ],
-            "dest": "id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "delete_user"
-      },
-      {
-        "name": "documents-list",
+        "name": "document-list",
         "options": [
           {
             "names": [
@@ -164,18 +148,18 @@
           },
           {
             "names": [
-              "--created-at"
+              "--created-after"
             ],
-            "dest": "created_at",
+            "dest": "created_after",
             "type": "str",
             "required": false,
             "flag": false
           },
           {
             "names": [
-              "--created-at-end"
+              "--created-before"
             ],
-            "dest": "created_at_end",
+            "dest": "created_before",
             "type": "str",
             "required": false,
             "flag": false
@@ -183,6 +167,47 @@
         ],
         "arguments": [],
         "target": "list_document"
+      },
+      {
+        "name": "user-add",
+        "options": [
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--password"
+            ],
+            "dest": "password",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_user"
+      },
+      {
+        "name": "document-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_document"
       }
     ],
     "invoker": "cli"

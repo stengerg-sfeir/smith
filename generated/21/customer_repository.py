@@ -38,8 +38,18 @@ class CustomerRepository:
             ).fetchall()
             return [Customer(**dict(r)) for r in rows]
 
-    def list(self) -> List[Customer]:
-        return self.get_all()
+    def list(self, email: Optional[Any] = None, name: Optional[Any] = None) -> List[Customer]:
+        with self.db.connect() as conn:
+            query = "SELECT * FROM customers WHERE 1=1"
+            params: List[Any] = []
+            if email is not None:
+                query += ' AND email = ?'
+                params.append(email)
+            if name is not None:
+                query += ' AND name = ?'
+                params.append(name)
+            rows = conn.execute(query + " ORDER BY id", params).fetchall()
+            return [Customer(**dict(r)) for r in rows]
 
     def update(self, id: int, data: Dict[str, Any]) -> bool:
         if not data:
@@ -78,25 +88,18 @@ class CustomerRepository:
             rows = conn.execute('SELECT * FROM orders WHERE customer_id = ? AND order_date BETWEEN ? AND ?', (customer_id, start_date, end_date)).fetchall()
             return [Order(**dict(r)) for r in rows]
 
-    def get_customer_order_count_by_status(self, customer_id: int) -> dict[str, int]:
+    def get_customer_order_count(self, customer_id: int) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute('SELECT COUNT(*) FROM orders WHERE customer_id = ?', (customer_id,)).fetchone()
+            return row[0] if row else 0
+
+    def get_customer_order_summary(self, customer_id: int) -> dict:
         with self.db.connect() as conn:
             rows = conn.execute('SELECT status, COUNT(*) as count FROM orders WHERE customer_id = ? GROUP BY status', (customer_id,)).fetchall()
             return {row[0]: row[1] for row in rows}
 
-    def get_customer_total_orders_and_revenue(self, customer_id: int) -> dict[str, any]:
+    def list_orders_by_customer_name(self, customer_name: str) -> list[Order]:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT COUNT(*) as total_orders, SUM(revenue) as total_revenue FROM orders WHERE customer_id = ?', (customer_id,)).fetchall()
-            result = rows[0] if rows else None
-            if not result:
-                return {'total_orders': 0, 'total_revenue': 0}
-            return {'total_orders': result[0], 'total_revenue': result[1]}
-
-    def get_customer_orders_with_pagination(self, customer_id: int, page: int, page_size: int) -> dict[str, any]:
-        with self.db.connect() as conn:
-            offset = (page - 1) * page_size
-            rows = conn.execute(
-                "SELECT * FROM orders WHERE customer_id = ? ORDER BY id LIMIT ? OFFSET ?",
-                (customer_id, page_size, offset)
-            ).fetchall()
-            return {'items': [Order(**dict(r)) for r in rows]}
+            rows = conn.execute('SELECT * FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE name = ?)', (customer_name,)).fetchall()
+            return [Order(**dict(r)) for r in rows]
 

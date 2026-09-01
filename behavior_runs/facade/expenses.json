@@ -163,7 +163,7 @@
             ],
             "dest": "description",
             "type": "str",
-            "required": false,
+            "required": true,
             "flag": false
           },
           {
@@ -171,7 +171,7 @@
               "--budget"
             ],
             "dest": "budget",
-            "type": "int",
+            "type": "str",
             "required": false,
             "flag": false
           },
@@ -229,7 +229,7 @@
               "--budget"
             ],
             "dest": "budget",
-            "type": "int",
+            "type": "str",
             "required": false,
             "flag": false
           },
@@ -390,8 +390,7 @@
             "dest": "amount",
             "type": "int",
             "required": true,
-            "flag": false,
-            "field": "amount_cents"
+            "flag": false
           },
           {
             "names": [
@@ -400,8 +399,7 @@
             "dest": "description",
             "type": "str",
             "required": true,
-            "flag": false,
-            "field": "description"
+            "flag": false
           },
           {
             "names": [
@@ -410,8 +408,7 @@
             "dest": "category",
             "type": "int",
             "required": true,
-            "flag": false,
-            "field": "category_id"
+            "flag": false
           },
           {
             "names": [
@@ -420,8 +417,7 @@
             "dest": "expense_date",
             "type": "str",
             "required": false,
-            "flag": false,
-            "field": "expense_date"
+            "flag": false
           },
           {
             "names": [
@@ -430,8 +426,7 @@
             "dest": "method",
             "type": "str",
             "required": false,
-            "flag": false,
-            "field": "payment_method"
+            "flag": false
           },
           {
             "names": [
@@ -440,12 +435,11 @@
             "dest": "recurring",
             "type": "str",
             "required": false,
-            "flag": true,
-            "field": "is_recurring"
+            "flag": true
           }
         ],
         "arguments": [],
-        "target": "add_expense"
+        "target": "add"
       },
       {
         "name": "expense-list",
@@ -488,7 +482,7 @@
           }
         ],
         "arguments": [],
-        "target": "list_expenses"
+        "target": "list"
       },
       {
         "name": "report-monthly",
@@ -504,23 +498,7 @@
           }
         ],
         "arguments": [],
-        "target": "get_monthly_report"
-      },
-      {
-        "name": "report-yearly",
-        "options": [
-          {
-            "names": [
-              "--year"
-            ],
-            "dest": "year",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_yearly_summary"
+        "target": "report"
       },
       {
         "name": "expense-export",
@@ -554,10 +532,10 @@
           }
         ],
         "arguments": [],
-        "target": "export_to_csv"
+        "target": "export"
       },
       {
-        "name": "recurring-detect",
+        "name": "expense-recurring",
         "options": [],
         "arguments": [],
         "target": "detect_recurring"

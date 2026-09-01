@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -15,4 +15,9 @@ class Contact:
     email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+
+
+UNIQUE_TOGETHER: Dict[str, List[List[str]]] = {
+    "Contact": [("email",)],
+}
 

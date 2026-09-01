@@ -16,7 +16,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Result: 15.0\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I2",
@@ -26,7 +27,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Result: 5.0\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
@@ -36,7 +38,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Result: 50.0\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I4",
@@ -46,7 +49,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "Result: 2.0\n",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I5",
@@ -56,7 +60,8 @@
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": "Error: Division by zero is not allowed.\n"
+      "stderr_tail": "Error: Division by zero is not allowed.\n",
+      "seed": false
     }
   ],
   "unmapped": []

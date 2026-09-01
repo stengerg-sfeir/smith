@@ -38,16 +38,25 @@ class ExpenseRepository:
             ).fetchall()
             return [Expense(**dict(r)) for r in rows]
 
-    def list(self, category_id: Optional[Any] = None, description: Optional[Any] = None, payment_method: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None) -> List[Expense]:
+    def list(self, amount_cents: Optional[Any] = None, category_id: Optional[Any] = None, description: Optional[Any] = None, expense_date: Optional[Any] = None, is_recurring: Optional[Any] = None, payment_method: Optional[Any] = None, start_date: Optional[Any] = None, end_date: Optional[Any] = None) -> List[Expense]:
         with self.db.connect() as conn:
             query = "SELECT * FROM expenses WHERE 1=1"
             params: List[Any] = []
+            if amount_cents is not None:
+                query += ' AND amount_cents = ?'
+                params.append(amount_cents)
             if category_id is not None:
                 query += ' AND category_id = ?'
                 params.append(category_id)
             if description is not None:
                 query += ' AND description = ?'
                 params.append(description)
+            if expense_date is not None:
+                query += ' AND expense_date = ?'
+                params.append(expense_date)
+            if is_recurring is not None:
+                query += ' AND is_recurring = ?'
+                params.append(is_recurring)
             if payment_method is not None:
                 query += ' AND payment_method = ?'
                 params.append(payment_method)

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from contact_repository import ContactRepository
 from database import Database
 from exceptions import (
-    DuplicateEntryError,
+    ImportError,
+    NotFoundError,
 )
 from models import Contact
 
@@ -17,71 +18,51 @@ class ContactService:
         self.db = db
         self.contact_repo = ContactRepository(db)
 
-    def create_contact(self, contact: Contact) -> bool:
-        try:
-            self.contact_repo.create(contact)
-            return True
-        except DuplicateEntryError:
-            raise
-        except Exception as e:
-            raise e
-
-    def get_contact_by_id(self, contact_id: int) -> Optional[Contact]:
-        return self.contact_repo.get_by_id(contact_id)
-
-    def update_contact(self, contact_id: int, contact: Contact) -> bool:
-        data = {k: v for k, v in {}.items() if v is not None}
-        return self.contact_repo.update(contact_id, data)
-
-    def delete_contact(self, contact_id: int) -> bool:
-        return self.contact_repo.delete(contact_id)
-
-    def get_contacts_by_email_domain(self, domain: str) -> List[Contact]:
-        try:
-            return self.contact_repo.get_contacts_by_email_domain(domain)
-        except Exception as e:
-            raise e
-
-    def get_contacts_by_last_name_prefix(self, prefix: str) -> List[Contact]:
-        try:
-            return self.contact_repo.get_contacts_by_last_name_prefix(prefix)
-        except Exception as e:
-            raise e
-
-    def get_contact_count_by_last_name(self) -> Dict[str, int]:
-        return self.contact_repo.get_contact_count_by_last_name()
-
-    def get_contacts_with_invalid_email_format(self) -> List[Contact]:
-        try:
-            return self.contact_repo.get_contacts_with_invalid_email_format()
-        except Exception as e:
-            raise e
-
-    def export_to_csv(self, filename: str) -> bool:
-        try:
-            return self.contact_repo.export_to_csv(filename)
-        except Exception as e:
-            raise e
-
-    def import_from_csv(self, filename: str) -> List[str]:
-        try:
-            return self.contact_repo.import_from_csv(filename)
-        except Exception as e:
-            raise e
-
-    def get_total_contact_count(self) -> int:
-        try:
-            return self.contact_repo.get_total_contact_count()
-        except Exception as e:
-            raise e
-
-    def get_contacts_with_phone_and_email(self) -> List[Contact]:
-        try:
-            return self.contact_repo.get_contacts_with_phone_and_email()
-        except Exception as e:
-            raise e
-
-    def add_contact(self, first_name: str, last_name: str, email: str, phone: str, address: str) -> int:
+    def add_contact(self, first_name: str, last_name: str, email: Optional[str] = None, phone: Optional[str] = None, address: Optional[str] = None) -> bool:
         contact = Contact(first_name=first_name, last_name=last_name, email=email, phone=phone, address=address, created_at=datetime.datetime.now().isoformat(), updated_at=datetime.datetime.now().isoformat())
         return self.contact_repo.create(contact)
+
+    def list_contact(self, first_name: Optional[str] = None, last_name: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None, created_at: Optional[str] = None, created_at_end: Optional[str] = None) -> list[dict]:
+        return self.contact_repo.list(first_name=first_name, last_name=last_name, email=email, phone=phone, created_at=created_at, created_at_end=created_at_end)
+
+    def update_contact(self, id: int, first_name: Optional[str] = None, last_name: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None, address: Optional[str] = None) -> bool:
+        data = {k: v for k, v in {'first_name': first_name, 'last_name': last_name, 'email': email, 'phone': phone, 'address': address}.items() if v is not None}
+        return self.contact_repo.update(id, data)
+
+    def delete_contact(self, id: int) -> bool:
+        return self.contact_repo.delete(id)
+
+    def get_contact_report(self, id: int) -> dict:
+        """
+            Retrieve a detailed report for a specific contact by ID.
+        
+            Returns:
+                dict: A dictionary containing contact details and related metadata.
+            """
+        try:
+            contact = self.contact_repo.get_by_id(id)
+            if not contact:
+                raise NotFoundError(f'Contact with ID {id} not found')
+            report = {'id': contact.id, 'first_name': contact.first_name, 'last_name': contact.last_name, 'email': contact.email, 'phone': contact.phone, 'address': contact.address, 'created_at': contact.created_at.isoformat() if contact.created_at else None, 'updated_at': contact.updated_at.isoformat() if contact.updated_at else None}
+            return report
+        except Exception as e:
+            raise NotFoundError(f'Failed to retrieve contact: {str(e)}')
+
+    def import_contact(self, filename: str) -> List[str]:
+        """
+            Import contacts from a CSV file.
+        
+            Args:
+                filename (str): Path to the CSV file to import.
+            
+            Returns:
+                List[str]: List of error messages for failed imports.
+            """
+        try:
+            errors = self.contact_repo.import_from_csv(filename)
+            if errors:
+                return errors
+            return []
+        except Exception as e:
+            raise ImportError(f'Failed to import contacts from {filename}: {str(e)}')
 

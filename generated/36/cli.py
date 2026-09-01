@@ -8,45 +8,42 @@ DB_PATH = "app.db"
 def cli():
     """Application root."""
 
-@cli.command('category-summary')
-def category_summary():
-    """category/summary"""
+@cli.command('category-add')
+@click.option('--name', required=True)
+def category_add(name):
+    """category/add"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_category_product_summary()
+    result = svc.add_category(name=name)
 
-@cli.command('product-count')
-def product_count():
-    """product/count"""
+@cli.command('category-list')
+def category_list():
+    """category/list"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_product_count_by_category()
+    result = svc.list_category()
 
-@cli.command('product-by_category')
-@click.option('--category-name', required=True)
-def product_by_category(category_name):
-    """product/by_category"""
+@cli.command('product-list')
+@click.option('--name')
+@click.option('--price')
+@click.option('--category-id')
+def product_list(name, price, category_id):
+    """product/list"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_by_category_name(category_name=category_name)
+    result = svc.list_product(name=name, price=price, category_id=category_id)
 
-@cli.command('product-price_range')
-@click.option('--min-price', type=int, required=True)
-@click.option('--max-price', type=int, required=True)
-def product_price_range(min_price, max_price):
-    """product/price_range"""
+@cli.command('category-delete')
+@click.option('--id', type=int, required=True)
+def category_delete(id):
+    """category/delete"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_in_price_range(min_price=min_price, max_price=max_price)
+    result = svc.delete_category(id=id)
 
-@cli.command('product-details')
-def product_details():
-    """product/details"""
+@cli.command('category-update')
+@click.option('--id', type=int, required=True)
+@click.option('--name')
+def category_update(id, name):
+    """category/update"""
     svc = ProductService(Database(DB_PATH))
-    result = svc.get_products_with_category_details()
-
-@cli.command('product-search')
-@click.option('--query', required=True)
-def product_search(query):
-    """product/search"""
-    svc = ProductService(Database(DB_PATH))
-    result = svc.search_products_by_name(query=query)
+    result = svc.update_category(id=id, name=name)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from database import Database
-from task import Task
+from models import Task
 
 
 class TaskRepository:
@@ -37,7 +37,7 @@ class TaskRepository:
             ).fetchall()
             return [Task(**dict(r)) for r in rows]
 
-    def list(self, title: Optional[Any] = None, status: Optional[Any] = None, priority: Optional[Any] = None, due_date: Optional[Any] = None) -> List[Task]:
+    def list(self, title: Optional[Any] = None, status: Optional[Any] = None, priority: Optional[Any] = None, due_date: Optional[Any] = None, description: Optional[Any] = None) -> List[Task]:
         with self.db.connect() as conn:
             query = "SELECT * FROM tasks WHERE 1=1"
             params: List[Any] = []
@@ -53,6 +53,9 @@ class TaskRepository:
             if due_date is not None:
                 query += ' AND due_date >= ?'
                 params.append(due_date)
+            if description is not None:
+                query += ' AND description = ?'
+                params.append(description)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Task(**dict(r)) for r in rows]
 
@@ -96,9 +99,6 @@ class TaskRepository:
             ).fetchall()
             return [Task(**dict(r)) for r in rows]
 
-    def get_tasks_by_user_id(self, user_id: int) -> list[Task]:
-        return []
-
     def get_task_count_by_status(self) -> dict[str, int]:
         with self.db.connect() as conn:
             rows = conn.execute(
@@ -113,12 +113,22 @@ class TaskRepository:
             ).fetchall()
             return [Task(**dict(r)) for r in rows]
 
-    def get_tasks_with_high_priority_and_due_soon(self) -> list[Task]:
+    def get_tasks_with_pagination(self, page: int, page_size: int) -> list[Task]:
         with self.db.connect() as conn:
-            today = '2024-01-01'
-            rows = conn.execute("SELECT * FROM tasks WHERE priority = 'high' AND due_date >= ? AND due_date <= ?", ('2024-01-01', '2024-01-08')).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM tasks LIMIT ? OFFSET ?",
+                (page_size, (page - 1) * page_size)
+            ).fetchall()
             return [Task(**dict(r)) for r in rows]
 
-    def get_tasks_with_status_and_created_range(self, status: str, start_created: datetime, end_created: datetime) -> list[Task]:
+    def search_tasks_by_title(self, query: str) -> list[Task]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tasks WHERE (title LIKE ? OR description LIKE ? OR status LIKE ?)",
+                ("%" + query + "%", "%" + query + "%", "%" + query + "%")
+            ).fetchall()
+            return [Task(**dict(r)) for r in rows]
+
+    def get_tasks_with_status_and_created_date_range(self, status: str, start_date: date, end_date: date) -> list[Task]:
         return []
 

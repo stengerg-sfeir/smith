@@ -86,11 +86,174 @@
     }
   ],
   "facade": {
-    "entry": "main.py",
+    "entry": "cli.py",
     "kind": "click_group",
     "commands": [
       {
-        "name": "user-create",
+        "name": "product-add",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--stock-quantity"
+            ],
+            "dest": "stock_quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_product"
+      },
+      {
+        "name": "product-list",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price-end"
+            ],
+            "dest": "price_end",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at"
+            ],
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at-end"
+            ],
+            "dest": "created_at_end",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_product"
+      },
+      {
+        "name": "product-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--stock-quantity"
+            ],
+            "dest": "stock_quantity",
+            "type": "int",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "update_product"
+      },
+      {
+        "name": "product-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "delete_product"
+      },
+      {
+        "name": "user-add",
         "options": [
           {
             "names": [
@@ -103,11 +266,97 @@
           },
           {
             "names": [
-              "--password"
+              "--password-hash"
             ],
-            "dest": "password",
+            "dest": "password_hash",
             "type": "str",
             "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--role"
+            ],
+            "dest": "role",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_user"
+      },
+      {
+        "name": "user-list",
+        "options": [
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--role"
+            ],
+            "dest": "role",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at"
+            ],
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at-end"
+            ],
+            "dest": "created_at_end",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_user"
+      },
+      {
+        "name": "user-update",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--password-hash"
+            ],
+            "dest": "password_hash",
+            "type": "str",
+            "required": false,
             "flag": false
           },
           {
@@ -121,79 +370,23 @@
           }
         ],
         "arguments": [],
-        "target": "create_user"
+        "target": "update_user"
       },
       {
-        "name": "user-orders",
+        "name": "user-delete",
         "options": [
           {
             "names": [
-              "--user-id"
+              "--id"
             ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--status"
-            ],
-            "dest": "status",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_user_orders"
-      },
-      {
-        "name": "user-details",
-        "options": [
-          {
-            "names": [
-              "--user-id"
-            ],
-            "dest": "user_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_user_order_details"
-      },
-      {
-        "name": "user-most_orders",
-        "options": [],
-        "arguments": [],
-        "target": "get_user_with_most_orders"
-      },
-      {
-        "name": "user-export_orders",
-        "options": [
-          {
-            "names": [
-              "--user-id"
-            ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--file-path"
-            ],
-            "dest": "file_path",
-            "type": "str",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "export_user_orders_to_csv"
+        "target": "delete_user"
       },
       {
         "name": "order-list",
@@ -203,7 +396,7 @@
               "--user-id"
             ],
             "dest": "user_id",
-            "type": "int",
+            "type": "str",
             "required": false,
             "flag": false
           },
@@ -215,26 +408,28 @@
             "type": "str",
             "required": false,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_user_orders"
-      },
-      {
-        "name": "order-details",
-        "options": [
+          },
           {
             "names": [
-              "--user-id"
+              "--created-at"
             ],
-            "dest": "user_id",
-            "type": "int",
-            "required": true,
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at-end"
+            ],
+            "dest": "created_at_end",
+            "type": "str",
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_user_order_details"
+        "target": "list_order"
       }
     ],
     "invoker": "cli"

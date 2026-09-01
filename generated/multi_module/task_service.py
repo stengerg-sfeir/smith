@@ -1,11 +1,14 @@
 """Service layer."""
 from __future__ import annotations
 
-import csv
 import datetime
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from database import Database
+from exceptions import (
+    InvalidStatusError,
+    ValidationError,
+)
 from models import Task
 from task_repository import TaskRepository
 
@@ -15,38 +18,36 @@ class TaskService:
         self.db = db
         self.task_repo = TaskRepository(db)
 
-    def create_task(self, title: str, description: Optional[str] = None, status: str = None) -> Optional[Task]:
-        task = Task(title=title, description=description, status=status, created_at=datetime.datetime.now().isoformat())
-        return self.task_repo.create(task)
+    def add(self, title: str, description: Optional[str]=None, status: str=None) -> None:
+        if status and status not in ['todo', 'in_progress', 'completed']:
+            raise InvalidStatusError(f'Invalid status: {status}')
+        task = Task(created_at=datetime.datetime.now(), description=description, id=None, status=status or 'todo', title=title)
+        self.task_repo.create(task)
 
-    def update_task(self, task_id: int, title: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None) -> Optional[Task]:
-        data = {k: v for k, v in {'title': title, 'description': description, 'status': status}.items() if v is not None}
-        return self.task_repo.update(task_id, data)
+    def list(self, status: Optional[str]=None, limit: Optional[int]=None, offset: Optional[int]=None) -> List[Task]:
+        filters = {}
+        if status is not None:
+            filters['status'] = status
+        if limit is not None:
+            filters['limit'] = limit
+        if offset is not None:
+            filters['offset'] = offset
+        return self.task_repo.list(**filters)
 
-    def list_tasks(self, status: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None) -> List[Task]:
-        return self.task_repo.list(status=status)
+    def update(self, task_id: int, title: Optional[str]=None, description: Optional[str]=None, status: Optional[str]=None) -> None:
+        if status and status not in ['todo', 'in_progress', 'completed']:
+            raise InvalidStatusError(f'Invalid status: {status}')
+        update_data = {}
+        if title is not None:
+            update_data['title'] = title
+        if description is not None:
+            update_data['description'] = description
+        if status is not None:
+            update_data['status'] = status
+        if not update_data:
+            raise ValidationError('No valid fields provided for update')
+        self.task_repo.update(task_id, update_data)
 
-    def get_task_by_id(self, task_id: int) -> Optional[Task]:
-        return self.task_repo.get_by_id(task_id)
-
-    def delete_task(self, task_id: int) -> bool:
-        return self.task_repo.delete(task_id)
-
-    def get_status_distribution(self) -> Dict[str, int]:
-        """Returns a dictionary with the count of tasks by status."""
-        return self.task_repo.get_tasks_with_status_distribution()
-
-    def export_tasks_to_csv(self, file_path: str, status_filter: Optional[str] = None) -> None:
-        rows = self.task_repo.list()
-        with open(file_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'id', 'title', 'description', 'status',
-                'created_at',
-            ])
-            for row in rows:
-                writer.writerow([
-                    row.id, row.title, row.description, row.status,
-                    row.created_at,
-                ])
+    def delete(self, task_id: int) -> None:
+        self.task_repo.delete(task_id)
 

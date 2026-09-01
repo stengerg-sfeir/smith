@@ -38,16 +38,13 @@ class ProjectRepository:
             ).fetchall()
             return [Project(**dict(r)) for r in rows]
 
-    def list(self, description: Optional[Any] = None, name: Optional[Any] = None) -> List[Project]:
+    def list(self, description: Optional[Any] = None) -> List[Project]:
         with self.db.connect() as conn:
             query = "SELECT * FROM projects WHERE 1=1"
             params: List[Any] = []
             if description is not None:
                 query += ' AND description = ?'
                 params.append(description)
-            if name is not None:
-                query += ' AND name = ?'
-                params.append(name)
             rows = conn.execute(query + " ORDER BY id", params).fetchall()
             return [Project(**dict(r)) for r in rows]
 

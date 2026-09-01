@@ -116,11 +116,14 @@ class CustomerRepository:
 
     def get_audit_records_for_customer(self, customer_id: int, start_date: str, end_date: str) -> list[AuditRecord]:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM audit_records WHERE customer_id = ? AND timestamp BETWEEN ? AND ?', (customer_id, start_date, end_date)).fetchall()
+            rows = conn.execute('SELECT * FROM auditrecords WHERE customer_id = ? AND timestamp BETWEEN ? AND ?', (customer_id, start_date, end_date)).fetchall()
             return [AuditRecord(**dict(r)) for r in rows]
 
-    def get_recent_activity_summary(self) -> dict:
+    def get_recent_operations(self, limit: int) -> list[AuditRecord]:
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT * FROM audit_records').fetchall()
-            return {}
+            rows = conn.execute('SELECT * FROM auditrecords ORDER BY timestamp DESC LIMIT ?', (limit,)).fetchall()
+            return [AuditRecord(**dict(r)) for r in rows]
+
+    def get_customers_with_last_updated_in_range(self, start_date: datetime, end_date: datetime) -> list[Customer]:
+        return []
 

@@ -58,7 +58,66 @@
     "kind": "click_group",
     "commands": [
       {
-        "name": "invoice-get",
+        "name": "invoice-add",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--total-amount"
+            ],
+            "dest": "total_amount",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_invoice"
+      },
+      {
+        "name": "invoice-list",
+        "options": [
+          {
+            "names": [
+              "--customer-id"
+            ],
+            "dest": "customer_id",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--total-amount"
+            ],
+            "dest": "total_amount",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--created-at"
+            ],
+            "dest": "created_at",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "list_invoice"
+      },
+      {
+        "name": "invoice_line-add",
         "options": [
           {
             "names": [
@@ -68,123 +127,7 @@
             "type": "int",
             "required": true,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_invoice_with_lines"
-      },
-      {
-        "name": "invoice-customer",
-        "options": [
-          {
-            "names": [
-              "--customer-id"
-            ],
-            "dest": "customer_id",
-            "type": "int",
-            "required": true,
-            "flag": false
           },
-          {
-            "names": [
-              "--created-after"
-            ],
-            "dest": "created_after",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--created-before"
-            ],
-            "dest": "created_before",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_invoices_by_customer"
-      },
-      {
-        "name": "invoice-total_range",
-        "options": [
-          {
-            "names": [
-              "--min-total"
-            ],
-            "dest": "min_total",
-            "type": "int",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--max-total"
-            ],
-            "dest": "max_total",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_invoices_with_total_range"
-      },
-      {
-        "name": "invoice-summary",
-        "options": [
-          {
-            "names": [
-              "--customer-id"
-            ],
-            "dest": "customer_id",
-            "type": "int",
-            "required": true,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_customer_invoice_summary"
-      },
-      {
-        "name": "invoice-lines",
-        "options": [
-          {
-            "names": [
-              "--product-id"
-            ],
-            "dest": "product_id",
-            "type": "int",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--start-date"
-            ],
-            "dest": "start_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--end-date"
-            ],
-            "dest": "end_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_invoice_lines_by_product"
-      },
-      {
-        "name": "invoice-low_total_vs_price",
-        "options": [
           {
             "names": [
               "--product-id"
@@ -196,27 +139,61 @@
           },
           {
             "names": [
-              "--min-invoice-total"
+              "--quantity"
             ],
-            "dest": "min_invoice_total",
+            "dest": "quantity",
+            "type": "int",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--unit-price"
+            ],
+            "dest": "unit_price",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_invoice_line"
+      },
+      {
+        "name": "invoice_line-delete",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "find_invoices_with_low_total_vs_product_price"
+        "target": "delete_invoice_line"
       },
       {
-        "name": "invoice-export",
+        "name": "invoice_line-update",
         "options": [
           {
             "names": [
-              "--file-path"
+              "--id"
             ],
-            "dest": "file_path",
-            "type": "str",
+            "dest": "id",
+            "type": "int",
             "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--invoice-id"
+            ],
+            "dest": "invoice_id",
+            "type": "int",
+            "required": false,
             "flag": false
           },
           {
@@ -230,100 +207,125 @@
           },
           {
             "names": [
-              "--start-date"
+              "--quantity"
             ],
-            "dest": "start_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--end-date"
-            ],
-            "dest": "end_date",
-            "type": "str",
-            "required": false,
-            "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "export_invoice_lines_to_csv"
-      },
-      {
-        "name": "product-top_revenue",
-        "options": [
-          {
-            "names": [
-              "--period"
-            ],
-            "dest": "period",
-            "type": "str",
-            "required": false,
-            "flag": false
-          },
-          {
-            "names": [
-              "--limit"
-            ],
-            "dest": "limit",
+            "dest": "quantity",
             "type": "int",
             "required": false,
             "flag": false
-          }
-        ],
-        "arguments": [],
-        "target": "get_top_products_by_revenue"
-      },
-      {
-        "name": "product-revenue",
-        "options": [
-          {
-            "names": [
-              "--product-id"
-            ],
-            "dest": "product_id",
-            "type": "int",
-            "required": true,
-            "flag": false
           },
           {
             "names": [
-              "--start-date"
+              "--unit-price"
             ],
-            "dest": "start_date",
+            "dest": "unit_price",
             "type": "str",
-            "required": true,
-            "flag": false
-          },
-          {
-            "names": [
-              "--end-date"
-            ],
-            "dest": "end_date",
-            "type": "str",
-            "required": true,
+            "required": false,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_total_revenue_by_product"
+        "target": "update_invoice_line"
       },
       {
-        "name": "product-total_invoices",
+        "name": "invoice-report",
         "options": [
           {
             "names": [
-              "--customer-id"
+              "--id"
             ],
-            "dest": "customer_id",
+            "dest": "id",
             "type": "int",
             "required": true,
             "flag": false
           }
         ],
         "arguments": [],
-        "target": "get_total_invoices_by_customer"
+        "target": "get_invoice_total"
+      },
+      {
+        "name": "product-report",
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "get_product_report"
+      },
+      {
+        "name": "customer-add",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--email"
+            ],
+            "dest": "email",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--phone"
+            ],
+            "dest": "phone",
+            "type": "str",
+            "required": false,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_customer"
+      },
+      {
+        "name": "product-add",
+        "options": [
+          {
+            "names": [
+              "--name"
+            ],
+            "dest": "name",
+            "type": "str",
+            "required": true,
+            "flag": false
+          },
+          {
+            "names": [
+              "--description"
+            ],
+            "dest": "description",
+            "type": "str",
+            "required": false,
+            "flag": false
+          },
+          {
+            "names": [
+              "--price"
+            ],
+            "dest": "price",
+            "type": "str",
+            "required": true,
+            "flag": false
+          }
+        ],
+        "arguments": [],
+        "target": "add_product"
       }
     ],
     "invoker": "cli"

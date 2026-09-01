@@ -38,8 +38,15 @@ class CategoryRepository:
             ).fetchall()
             return [Category(**dict(r)) for r in rows]
 
-    def list(self) -> List[Category]:
-        return self.get_all()
+    def list(self, name: Optional[Any] = None) -> List[Category]:
+        with self.db.connect() as conn:
+            query = "SELECT * FROM categories WHERE 1=1"
+            params: List[Any] = []
+            if name is not None:
+                query += ' AND name = ?'
+                params.append(name)
+            rows = conn.execute(query + " ORDER BY id", params).fetchall()
+            return [Category(**dict(r)) for r in rows]
 
     def update(self, id: int, data: Dict[str, Any]) -> bool:
         if not data:

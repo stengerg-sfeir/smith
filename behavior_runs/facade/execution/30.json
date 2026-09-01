@@ -1,50 +1,62 @@
 {
   "ident": "30",
   "generated_dir": "generated/30",
-  "status": "pass",
+  "status": "fail",
   "n_intentions": 7,
-  "n_mapped": 2,
-  "n_unmapped": 5,
+  "n_mapped": 4,
+  "n_unmapped": 3,
   "pass": 2,
-  "fail": 0,
+  "fail": 2,
   "results": [
     {
-      "intent_id": "I2",
-      "command": "list-by_status_and_priority",
-      "invocation": "python3 task_cli.py list-by_status_and_priority --status all --priority 0",
-      "status": "pass",
-      "reason": "ok",
-      "exit_code": 0,
+      "intent_id": "I1",
+      "command": "manage-add",
+      "invocation": "python3 cli.py manage-add --title 'Write documentation' --description 'Complete the user manual for the new feature' --status pending --priority 2 --due-date 2023-12-01",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/30/cli.py\", line 20, in manage_add\n    result = svc.add(title=title, description=description, status=status, priority=priority, due_date=due_date)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/30/task_service.py\", line 37, in add\n    raise ValidationException(f'Failed to add task: {str(e)}')\nexceptions.ValidationException: Failed to add task: 'TaskService' object has no attribute '_is_valid_date'\n",
+      "seed": false
     },
     {
-      "intent_id": "I5",
-      "command": "list-by_status_and_priority",
-      "invocation": "python3 task_cli.py list-by_status_and_priority --status active --priority 1",
+      "intent_id": "I2",
+      "command": "manage-list",
+      "invocation": "python3 cli.py manage-list",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
+      "stderr_tail": "",
+      "seed": false
+    },
+    {
+      "intent_id": "I3",
+      "command": "manage-update",
+      "invocation": "python3 cli.py manage-update --task-id 1 --title 'Review API design' --description 'Ensure all endpoints are secure and documented' --status in-progress --priority 3 --due-date 2023-12-10",
+      "status": "fail",
+      "reason": "exit_code=1, expected 0",
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "python3.14/site-packages/click/core.py\", line 1353, in invoke\n    return ctx.invoke(self.callback, **ctx.params)\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/lib/python3.14/site-packages/click/core.py\", line 907, in invoke\n    return callback(*args, **kwargs)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/30/cli.py\", line 42, in manage_update\n    result = svc.update(task_id=task_id, title=title, description=description, status=status, priority=priority, due_date=due_date)\n  File \"/Users/gillesstenger/Documents/neurosymbolic/generated/30/task_service.py\", line 74, in update\n    raise ValidationException(f'Failed to update task: {str(e)}')\nexceptions.ValidationException: Failed to update task: 'TaskService' object has no attribute '_is_valid_date'\n",
+      "seed": false
+    },
+    {
+      "intent_id": "I4",
+      "command": "manage-delete",
+      "invocation": "python3 cli.py manage-delete --task-id 5",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     }
   ],
   "unmapped": [
     {
-      "intent_id": "I1",
-      "text": "I can create a new task in the task management system.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I3",
-      "text": "I can update an existing task's details.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
-    },
-    {
-      "intent_id": "I4",
-      "text": "I can delete a task from the system.",
+      "intent_id": "I5",
+      "text": "I can view task details for a specific task.",
       "status": "unmapped",
       "reason": "no facade command matched the intention"
     },

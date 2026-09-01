@@ -3,40 +3,55 @@
   "generated_dir": "generated/16",
   "status": "pass",
   "n_intentions": 4,
-  "n_mapped": 1,
-  "n_unmapped": 3,
-  "pass": 1,
+  "n_mapped": 4,
+  "n_unmapped": 0,
+  "pass": 4,
   "fail": 0,
   "results": [
     {
-      "intent_id": "I2",
-      "command": "list-active",
-      "invocation": "python3 cli.py list-active --page 1 --page-size 10",
+      "intent_id": "I1",
+      "command": "customer-add",
+      "invocation": "python3 cli.py customer-add --first-name John --last-name Doe --email john.doe@example.com --phone 555-1234",
       "status": "pass",
       "reason": "ok",
       "exit_code": 0,
       "stdout_tail": "",
-      "stderr_tail": ""
-    }
-  ],
-  "unmapped": [
+      "stderr_tail": "",
+      "seed": false
+    },
     {
-      "intent_id": "I1",
-      "text": "I can create a new customer record with specified details.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "intent_id": "I2",
+      "command": "customer-list",
+      "invocation": "python3 cli.py customer-list",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I3",
-      "text": "I can update an existing customer's details.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "customer-update",
+      "invocation": "python3 cli.py customer-update --id 1 --first-name Jane --last-name Smith --email jane.smith@example.com --phone 555-5678",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     },
     {
       "intent_id": "I4",
-      "text": "I can delete a customer record by their identifier.",
-      "status": "unmapped",
-      "reason": "no facade command matched the intention"
+      "command": "customer-delete",
+      "invocation": "python3 cli.py customer-delete --id 1",
+      "status": "pass",
+      "reason": "ok",
+      "exit_code": 0,
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "seed": false
     }
-  ]
+  ],
+  "unmapped": []
 }

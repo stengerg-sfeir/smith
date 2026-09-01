@@ -69,7 +69,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             hire_date TEXT NOT NULL,
             is_active BOOLEAN NOT NULL,
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            FOREIGN KEY (department_id) REFERENCES departments (id)
+            FOREIGN KEY (department_id) REFERENCES departments (id),
+            UNIQUE(email)
         );"""
     )
     conn.commit()

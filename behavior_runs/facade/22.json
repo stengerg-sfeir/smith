@@ -168,7 +168,17 @@
       },
       {
         "name": "product-report",
-        "options": [],
+        "options": [
+          {
+            "names": [
+              "--id"
+            ],
+            "dest": "id",
+            "type": "int",
+            "required": true,
+            "flag": false
+          }
+        ],
         "arguments": [],
         "target": "get_product_report"
       }
