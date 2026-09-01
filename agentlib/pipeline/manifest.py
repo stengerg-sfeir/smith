@@ -68,6 +68,13 @@ def _synthesize_cli_repos(designs, entities_by_class, manifest):
     ``self.notification_repo``). Synthesize the repo file: an empty customs
     design renders a deterministic CRUD repository, and the service header
     wires it on the next render pass.
+
+    Famille 1 (back-propagated model): a ``--<entity>_id`` option (order-add
+    ``--customer-id``) references an entity the design did not capture
+    (``Customer``). Without it, ``orders.customer_id`` FK points at a missing
+    ``customers`` table -> ``no such table: main.customers`` (prompt 32/40).
+    Also synthesize a minimal model for each referenced-but-undesigned entity
+    and add it to the models design so models.py renders its table.
     """
     if not designs:
         return
@@ -82,30 +89,76 @@ def _synthesize_cli_repos(designs, entities_by_class, manifest):
         for path, kind, _ in designs
         if kind == "repositories"
     }
+    model_design = next(
+        (d for p, k, d in designs if k == "models" and isinstance(d, dict)),
+        None,
+    )
+
+    def _id_option_entity(o):
+        """Entity class referenced by an ``--<entity>_id`` option, or ""."""
+        if not isinstance(o, dict):
+            return ""
+        key = o.get("field")
+        if key is None:
+            names = o.get("names") or []
+            key = next((n.lstrip("-") for n in names if n.startswith("--")), None)
+        if not isinstance(key, str) or not key.endswith("_id") or key == "id":
+            return ""
+        return _camel(key[: -len("_id")])
+
+    def _ensure_entity(cls):
+        if cls in entities_by_class:
+            return entities_by_class[cls]
+        ent = {
+            "name": cls,
+            "fields": [
+                {"name": "id", "type": "int", "primary_key": True},
+                {"name": "name", "type": "str"},
+            ],
+            "fks": [],
+        }
+        entities_by_class[cls] = ent
+        if model_design is not None:
+            ents = model_design.setdefault("entities", [])
+            if not any(e.get("name") == cls for e in ents):
+                ents.append(ent)
+        return ent
+
+    def _ensure_repo(cls):
+        ent_snake = _snake(cls)
+        stem = ent_snake + "_repository"
+        if stem in existing_repo_stems:
+            return
+        file_name = stem + ".py"
+        designs.append((file_name, "repositories", {"methods": []}))
+        existing_repo_stems.add(stem)
+        manifest.append({
+            "file": file_name,
+            "role": "data access",
+            "kind": "repository",
+            "entity": ent_snake,
+            "imports_from": ["models", "database"],
+        })
+
     for cli_data in cli_entries:
         for c in cli_data.get("commands") or []:
             if not isinstance(c, dict):
                 continue
+            # 1. entity named by the command group (existing behaviour)
             cls = _command_entity(c, entities_by_class)
-            if cls is None:
-                continue
-            ent = entities_by_class.get(cls)
-            if not isinstance(ent, dict):
-                continue
-            ent_snake = _snake(cls)
-            stem = ent_snake + "_repository"
-            if stem in existing_repo_stems:
-                continue
-            file_name = stem + ".py"
-            designs.append((file_name, "repositories", {"methods": []}))
-            existing_repo_stems.add(stem)
-            manifest.append({
-                "file": file_name,
-                "role": "data access",
-                "kind": "repository",
-                "entity": ent_snake,
-                "imports_from": ["models", "database"],
-            })
+            if cls is not None:
+                ent = entities_by_class.get(cls)
+                if isinstance(ent, dict):
+                    _ensure_repo(cls)
+            # 2. entities referenced via --<entity>_id options (Famille 1)
+            for o in c.get("options") or []:
+                ref_cls = _id_option_entity(o)
+                if ref_cls and ref_cls in entities_by_class:
+                    _ensure_repo(ref_cls)
+                elif ref_cls:
+                    # Undesigned entity: back-propagate model + repo.
+                    _ensure_entity(ref_cls)
+                    _ensure_repo(ref_cls)
 
 
 def _manifest_first_blocks(prompt_text, verbose=False):

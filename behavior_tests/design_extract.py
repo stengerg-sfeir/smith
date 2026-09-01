@@ -183,16 +183,16 @@ def _parse_cli(cli_path: Path) -> dict:
     return {"commands": commands}
 
 
-def _parse_fks_uniques(database: Path, entities: list[dict]) -> tuple[dict[str, list[dict]], dict[str, list[list[str]]]]:
+def _parse_fks_uniques(database: Path, entities: list[dict]) -> tuple[dict[str, list[dict]], dict[str, list[list[str]]], dict[str, str]]:
     """Parse FOREIGN KEY + UNIQUE constraints out of the DDL.
 
-    Returns (fks_by_entity, unique_together_by_entity) keyed by entity name,
-    merged onto the entity dicts by the caller.
+    Returns (fks_by_entity, unique_together_by_entity, table_by_entity) keyed
+    by entity name, merged onto the entity dicts by the caller.
     """
     try:
         text = database.read_text(encoding="utf-8")
     except OSError:
-        return {}, {}
+        return {}, {}, {}
 
     # FOREIGN KEY (col) REFERENCES table (id)
     fk_pat = re.compile(
@@ -205,6 +205,7 @@ def _parse_fks_uniques(database: Path, entities: list[dict]) -> tuple[dict[str, 
 
     fks_by_entity: dict[str, list[dict]] = {}
     unique_by_entity: dict[str, list[list[str]]] = {}
+    table_by_entity: dict[str, str] = {}
 
     # Split CREATE TABLE blocks to attribute constraints to the right entity.
     blocks = re.split(r"CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)",
@@ -226,6 +227,7 @@ def _parse_fks_uniques(database: Path, entities: list[dict]) -> tuple[dict[str, 
         if ent is None:
             continue
         ents = ent["name"]
+        table_by_entity[ents] = table
         for m in fk_pat.finditer(body):
             fks_by_entity.setdefault(ents, []).append({
                 "field": m.group(1).strip(),
@@ -235,7 +237,7 @@ def _parse_fks_uniques(database: Path, entities: list[dict]) -> tuple[dict[str, 
             cols = [c.strip() for c in m.group(1).split(",") if c.strip()]
             if cols:
                 unique_by_entity.setdefault(ents, []).append(cols)
-    return fks_by_entity, unique_by_entity
+    return fks_by_entity, unique_by_entity, table_by_entity
 
 
 def extract_design(project_dir: Path) -> dict:
@@ -266,11 +268,13 @@ def extract_design(project_dir: Path) -> dict:
                 })
 
     database_path = project_dir / "database.py"
+    table_by_entity: dict[str, str] = {}
     if database_path.exists():
-        fks_by_entity, unique_by_entity = _parse_fks_uniques(database_path, entities)
+        fks_by_entity, unique_by_entity, table_by_entity = _parse_fks_uniques(database_path, entities)
     for ent in entities:
         ent["fks"] = fks_by_entity.get(ent["name"], [])
         ent["unique_together"] = unique_by_entity.get(ent["name"], [])
+        ent["table_name"] = table_by_entity.get(ent["name"], "")
 
     exceptions: list[dict] = []
     exc_path = project_dir / "exceptions.py"

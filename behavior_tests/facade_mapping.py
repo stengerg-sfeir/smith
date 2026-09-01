@@ -531,6 +531,78 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
     return plan
 
 
+def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | None:
+    """Direct-DB seed when no CLI command creates ``entity``.
+
+    The generator may materialize a model+repository for a parent entity that a
+    child references via FK (Famille 1) without exposing a CLI create command
+    (no ``<entity>-add``). The tester cannot drive that parent through the
+    surface, so it falls back to a direct INSERT into the real SQLite table —
+    the entity exists, its table is known from the DDL, and the executor runs
+    the INSERT before consumers so they can reference the seeded row.
+    """
+    ent = next((e for e in design.get("entities", []) if e["name"] == entity), None)
+    if ent is None:
+        return None
+    table = ent.get("table_name") or ""
+    if not table:
+        return None
+    db_file = design.get("database_file") or "app.db"
+    suffix = str(value) if value not in (None, "") else ""
+    cols: list[str] = []
+    vals: list[str] = []
+    for f in ent.get("fields", []):
+        if f.get("primary_key") or f.get("nullable"):
+            continue
+        if f.get("default") is not None:
+            continue
+        col = f.get("name", "")
+        if not col:
+            continue
+        cols.append(col)
+        if f.get("type") == "int":
+            vals.append("1")
+        else:
+            v = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
+            vals.append(v)
+    if cols:
+        col_list = ", ".join(cols)
+        ph = ", ".join("?" for _ in cols)
+        # Build a Python tuple literal, ensuring a trailing comma for a single
+        # value (('x',) is a tuple, ('x') is just a parenthesised string).
+        lit = "(" + ", ".join(
+            "'" + v.replace("\\", "\\\\").replace("'", "\\'") + "'" for v in vals
+        ) + (", " if len(vals) == 1 else "") + ")"
+        py = ("import sqlite3; from database import create_tables; "
+              "con=sqlite3.connect('%s'); create_tables(con); "
+              "con.execute('INSERT INTO %s (%s) VALUES (%s)', %s); con.commit()"
+              ) % (db_file, table, col_list, ph, lit)
+    else:
+        py = ("import sqlite3; from database import create_tables; "
+              "con=sqlite3.connect('%s'); create_tables(con); "
+              "con.execute('INSERT INTO %s DEFAULT VALUES'); con.commit()"
+              ) % (db_file, table)
+    invocation = "python3 -c \"%s\"" % py
+    return {
+        "intent_id": "__seed_%s" % entity,
+        "text": "seed %s" % entity,
+        "status": "mapped",
+        "command": "",
+        "invocation": invocation,
+        "positional_args": [],
+        "positional_dests": [],
+        "option_args": [],
+        "expected": {"exit_code": 0},
+        "creates": entity,
+        "refs": [],
+        "fixtures": [],
+        "target": "",
+        "entry": "",
+        "kind": "",
+        "seed": True,
+    }
+
+
 def _synthesize_seed_plans(plans: list[dict], facade: dict,
                            design: dict | None) -> list[dict]:
     """Add seed create-plans for ref'd entities that no plan creates.
@@ -568,8 +640,11 @@ def _synthesize_seed_plans(plans: list[dict], facade: dict,
                 continue
             cmd = _find_create_cmd(facade, ent, design)
             if cmd is None:
-                continue
-            seed = _make_seed_plan(cmd, ent, facade, design, value=val)
+                seed = _make_sql_seed_plan(ent, val, design)
+                if seed is None:
+                    continue
+            else:
+                seed = _make_seed_plan(cmd, ent, facade, design, value=val)
             seed["seed_for"] = {"entity": ent, "value": val, "flag": flag}
             updated.append(seed)
             seeded_keys.add(key)
