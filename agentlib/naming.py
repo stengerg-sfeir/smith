@@ -104,7 +104,7 @@ def _generate_ddl_from_models(model_classes):
                 base = field_name[: -len("_id")]
                 ref_table = table_map.get(_camel(base)) or _pluralize_table_name(base)
                 foreign_keys.append(
-                    "    FOREIGN KEY (%s) REFERENCES %s (id)" % (field_name, ref_table)
+                    "    FOREIGN KEY (%s) REFERENCES %s (id) ON DELETE CASCADE" % (field_name, ref_table)
                 )
 
         # Build CREATE TABLE (terminate with ';' so executescript
