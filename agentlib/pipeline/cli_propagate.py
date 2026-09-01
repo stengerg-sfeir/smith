@@ -150,6 +150,41 @@ svc_design, designs):
 
     def synth(name, params, returns, defaults=None, flag_filters=None):
         if name in sigs:
+            # Signature-coherence repair (option diffusion fix). A CLI command
+            # that targets an EXISTING service method may expose options for
+            # entity fields the LLM-designed signature omitted (customer-add
+            # --phone -> add_customer(name, email)). The CLI is the single
+            # source of truth (service is deduced from CLI), so extend the
+            # existing method's params to cover every CLI-derived option. The
+            # deterministic renderer then emits the repaired signature and the
+            # fill produces a consistent body — never edit generated code.
+            entry = sigs[name]
+            existing = {
+                p.get("name")
+                for p in entry.get("params") or []
+                if isinstance(p, dict) and p.get("name")
+            }
+            missing = [
+                {"name": n, "type": t}
+                for n, t in params
+                if n not in existing
+            ]
+            if missing:
+                entry.setdefault("params", []).extend(missing)
+                if defaults is not None:
+                    entry["defaults"] = defaults
+                if flag_filters is not None:
+                    entry["flag_filters"] = flag_filters
+                notes.append(
+                    "extended %s(%s) to serve CLI options"
+                    % (
+                        name,
+                        ", ".join(
+                            str(p.get("name"))
+                            for p in (entry.get("params") or [])
+                        ),
+                    )
+                )
             return name
         entry = {
             "name": name,

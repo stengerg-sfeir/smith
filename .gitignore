@@ -20,3 +20,8 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Generated files
+
+generated/
+behavior_runs
