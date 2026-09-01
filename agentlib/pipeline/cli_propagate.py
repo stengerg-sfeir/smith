@@ -709,7 +709,6 @@ def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
         notes = _propagate_cli_commands(
             trial_data, prompt_text, trial_ents, trial_svc, designs
         )
-        new_methods = trial_svc.get("methods") or []
         if notes:
             # Commit: replay the deterministic mutations on the LIVE
             # structures (entities_by_class values ARE the models-design

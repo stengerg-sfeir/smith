@@ -373,6 +373,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             for cls, ent in entities_by_class.items()
         },
         "service_file": svc_paths[0] if svc_paths else None,
+        "service_design": svc_design,
         "service_methods": [
             m.get("name") for m in service_methods
             if isinstance(m, dict) and m.get("name")

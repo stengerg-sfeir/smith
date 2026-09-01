@@ -37,6 +37,74 @@ from agentlib.checks.ast_utils import (
 from agentlib.naming import _generate_database_file
 
 
+def _restore_service_signatures(files, design_ctx, verbose=False):
+    """Re-impose the designed service method signatures after LLM repair.
+
+    The multi-pass repair rewrites a service file to fix import/structural
+    errors, and the small model can drop CLI-derived params (e.g.
+    add_customer(name, email) instead of the designed
+    add_customer(name, email, phone)) — the service↔CLI option-diffusion
+    bug. The service signatures are a design contract; restore them
+    deterministically so the CLI options resolve at runtime.
+    """
+    import ast as _ast
+
+    from agentlib.generation.helpers import _method_stub_code
+
+    svc_file = design_ctx.get("service_file")
+    svc_design = design_ctx.get("service_design")
+    if not svc_file or not svc_design or svc_file not in files:
+        return
+    content = files[svc_file]
+    try:
+        tree = _ast.parse(content)
+    except SyntaxError:
+        return
+    fn_nodes = {
+        n.name: n
+        for n in _ast.walk(tree)
+        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+    }
+    lines = content.split("\n")
+    # Class-body indentation: the repair can pull methods out of the class
+    # (column 0); restored methods must go back INSIDE the class body.
+    class_indent = 4
+    for node in tree.body:
+        if isinstance(node, _ast.ClassDef):
+            for sub in node.body:
+                if isinstance(sub, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    class_indent = sub.col_offset
+                    break
+            break
+    replacements = []
+    for m in svc_design.get("methods") or []:
+        name = m.get("name")
+        if not name or name not in fn_nodes:
+            continue
+        fn = fn_nodes[name]
+        expected = _method_stub_code(m, indent=0, safe_body=True)
+        expected_def = expected.split("\n")[0].rstrip()
+        lineno = fn.lineno
+        if lineno < 1 or lineno > len(lines):
+            continue
+        actual = lines[lineno - 1]
+        if not actual.lstrip().startswith("def %s(" % name):
+            continue
+        # Re-impose the class-body indentation AND the design signature.
+        # Skip only when BOTH are already correct — the repair may have left
+        # a matching signature but pulled the method out to column 0.
+        if actual.lstrip() == expected_def and actual[: class_indent] == " " * class_indent:
+            continue
+        replacements.append((lineno - 1, lineno - 1, " " * class_indent + expected_def))
+    if replacements:
+        for s, e, new in sorted(replacements, reverse=True):
+            lines[s:e + 1] = [new]
+        files[svc_file] = "\n".join(lines)
+        if verbose:
+            print("    [restore] re-imposed %d service signature(s) from design"
+                  % len(replacements))
+
+
 def _multi_pass(prompt_text, verbose=False):
     """Manifest-first generation with a deterministic finalize phase.
 
@@ -161,6 +229,9 @@ def _multi_pass(prompt_text, verbose=False):
             "unresolved import-level errors after repair: %s"
             % "; ".join(ast_errors[:4])
         )
+
+    # ---- Restore designed service signatures (repair may drop CLI params) ----
+    _restore_service_signatures(files, design_ctx, verbose)
 
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))

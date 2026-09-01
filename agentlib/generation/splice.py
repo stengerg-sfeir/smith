@@ -55,7 +55,16 @@ def _merge_stub_bodies(deterministic, filled, stub_names):
             isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name in needed
         ):
-            new_src = ast.unparse(found[node.name])
+            # Preserve the DETERMINISTIC signature (the design contract) but
+            # take the BODY from the fill. Replacing the whole function with
+            # ast.unparse(filled) let the LLM drop CLI-derived params (e.g.
+            # add_customer(name, email) instead of the designed
+            # add_customer(name, email, phone)) — the service↔CLI option
+            # diffusion bug. Only the body is non-contractual; splice it in.
+            import copy as _copy
+            merged_fn = _copy.deepcopy(node)
+            merged_fn.body = found[node.name].body
+            new_src = ast.unparse(merged_fn)
             repls.append(
                 (
                     node.lineno,

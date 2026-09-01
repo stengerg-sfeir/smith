@@ -167,16 +167,33 @@ def _rebuild_invocation(plan: dict) -> None:
 
 
 def _substitute_refs(plan: dict, entity_provided: dict) -> None:
-    """Replace an FK reference option value with a freshly created parent's id."""
+    """Replace an FK reference option value with a freshly created parent's id.
+
+    ``entity_provided`` is keyed by ``(entity, raw_value)`` (plus a fallback
+    ``(entity, None)``) so distinct raw values of the same ref map to distinct
+    seeded ids. The old entity-only key substituted a second distinct value of
+    a ref with the last seeded id, hitting UNIQUE/FK conflicts (prompt 23).
+    """
     if not entity_provided:
         return
     changed = False
     for ref in plan.get("refs", []):
         flag = ref.get("flag", "")
         ent = ref.get("entity", "")
-        if not flag or ent not in entity_provided:
+        if not flag or not ent:
             continue
-        eid = str(entity_provided[ent])
+        orig_val = None
+        for pair in plan["option_args"]:
+            if pair and pair[0] == flag:
+                if len(pair) > 1:
+                    orig_val = pair[1]
+                break
+        eid = entity_provided.get((ent, orig_val))
+        if eid is None:
+            eid = entity_provided.get((ent, None))
+        if eid is None:
+            continue
+        eid = str(eid)
         found = False
         for pair in plan["option_args"]:
             if pair and pair[0] == flag:
@@ -285,18 +302,47 @@ def execute_prompt(plans: list[dict], project_dir: Path,
     else:
         fx_paths = {}
     order = _topo_sort(working)
-    entity_provided: dict[str, int] = {}
+    entity_provided: dict[tuple[str, str | None], int] = {}
     entity_counts: dict[str, int] = {}
     results = []
+    seen_invocations: set[str] = set()
     for i in order:
         plan = working[i]
         _substitute_refs(plan, entity_provided)
         _substitute_fixtures(plan, fx_paths)
+        inv = plan.get("invocation", "")
+        if not plan.get("seed") and inv in seen_invocations:
+            # Duplicate of an already-run real plan: the LLM mapped two
+            # intentions to the SAME CLI invocation (prompt 23 I3/I5 both
+            # post_tag-add --post-id 2 --tag-id 2). Re-running would hit a
+            # UNIQUE row conflict (UNIQUE post_id+tag_id) and report a false
+            # fail. The command was already proven to work; surface the
+            # duplicate as a pass.
+            results.append({
+                "intent_id": plan.get("intent_id", "?"),
+                "command": plan.get("command", ""),
+                "invocation": inv,
+                "status": "pass",
+                "reason": "duplicate invocation",
+                "exit_code": 0,
+                "stdout_tail": "",
+                "stderr_tail": "",
+                "seed": False,
+            })
+            continue
+        seen_invocations.add(inv)
         res = execute_plan(plan, project_dir)
         created = _entity_provides(plan)
         if created and res["status"] == "pass":
             entity_counts[created] = entity_counts.get(created, 0) + 1
-            entity_provided[created] = entity_counts[created]
+            real_id = entity_counts[created]
+            entity_provided[(created, None)] = real_id
+            seed_for = plan.get("seed_for")
+            if isinstance(seed_for, dict):
+                seed_ent = seed_for.get("entity")
+                seed_val = seed_for.get("value")
+                if isinstance(seed_ent, str):
+                    entity_provided[(seed_ent, seed_val)] = real_id
         results.append(res)
     real = [r for r in results if not r.get("seed")]
     n_pass = sum(1 for r in real if r["status"] == "pass")

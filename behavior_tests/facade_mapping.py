@@ -147,6 +147,11 @@ _MAPPING_SYSTEM = (
     "Never invent a command or a flag.\n"
     "- If several commands could fit, pick the one whose target/name best "
     "matches the intention's verbs and objects.\n"
+    "- An intention that says \"delete/update/remove <entity> by <attr>\" (or "
+    "\"by name\") is STILL fulfilled by a <entity>-delete/update command that "
+    "takes --id: provide a small integer id placeholder. The tester seeds the "
+    "entity and substitutes the real id. Do NOT mark \"no fit\" just because "
+    "the intention names an attribute the command does not expose.\n"
     "- creates: the entity this command CREATES (e.g. \"Category\", "
     "\"Product\", \"Task\"), or \"\" if it is not a create operation. Use the "
     "singular entity name.\n"
@@ -468,7 +473,8 @@ def _find_create_cmd(facade: dict, entity: str, design: dict | None) -> dict | N
     return None
 
 
-def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None) -> dict:
+def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
+                    value: str | None = None) -> dict:
     """Build a minimal create-plan for ``entity`` so the executor can seed it.
 
     The mapper only creates plans for real user intentions, so a consumer that
@@ -477,15 +483,24 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None) -
     and the consumer hits ``FOREIGN KEY constraint failed``. This synthesizes a
     create-plan (flagged ``seed: True``) using the real facade command, so the
     executor can run it first and substitute the real parent id.
+
+    ``value`` (the raw reference value being seeded, e.g. "2") is folded into
+    the string seed values so distinct raw values produce DISTINCT rows — a
+    fixed ``seed-<entity>`` would collide on UNIQUE string columns (e.g. two
+    customer-add seeds both ``email seed-customer`` -> UNIQUE email fail).
     """
     args: list[dict] = []
+    suffix = str(value) if value not in (None, "") else ""
     for opt in cmd.get("options", []):
         flag = _opt_flag_name(opt)
         if not flag or opt.get("flag"):
             continue  # boolean flags are never required by the surface
         if not opt.get("required"):
             continue
-        val = "1" if opt.get("type") == "int" else f"seed-{_snake(entity)}"
+        if opt.get("type") == "int":
+            val = "1"
+        else:
+            val = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
         args.append({"flag": flag, "value": val})
     for arg in cmd.get("arguments", []):
         dest = arg.get("dest") or ""
@@ -520,33 +535,95 @@ def _synthesize_seed_plans(plans: list[dict], facade: dict,
                            design: dict | None) -> list[dict]:
     """Add seed create-plans for ref'd entities that no plan creates.
 
-    Fixpoint loop: a seed may itself reference a parent (FK), which then needs
-    its own seed. Each synthesized plan is marked ``seed: True`` so the
-    executor can order it first and exclude it from the pass/fail aggregate.
+    Keyed by (entity, raw_value) so two DIFFERENT values of the same entity in
+    distinct plans (post_tag-add --tag-id 1 then --tag-id 2) get separate seeds,
+    and the executor can substitute each raw value with its own real id. The old
+    behavior created ONE seed per entity, so a second distinct value of the same
+    ref was substituted with the (single) seeded id and often hit a UNIQUE/FK
+    conflict (prompt 23 post_tag-add --tag-id 2). Each seed records ``seed_for``
+    so the executor maps (entity, value) -> real id.
     """
     if not plans or not design:
         return plans
     updated = list(plans)
-    created = {p.get("creates") for p in updated if p.get("creates")}
+    seeded_keys: set[tuple[str, str | None]] = set()
+
+    def _ref_value(plan: dict, flag: str):
+        for pair in plan.get("option_args", []):
+            if pair and pair[0] == flag and len(pair) > 1:
+                return pair[1]
+        return None
+
+    def _seed_for(plan: dict) -> None:
+        for ref in plan.get("refs", []):
+            if not isinstance(ref, dict):
+                continue
+            ent = ref.get("entity")
+            flag = ref.get("flag")
+            if not ent or not flag:
+                continue
+            val = _ref_value(plan, flag)
+            key = (ent, val)
+            if key in seeded_keys:
+                continue
+            cmd = _find_create_cmd(facade, ent, design)
+            if cmd is None:
+                continue
+            seed = _make_seed_plan(cmd, ent, facade, design, value=val)
+            seed["seed_for"] = {"entity": ent, "value": val, "flag": flag}
+            updated.append(seed)
+            seeded_keys.add(key)
+
     changed = True
     while changed:
         changed = False
+        before = len(updated)
         for plan in updated:
             if plan.get("status") != "mapped":
                 continue
-            for ref in plan.get("refs", []):
-                if not isinstance(ref, dict):
-                    continue
-                ent = ref.get("entity")
-                if not ent or ent in created:
-                    continue
-                cmd = _find_create_cmd(facade, ent, design)
-                if cmd is None:
-                    continue
-                updated.append(_make_seed_plan(cmd, ent, facade, design))
-                created.add(ent)
-                changed = True
+            _seed_for(plan)
+        if len(updated) != before:
+            changed = True
     return updated
+
+
+def _delete_fallback(intent: dict, facade: dict,
+                     design: dict | None) -> dict | None:
+    """Deterministic fallback: map "delete/remove <entity> by <attr>" to the
+    <entity>-delete command when the LLM refused.
+
+    The 4B mapping model can return command="" for an intention that names a
+    delete/remove by a non-id attribute ("remove a product by name") because
+    the facade exposes only a *_delete --id command. The executor seeds the
+    entity and substitutes the real id via refs, so this is a valid mapping.
+    Only fires when the LLM left the intention unmapped, and only for a
+    command whose entity token appears in the intention text.
+    """
+    text = (intent.get("text") or "").lower()
+    if not any(v in text for v in ("delete", "remove")):
+        return None
+    for cmd in facade.get("commands", []):
+        name = cmd.get("name", "")
+        if not isinstance(name, str) or not name.endswith("-delete"):
+            continue
+        ent_token = name[: -len("-delete")].replace("-", "_")
+        ent_variants = {ent_token, ent_token + "s", ent_token.rstrip("s")}
+        if not any(v in text for v in ent_variants):
+            continue
+        id_opt = next(
+            (o for o in cmd.get("options", [])
+             if _opt_flag_name(o) in ("--id", "--" + ent_token + "_id")),
+            None,
+        )
+        if id_opt is None:
+            continue
+        m = {
+            "intent_id": intent.get("intent_id", "?"),
+            "command": name,
+            "args": [{"flag": _opt_flag_name(id_opt), "value": "1"}],
+        }
+        return _build_plan(intent, m, facade, design=design)
+    return None
 
 
 def _unmapped(intent: dict, reason: str) -> dict:
@@ -628,6 +705,17 @@ def map_intentions(intentions: list[dict], facade: dict,
                 plans[i] = _build_plan(it, m, facade, design=design)
         pending = next_pending
         errors_by_idx = next_errors
+
+    # Deterministic delete-by-name fallback: the 4B mapping model may refuse
+    # to bind "delete/remove <entity> by <attr>" to a *_delete --id command,
+    # which is exactly what the generator produces. Align the tester on the
+    # generator's real surface instead of surfacing a false unmapped.
+    for i in range(len(intentions)):
+        p = plans[i]
+        if p is None or p.get("status") == "unmapped":
+            fb = _delete_fallback(intentions[i], facade, design)
+            if fb is not None:
+                plans[i] = fb
 
     for i in range(len(intentions)):
         if plans[i] is None:
