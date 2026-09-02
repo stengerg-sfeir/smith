@@ -535,20 +535,27 @@ def _apply_impl_floors(entities_by_class, designs):
             if not isinstance(m, dict):
                 continue
             mname = m.get("name") or ""
-            # add_/create_<entity> are deterministic CRUD creates — a
-            # hallucinated aggregate impl (the LLM designed add_room with
-            # {"kind": "total_in_period"}) must be CLEARED so the create body
-            # renders via generic delegation instead of a sum-of-rows.
-            if re.match(r"^(add|create)_", mname):
-                m.pop("impl", None)
-            if m.get("impl") is not None:
-                continue
             returns = m.get("returns") or ""
             low_ret = returns.lower()
             grouped = (
                 "list" in low_ret
                 and ("Dict" in returns or "dict" in returns)
             )
+            # add_/create_<entity> are deterministic CRUD creates — a
+            # hallucinated aggregate impl (the LLM designed add_room with
+            # {"kind": "total_in_period"}) must be CLEARED so the create body
+            # renders via generic delegation instead of a sum-of-rows.
+            if re.match(r"^(add|create)_", mname):
+                m.pop("impl", None)
+            # list_<entity> returning List[Dict] is a grouped report per the
+            # grouped-count floor below; a hallucinated aggregate impl
+            # (sum_by_group over id, duplicate_groups with a hardcoded
+            # threshold) must be CLEARED so that floor can stamp
+            # count_by_group instead of a nonsense sum-of-ids.
+            if mname.startswith("list_") and grouped:
+                m.pop("impl", None)
+            if m.get("impl") is not None:
+                continue
             # CRUD verbs (add/create/update/delete/get/search/find) are
             # rendered deterministically via generic delegation — never stamp
             # an aggregate impl over them.
