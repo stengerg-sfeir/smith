@@ -6,6 +6,7 @@ given, ONLY the stubs travel to the LLM inside a mini-skeleton and an
 accepted fill is spliced back per-method. No behaviour change.
 """
 import ast
+import builtins
 import re
 from pathlib import Path
 
@@ -1071,6 +1072,88 @@ def _dict_shaped_expr(node):
     )
 
 
+def _undefined_name_violations(tree):
+    """Flag bare Name loads in a fill that are never bound anywhere.
+
+    The LLM fill re-emits the whole service file with the locked header, so
+    collecting every imported/defined/param/assigned name across the tree
+    yields the names that may legally appear. A Name used in a Load context
+    and absent from that set is a guaranteed NameError at runtime — e.g.
+    prompt 18's import_contact referenced ``filename`` which is neither a
+    parameter, an import, nor a local assignment. Builtins are always
+    available. Over-collecting bound names keeps this conservative: it only
+    fires on names that are truly never bound, so valid fills are not
+    spuriously rejected.
+    """
+    bound = set(dir(builtins))
+    bound.add("self")
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bound.add(node.name)
+            args = node.args
+            for arg in list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs):
+                bound.add(arg.arg)
+            if args.vararg:
+                bound.add(args.vararg.arg)
+            if args.kwarg:
+                bound.add(args.kwarg.arg)
+        elif isinstance(node, ast.Lambda):
+            args = node.args
+            for arg in list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs):
+                bound.add(arg.arg)
+            if args.vararg:
+                bound.add(args.vararg.arg)
+            if args.kwarg:
+                bound.add(args.kwarg.arg)
+        elif isinstance(node, ast.ClassDef):
+            bound.add(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                for n in ast.walk(tgt):
+                    if isinstance(n, ast.Name):
+                        bound.add(n.id)
+        elif isinstance(node, ast.AugAssign):
+            for n in ast.walk(node.target):
+                if isinstance(n, ast.Name):
+                    bound.add(n.id)
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            for n in ast.walk(node.target):
+                if isinstance(n, ast.Name):
+                    bound.add(n.id)
+        elif isinstance(node, ast.With):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    for n in ast.walk(item.optional_vars):
+                        if isinstance(n, ast.Name):
+                            bound.add(n.id)
+        elif isinstance(node, ast.ExceptHandler):
+            if node.name:
+                bound.add(node.name)
+        elif isinstance(node, ast.comprehension):
+            for n in ast.walk(node.target):
+                if isinstance(n, ast.Name):
+                    bound.add(n.id)
+        elif isinstance(node, ast.NamedExpr):
+            if isinstance(node.target, ast.Name):
+                bound.add(node.target.id)
+
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if node.id not in bound:
+                violations.append(
+                    "undefined name %r — not a parameter, import, or local "
+                    "variable of this method" % node.id
+                )
+    return violations
+
+
 def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
     """Mechanical contract check of an LLM service fill.
 
@@ -1331,6 +1414,36 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
             )
     if type_ctx:
         violations.extend(_semantic_fill_violations(tree, type_ctx))
+    violations.extend(_undefined_name_violations(tree))
+    # Signature-drift gate: the LLM can "fix" an undefined body by changing a
+    # method's parameters (prompt 18's import_contact wrote `filename` while
+    # the design declares `id`). _merge_stub_bodies preserves the DESIGNED
+    # signature and splices only the body, so a drifted param is undefined at
+    # runtime in the merged file. Reject any filled method whose params (minus
+    # self) do not match the designed params exactly.
+    for m in svc_design.get("methods") or []:
+        if not isinstance(m, dict) or not m.get("name"):
+            continue
+        mtype = next(
+            (n for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and n.name == m["name"]),
+            None,
+        )
+        if mtype is None:
+            continue
+        designed = [
+            p.get("name") for p in (m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        ]
+        actual = [a.arg for a in mtype.args.args if a.arg != "self"]
+        if set(actual) - set(designed):
+            violations.append(
+                "signature drift: %s(%s) introduces parameter(s) not in the "
+                "designed signature (%s)" % (
+                    m["name"], ", ".join(actual), ", ".join(designed)
+                )
+            )
     return violations
 
 
