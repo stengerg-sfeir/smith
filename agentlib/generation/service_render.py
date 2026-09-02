@@ -918,13 +918,29 @@ def _semantic_fill_violations(tree, type_ctx):
     var_keys = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
-            hit = _repo_call_key_tag(node.value)
-            if hit:
-                (attr, meth), tag = hit
+            tag = None
+            keys = None
+            # Direct entity construction (Task(**data) / Task(...)) yields an
+            # entity instance: attribute/method access on it is checked
+            # against the declared fields too, so a non-existent method like
+            # task.to_dict() (prompt 19's import_task) is rejected. Previously
+            # only repo-call results were tagged, so constructor-built entities
+            # escaped the field check.
+            if (
+                isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in entity_fields
+            ):
+                tag = ("entity", node.value.func.id)
+            else:
+                hit = _repo_call_key_tag(node.value)
+                if hit:
+                    (attr, meth), tag = hit
+                    keys = dict_keys.get((attr, meth))
+            if tag:
                 for tgt in node.targets:
                     if isinstance(tgt, ast.Name):
                         var_types[tgt.id] = tag
-                        keys = dict_keys.get((attr, meth))
                         if keys:
                             var_keys[tgt.id] = keys
         elif isinstance(node, ast.For):
@@ -970,7 +986,13 @@ def _semantic_fill_violations(tree, type_ctx):
             if not tag or node.attr in _DICT_METHODS:
                 continue
             if tag[0] == "entity":
-                if node.attr not in entity_fields.get(tag[1], set()):
+                if (
+                    node.attr not in entity_fields.get(tag[1], set())
+                    and not (
+                        node.attr.startswith("__")
+                        and node.attr.endswith("__")
+                    )
+                ):
                     violations.append(
                         "%s.%s: unknown field %r on %s (declared: %s)"
                         % (
