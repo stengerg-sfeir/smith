@@ -532,9 +532,17 @@ def _apply_impl_floors(entities_by_class, designs):
         if kind != "services" or not isinstance(data, dict):
             continue
         for m in data.get("methods") or []:
-            if not isinstance(m, dict) or m.get("impl") is not None:
+            if not isinstance(m, dict):
                 continue
             mname = m.get("name") or ""
+            # add_/create_<entity> are deterministic CRUD creates — a
+            # hallucinated aggregate impl (the LLM designed add_room with
+            # {"kind": "total_in_period"}) must be CLEARED so the create body
+            # renders via generic delegation instead of a sum-of-rows.
+            if re.match(r"^(add|create)_", mname):
+                m.pop("impl", None)
+            if m.get("impl") is not None:
+                continue
             returns = m.get("returns") or ""
             low_ret = returns.lower()
             grouped = (
@@ -1251,6 +1259,36 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
                         "index it with '%s'" % (node.value.id, k[0], k[1], sval)
                         + _ret_note(k[0], k[1])
                     )
+    # CRUD create contract (prompt 27's add_room): an add_<entity> /
+    # create_<entity> fill MUST construct the entity and insert it through
+    # the repository's deterministic create() — never return a query /
+    # aggregation result (add_room returned sum(e.id ...) = no insert).
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        mm = re.match(r"^(add|create)_([a-z][a-z0-9_]*)$", node.name)
+        if not mm:
+            continue
+        ent_snake = mm.group(2)
+        repo_attr = ent_snake + "_repo"
+        if repo_attr not in repo_interface:
+            continue
+        calls_create = any(
+            isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Attribute)
+            and isinstance(c.func.value, ast.Attribute)
+            and isinstance(c.func.value.value, ast.Name)
+            and c.func.value.value.id == "self"
+            and c.func.value.attr == repo_attr
+            and c.func.attr == "create"
+            for c in ast.walk(node)
+        )
+        if not calls_create:
+            violations.append(
+                "add_%s fill must construct the entity and call "
+                "self.%s_repo.create(...); not return a query result"
+                % (ent_snake, ent_snake)
+            )
     if type_ctx:
         violations.extend(_semantic_fill_violations(tree, type_ctx))
     return violations
