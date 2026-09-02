@@ -84,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         unmapped = [p for p in plans if p["status"] == "unmapped"]
         mapped_all = [p for p in plans if p["status"] == "mapped"]
         mapped = [p for p in mapped_all if not p.get("seed")]
-        outcome = execute_prompt(mapped_all, proj, fresh_db=True, fixtures=FIXTURES)
+        outcome = execute_prompt(mapped_all, proj, fresh_db=True, fixtures=FIXTURES,
+                                 design=design)
         outcome["unmapped"] = unmapped
 
         status = "ok"

@@ -25,6 +25,7 @@ import sys
 from collections import deque
 from pathlib import Path
 
+from behavior_tests.facade_mapping import _make_sql_seed_plan
 from behavior_tests.fixtures import materialize_fixtures
 
 
@@ -106,6 +107,23 @@ def _is_delete(plan: dict) -> bool:
     return (plan.get("target") or "").lower().startswith("delete_")
 
 
+def _is_db_init(plan: dict) -> bool:
+    """A schema-initializing command (init-db / create-db / setup / migrate).
+
+    Prompt 04's generated CLI exposes ``todo_app.py init-db`` that creates the
+    SQLite schema. Every other command (add/list/complete/delete) touches the
+    ``tasks`` table, so the init must run FIRST — the topo sort otherwise
+    treats it as a plain "other" and runs it after the DB commands, yielding
+    ``no such table: tasks`` (a false tester fail).
+    """
+    cmd = (plan.get("command") or "").lower().replace("-", "_")
+    target = (plan.get("target") or "").lower()
+    return any(
+        s.startswith(("init", "create_db", "setup", "migrate", "reset_db"))
+        for s in (cmd, target)
+    )
+
+
 def _topo_sort(plans: list[dict]) -> list[int]:
     """Order plan indices: creators, then readers/mutators, then deleters.
 
@@ -119,9 +137,15 @@ def _topo_sort(plans: list[dict]) -> list[int]:
       that FK references them.
     """
     n = len(plans)
+    # Schema-initializers run before ANY create/read/mutate/delete.
+    db_inits = [i for i in range(n) if _is_db_init(plans[i])]
     providers = [i for i in range(n) if _entity_provides(plans[i])]
-    deleters = [i for i in range(n) if not _entity_provides(plans[i]) and _is_delete(plans[i])]
-    others = [i for i in range(n) if not _entity_provides(plans[i]) and not _is_delete(plans[i])]
+    deleters = [i for i in range(n)
+                if not _entity_provides(plans[i]) and not _is_db_init(plans[i])
+                and _is_delete(plans[i])]
+    others = [i for i in range(n)
+              if not _entity_provides(plans[i]) and not _is_db_init(plans[i])
+              and not _is_delete(plans[i])]
 
     provides: dict[str, int] = {}
     for i in providers:
@@ -148,7 +172,8 @@ def _topo_sort(plans: list[dict]) -> list[int]:
     order.extend(i for i in providers if i not in done)  # creator cycles/leftovers last
     order.extend(others)
     order.extend(deleters)
-    return order
+    # Schema initializers must run before anything that touches the DB.
+    return list(db_inits) + order
 
 
 def _rebuild_invocation(plan: dict) -> None:
@@ -188,9 +213,21 @@ def _substitute_refs(plan: dict, entity_provided: dict) -> None:
                 if len(pair) > 1:
                     orig_val = pair[1]
                 break
-        eid = entity_provided.get((ent, orig_val))
-        if eid is None:
+        kind = ref.get("kind", "fk")
+        if kind == "target":
+            # A "target" ref points at the row the command MUTATES (update/
+            # delete/state-transition). Prefer the real FIRST-created row (keyed
+            # by (ent, None)) over a synthetic seed, so the mutation targets the
+            # actual entity the user created, not a redundant seed — prompt
+            # 07/11's book-update --id 1 must hit the real Gatsby (id 1), not
+            # the seed (id 2). FK refs (parents) still use the raw-value key.
             eid = entity_provided.get((ent, None))
+            if eid is None:
+                eid = entity_provided.get((ent, orig_val))
+        else:
+            eid = entity_provided.get((ent, orig_val))
+            if eid is None:
+                eid = entity_provided.get((ent, None))
         if eid is None:
             continue
         eid = str(eid)
@@ -280,7 +317,8 @@ def _materialise_plans_fixtures(plans: list[dict], fixtures: dict | None,
 def execute_prompt(plans: list[dict], project_dir: Path,
                    fresh_db: bool = True,
                    fixtures: dict | None = None,
-                   fixtures_out_dir: Path | None = None) -> dict:
+                   fixtures_out_dir: Path | None = None,
+                   design: dict | None = None) -> dict:
     """Execute all plans for one prompt with seeding and aggregate outcomes.
 
     Orders creators before consumers, substitutes freshly-seeded parent ids into
@@ -332,11 +370,56 @@ def execute_prompt(plans: list[dict], project_dir: Path,
             continue
         seen_invocations.add(inv)
         res = execute_plan(plan, project_dir)
+        # Reactive retry for state-conflict mutations (prompt 32): a non-create
+        # plan whose refs target its OWN entity (an order-confirm/ship/cancel
+        # state transition, or an update/delete on a previously-mutated row) may
+        # reuse a row a PRIOR plan already advanced into an incompatible state
+        # (order-confirm -> order-ship -> order-cancel on the same seeded id, so
+        # cancel correctly raises OrderAlreadyShippedError). When it fails, seed
+        # a FRESH row for the target entity and retry once. If the retry also
+        # fails, the original failure was a real bug (the fresh row couldn't make
+        # it pass either).
+        if res["status"] == "fail" and not plan.get("seed") and design:
+            for ref in plan.get("refs", []):
+                if not isinstance(ref, dict) or ref.get("kind") != "target":
+                    continue
+                ent = ref.get("entity")
+                flag = ref.get("flag")
+                if not ent or not flag:
+                    continue
+                val = None
+                for pair in plan.get("option_args", []):
+                    if pair and pair[0] == flag and len(pair) > 1:
+                        val = pair[1]
+                        break
+                seed = _make_sql_seed_plan(ent, val, design)
+                if seed is None:
+                    continue
+                seed["seed_for"] = {"entity": ent, "value": val, "flag": flag}
+                seed_res = execute_plan(seed, project_dir)
+                if seed_res["status"] != "pass":
+                    continue  # fresh seed failed too — original failure stands
+                real_id = entity_counts.get(ent, 0) + 1
+                entity_counts[ent] = real_id
+                entity_provided[(ent, None)] = real_id
+                entity_provided[(ent, val)] = real_id
+                _substitute_refs(plan, entity_provided)
+                inv = plan.get("invocation", "")
+                res = execute_plan(plan, project_dir)
+                break
         created = _entity_provides(plan)
         if created and res["status"] == "pass":
             entity_counts[created] = entity_counts.get(created, 0) + 1
             real_id = entity_counts[created]
-            entity_provided[(created, None)] = real_id
+            # Only REAL plans register the entity-keyed (ent, None) id. A
+            # synthesized seed represents a SPECIFIC value, so it registers only
+            # (ent, val) — otherwise it overwrites (ent, None) with a higher
+            # seed id and a target ref (update/delete/transition) hits the seed
+            # row instead of the real one (prompt 07/11's book-update targeted
+            # the seed book, not the real Gatsby). The reactive-retry seed in
+            # the failure branch sets (ent, None) explicitly for a fresh row.
+            if not plan.get("seed"):
+                entity_provided[(created, None)] = real_id
             seed_for = plan.get("seed_for")
             if isinstance(seed_for, dict):
                 seed_ent = seed_for.get("entity")

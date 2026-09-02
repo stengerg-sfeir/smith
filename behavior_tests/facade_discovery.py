@@ -148,8 +148,12 @@ def _parse_click_command(node: ast.FunctionDef) -> dict | None:
                 "required": True,
             })
 
-    # command name: from @x.command('name') / @click.command('name'), else fn name
-    cmd_name = node.name
+    # command name: from @x.command('name') / @click.command('name'), else fn name.
+    # Click hyphenates underscore function names (def list_tasks -> command
+    # "list-tasks", def init_db -> "init-db"); an explicit @command('x') name
+    # wins. Without this the tester invokes "list_tasks" and click returns
+    # "No such command 'list_tasks'" (exit=2) — a false tester fail.
+    cmd_name = node.name.replace("_", "-")
     for dec in node.decorator_list:
         if not isinstance(dec, ast.Call):
             continue

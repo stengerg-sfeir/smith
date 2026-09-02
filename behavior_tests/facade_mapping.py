@@ -139,7 +139,11 @@ _MAPPING_SYSTEM = (
     "and its value. For a boolean FLAG option, value is \"\" (bare flag — no "
     "value). Include EVERY required option/argument and any optional one the "
     "intention mentions. If a command has no required inputs, args is [] (an "
-    "empty list).\n"
+    "empty list). A non-flag OPTION must ALWAYS carry a concrete, non-empty "
+    "value: when the intention is vague about the filter (e.g. \"list by name\" "
+    "without a name), invent a plausible one (a known sample value, a small "
+    "integer like 1, or a representative date). Never emit an empty value for "
+    "a non-flag option — click rejects `--opt \"\"` as \"requires an argument\".\n"
     "- Choose values that fit the option type (int options get integers, str "
     "get text). For id / reference options you may use small integers; the "
     "tester may substitute seeded ids later.\n"
@@ -364,7 +368,9 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
             resolved = field
         ref_ent = fk_by_param.get(resolved)
         if ref_ent:
-            refs.append({"flag": flag, "entity": ref_ent})
+            # "fk" refs point at a PARENT that must be seeded once and shared
+            # (e.g. --customer-id -> Customer). One parent serves many children.
+            refs.append({"flag": flag, "entity": ref_ent, "kind": "fk"})
             continue
         # Targeted-PK reference: update/delete/get, or a state transition
         # (confirm/ship/cancel/approve) of an already-seeded row. A non-create
@@ -379,7 +385,11 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
                 or resolved == "id"
             )
             if id_like:
-                refs.append({"flag": flag, "entity": target_entity})
+                # "target" refs point at the row the command MUTATES. A prior
+                # plan may have mutated that same row into an incompatible state,
+                # so the executor must be able to give this plan a FRESH row
+                # (prompt 32: order-cancel after order-ship on the same id).
+                refs.append({"flag": flag, "entity": target_entity, "kind": "target"})
     return creates, refs
 
 
@@ -497,7 +507,7 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
             continue  # boolean flags are never required by the surface
         if not opt.get("required"):
             continue
-        if opt.get("type") == "int":
+        if opt.get("type") in ("int", "float"):
             val = "1"
         else:
             val = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
@@ -560,7 +570,7 @@ def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | 
         if not col:
             continue
         cols.append(col)
-        if f.get("type") == "int":
+        if f.get("type") in ("int", "float"):
             vals.append("1")
         else:
             v = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
