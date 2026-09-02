@@ -968,6 +968,26 @@ def _semantic_fill_violations(tree, type_ctx):
                     "['%s'] instead of .%s"
                     % (node.value.id, node.attr, node.attr)
                 )
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("isoformat", "strftime", "date", "timestamp")
+        ):
+            # SQLite round-trips date/datetime columns as str, so a model
+            # field read back from the repo is a str at runtime. Calling
+            # .isoformat()/.strftime()/... on it raises AttributeError
+            # (prompt 27's get_reservation_report did
+            # reservation.start_date.isoformat()). Reject so the retry
+            # passes the string through or parses it explicitly.
+            val = node.func.value
+            if isinstance(val, ast.Attribute) and isinstance(val.value, ast.Name):
+                tag = var_types.get(val.value.id)
+                if tag and tag[0] == "entity":
+                    violations.append(
+                        "%s.%s is read back from SQLite (str for date/datetime); "
+                        "do not call .%s() on it — pass the string through"
+                        % (val.value.id, val.attr, node.func.attr)
+                    )
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
 
             def _side_kind(n):
