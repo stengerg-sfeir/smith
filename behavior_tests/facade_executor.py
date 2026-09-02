@@ -179,6 +179,8 @@ def _topo_sort(plans: list[dict]) -> list[int]:
 def _rebuild_invocation(plan: dict) -> None:
     """Recompute the invocation string from the plan's args."""
     parts = ["python3"]
+    if plan.get("module"):
+        parts.append("-m")
     if plan.get("entry"):
         parts.append(plan["entry"])
     if plan.get("kind") == "click_group" and plan.get("command"):

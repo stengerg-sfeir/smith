@@ -161,6 +161,58 @@ def _synthesize_cli_repos(designs, entities_by_class, manifest):
                     _ensure_repo(ref_cls)
 
 
+def _merge_duplicate_entity(existing, additional):
+    """Merge a duplicate entity design into the canonical one (in place).
+
+    A class declared in two model files with differing field sets is
+    reconciled by unioning fields. Without this, the LAST design wins in
+    entities_by_class (so repo/service use every column), but the service
+    imports the FIRST model module — which may render a shorter class —
+    producing a TypeError at runtime. Fusion preserves a valid dataclass
+    ordering (required fields before optional/defaulted ones), since a
+    non-default field appended after ``id`` (which defaults to None) would
+    render an invalid dataclass. Returns ``existing``.
+    """
+    if not isinstance(existing, dict) or not isinstance(additional, dict):
+        return existing
+    existing.setdefault("fields", [])
+    existing.setdefault("fks", [])
+    existing.setdefault("unique_together", [])
+
+    def _is_optional(f):
+        return f.get("name") == "id" or bool(f.get("nullable"))
+
+    seen = {f.get("name") for f in existing["fields"] if isinstance(f, dict)}
+    for f in additional.get("fields") or []:
+        if isinstance(f, dict) and f.get("name") and f["name"] not in seen:
+            existing["fields"].append(f)
+            seen.add(f["name"])
+
+    # Canonical dataclass ordering: required fields before optional ones.
+    req = [f for f in existing["fields"] if isinstance(f, dict) and not _is_optional(f)]
+    opt = [f for f in existing["fields"] if isinstance(f, dict) and _is_optional(f)]
+    existing["fields"] = req + opt
+
+    unique_seen = {tuple(p) for p in existing["unique_together"]
+                   if isinstance(p, (list, tuple))}
+    for p in additional.get("unique_together") or []:
+        if isinstance(p, (list, tuple)) and tuple(p) not in unique_seen:
+            existing["unique_together"].append(p)
+            unique_seen.add(tuple(p))
+
+    seen_fks = {
+        (fk.get("field"), fk.get("ref_table"), fk.get("ref_field"))
+        for fk in existing["fks"] if isinstance(fk, dict)
+    }
+    for fk in additional.get("fks") or []:
+        if isinstance(fk, dict):
+            t = (fk.get("field"), fk.get("ref_table"), fk.get("ref_field"))
+            if t not in seen_fks:
+                existing["fks"].append(fk)
+                seen_fks.add(t)
+    return existing
+
+
 def _manifest_first_blocks(prompt_text, verbose=False):
     """smith-style manifest-first pipeline.
 
@@ -234,15 +286,36 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         # Nothing declared and nothing designed: no exceptions module at all.
         designs[:] = [(p, k, d) for p, k, d in designs if k != "exceptions"]
 
-    # 2. models
+    # 2. models — collect entities, reconciling duplicate classes so every
+    # model file renders the same field set. A class split across two model
+    # files gets its fields unioned: the repo/service use the LAST captured
+    # design (entities_by_class), but the service imports the FIRST model
+    # module (models_module), so without reconciliation a field present only
+    # in a later design is used by the repo but missing from the imported
+    # class -> TypeError at runtime.
     model_paths = [s["file"] for s in manifest if s["kind"] == "models"]
+    model_designs = {}
     for mp in model_paths:
         data = _design_into(mp, "models", _fmt_design_context(designs))
         if data is None:
             return None, None
+        model_designs[mp] = data
         for ent in data.get("entities") or []:
             if isinstance(ent, dict) and ent.get("name"):
-                entities_by_class[ent["name"]] = ent
+                existing = entities_by_class.get(ent["name"])
+                if existing is None:
+                    entities_by_class[ent["name"]] = ent
+                else:
+                    _merge_duplicate_entity(existing, ent)
+    # Propagate the reconciled entity back to every model design so each
+    # module renders the identical column set (not just the first).
+    for data in model_designs.values():
+        ents = data.get("entities") or []
+        for i, ent in enumerate(ents):
+            if isinstance(ent, dict) and ent.get("name"):
+                merged = entities_by_class.get(ent["name"])
+                if merged is not None and merged is not ent:
+                    ents[i] = merged
 
     if not entities_by_class:
         print("    [design] no entities designed", file=sys.stderr)

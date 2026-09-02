@@ -620,7 +620,23 @@ def _apply_impl_floors(entities_by_class, designs):
                         if isinstance(f, dict)
                         and f.get("type") in ("date", "datetime")
                     }
-                    group_by = [p for p in params if p not in date_cols]
+                    # Range-bound params (gte/lte over a column) are
+                    # constraints, not grouping dimensions: a param floored
+                    # onto a date/numeric column (created_at_end -> lte) must
+                    # not become a group key, or _impl_bindings_ok rejects it
+                    # (created_at_end is not a Project field) and the method
+                    # degrades to an LLM stub (prompt 24's list_project
+                    # summed e.title and returned a dict).
+                    range_params = {
+                        s.get("param")
+                        for s in (ent_.get("list_filters") or [])
+                        if isinstance(s, dict)
+                        and s.get("op") in ("gte", "lte")
+                    }
+                    group_by = [
+                        p for p in params
+                        if p not in date_cols and p not in range_params
+                    ]
                     if len(group_by) >= 2:
                         m["impl"] = {
                             "kind": "count_by_group",
@@ -740,18 +756,28 @@ def _apply_impl_floors(entities_by_class, designs):
                 m["impl"] = {"kind": "list_filtered"}
 
 
-def _service_repo_interface(entities_by_class, designs):
+def _service_repo_interface(entities_by_class, designs, repo_sources=None):
     """{repo_attr: {method: [param names]}} exactly as _render_repository_file
     emits them: base CRUD + unique_together lookup + designed customs.
 
     Lets the service fill be validated mechanically so an LLM-filled body
     can never call a repo method that does not exist or pass the wrong
     number of arguments.
+
+    When ``repo_sources`` (rendered repository file paths) is given, only
+    methods ACTUALLY present in the shipped repository source are
+    advertised. The repo fill can fail (rejected/uncompilable), leaving a
+    designed custom method as a stub or absent; advertising the DESIGN
+    method lets the service fill call a method that never shipped ->
+    AttributeError at runtime (prompt 22's get_order_report calling
+    order_repo.get_total_order_value).
     """
     repo_designs = {}
     for path, kind, data in designs:
         if kind == "repositories" and isinstance(data, dict):
             repo_designs[Path(path).stem] = data
+    # Actual rendered repo source (path -> source), when available.
+    repo_srcs = {Path(p).stem: s for p, s in (repo_sources or {}).items()}
     interface = {}
     for ent in entities_by_class.values():
         ent_snake = _snake(ent["name"])
@@ -792,6 +818,43 @@ def _service_repo_interface(entities_by_class, designs):
                                 (p["name"], not ptype.startswith("Optional"))
                             )
                     methods[m["name"]] = params
+        # Restrict to methods ACTUALLY defined in the shipped repository
+        # source, not just the design. The repo fill can fail (rejected or
+        # uncompilable), leaving a designed custom method as a stub or
+        # entirely absent; advertising the design lets a service fill call a
+        # method that never shipped -> AttributeError at runtime (prompt 22's
+        # get_order_report calling order_repo.get_total_order_value).
+        repo_src = repo_srcs.get(ent_snake + "_repository")
+        if repo_src:
+            try:
+                defined = {
+                    n.name for n in ast.walk(ast.parse(repo_src))
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                }
+                methods = {
+                    name: sig for name, sig in methods.items()
+                    if name in defined
+                }
+            except SyntaxError:
+                # The repo source is broken (a custom-method stub failed to
+                # compile before the AST repair pass). Base CRUD is
+                # deterministic and always present; keep it, drop the
+                # DESIGNED customs that may not have shipped so the service
+                # fill can't call a method that will later be missing.
+                base = {
+                    "create", "get_by_id", "get_all", "list",
+                    "update", "delete",
+                }
+                for up in ent.get("unique_together") or []:
+                    if isinstance(up, list) and len(up) == 2:
+                        a, b = [str(u) for u in up]
+                        a_fn = a[:-3] if a.endswith("_id") else a
+                        b_fn = b[:-3] if b.endswith("_id") else b
+                        base.add("get_by_%s_and_%s" % (a_fn, b_fn))
+                methods = {
+                    name: sig for name, sig in methods.items()
+                    if name in base
+                }
         interface[attr] = methods
     return interface
 
@@ -854,6 +917,14 @@ def _service_type_context(entities_by_class, designs):
         repo_returns[(attr, "get_by_id")] = ("entity", cls)
         repo_returns[(attr, "list")] = ("list", cls)
         repo_returns[(attr, "get_all")] = ("list", cls)
+        # create/update/delete return scalars (lastrowid / bool), never the
+        # entity. Tag them so attribute access on the result is rejected
+        # (inventory's restock assigned updated_product =
+        # self.product_repo.update(...) then read updated_product.id, which
+        # crashes on a bool at runtime).
+        repo_returns[(attr, "create")] = ("scalar",)
+        repo_returns[(attr, "update")] = ("scalar",)
+        repo_returns[(attr, "delete")] = ("scalar",)
         for m in rdes.get("methods") or []:
             if isinstance(m, dict) and m.get("name"):
                 t = _tag(m.get("returns"))
@@ -974,6 +1045,20 @@ def _semantic_fill_violations(tree, type_ctx):
                 ):
                     var_types[node.target.id] = ("entity", tag[1])
 
+    # pass 1b: tag for-loop targets whose iter is a VARIABLE assigned from a
+    # list-returning repo call. `for item in order_items:` where
+    # `order_items = self.order_item_repo.list(...)` — the iter is a Name,
+    # not a repo call, so the direct-call branch above never tags `item`,
+    # and `item.product` (a non-field) escapes validation (prompt 22's
+    # get_order_report). The assignment pass already ran, so var_types has
+    # the list tag.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name):
+            iter_var = getattr(node.iter, "id", None)
+            tag = var_types.get(iter_var) if iter_var else None
+            if tag and tag[0] == "list":
+                var_types[node.target.id] = ("entity", tag[1])
+
     # pass 2: constructor kwargs + attribute accesses
     violations = []
     for node in ast.walk(tree):
@@ -1028,6 +1113,12 @@ def _semantic_fill_violations(tree, type_ctx):
                     "%s is a dict (designed repository return); use "
                     "['%s'] instead of .%s"
                     % (node.value.id, node.attr, node.attr)
+                )
+            elif tag[0] == "scalar":
+                violations.append(
+                    "%s is a scalar result (create/update/delete return "
+                    "int/bool); it has no attribute %r"
+                    % (node.value.id, node.attr)
                 )
         elif (
             isinstance(node, ast.Call)
@@ -1646,7 +1737,9 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     # Tell the fill which repo methods exist (it may only call these on
     # self.*_repo). Validation is scoped to the STUB methods only: the
     # deterministic contract bodies are not part of the fill context.
-    repo_interface = _service_repo_interface(entities_by_class, designs)
+    repo_interface = _service_repo_interface(
+        entities_by_class, designs, repo_sources=repo_sources
+    )
     type_ctx = _service_type_context(entities_by_class, designs)
     if repo_sources:
         type_ctx["dict_keys"] = _repo_dict_keys(

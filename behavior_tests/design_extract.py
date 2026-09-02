@@ -138,6 +138,29 @@ def _parse_repo_service(path: Path, suffix: str) -> list[dict]:
     return out
 
 
+def _parse_cli_db_path(cli_path: Path) -> str | None:
+    """Extract the SQLite file a click CLI connects to (``DB_PATH = '...'``).
+
+    ``design_extract`` previously hardcoded ``database_file = "app.db"``, but
+    generated CLIs pick their own file (``DB_PATH = "library.db"``,
+    ``DB_PATH = "inventory.db"``). The facade seed synthesis
+    (``_make_sql_seed_plan``) inserts seed rows into this file, so a mismatch
+    silently seeds a different DB than the app reads, and the app then fails an
+    FK check (library_system ``book-add`` → ``FOREIGN KEY constraint failed``).
+    """
+    if not cli_path.exists():
+        return None
+    try:
+        text = cli_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r"\bDB_PATH\b\s*=\s*['\"]([^'\"]+)['\"]", text)
+    if m:
+        return m.group(1)
+    m = re.search(r"\bdb_path\b\s*=\s*['\"]([^'\"]+)['\"]", text)
+    return m.group(1) if m else None
+
+
 def _parse_cli(cli_path: Path) -> dict:
     """Parse a click CLI into {commands: [{name, flags}]}.
 
@@ -309,7 +332,7 @@ def extract_design(project_dir: Path) -> dict:
         except OSError:
             foreign_keys_enabled = False
     return {
-        "database_file": "app.db",
+        "database_file": _parse_cli_db_path(project_dir / "cli.py") or "app.db",
         "entities": entities,
         "exceptions": exceptions,
         "repositories": repositories,

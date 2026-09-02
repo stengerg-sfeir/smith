@@ -434,7 +434,10 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
             positional_dests.append(
                 flag.lstrip("-") if flag.lstrip("-") in arg_by_name else flag)
 
-    parts = ["python3", entry]
+    parts = ["python3"]
+    if facade.get("module"):
+        parts.append("-m")
+    parts.append(entry)
     if kind == "click_group":
         parts.append(cmd_name)
     parts.extend(positional_values)
@@ -462,6 +465,7 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
         "target": cmd.get("target", ""),
         "entry": entry,
         "kind": kind,
+        "module": facade.get("module", False),
     }
 
 
@@ -629,6 +633,19 @@ def _synthesize_seed_plans(plans: list[dict], facade: dict,
         return plans
     updated = list(plans)
     seeded_keys: set[tuple[str, str | None]] = set()
+    # Entities a REAL (non-seed) plan creates. Those set
+    # ``entity_provided[(ent, None)]`` at runtime, and ``_substitute_refs``
+    # resolves a "target" ref (update/delete/state-transition --id) via that
+    # key, so a synthesized seed for the same entity is redundant — worse, a
+    # seed omits CLI options the generated surface marked optional even though
+    # the column is NOT NULL (inventory ``product-add --stock``), crashing the
+    # seed with a NOT NULL IntegrityError. Skip seeding a target's entity when
+    # some real plan already creates it; FK refs (distinct parent values) keep
+    # their per-value seed.
+    real_creates = {
+        p.get("creates") for p in plans
+        if p.get("creates") and not p.get("seed")
+    }
 
     def _ref_value(plan: dict, flag: str):
         for pair in plan.get("option_args", []):
@@ -643,6 +660,14 @@ def _synthesize_seed_plans(plans: list[dict], facade: dict,
             ent = ref.get("entity")
             flag = ref.get("flag")
             if not ent or not flag:
+                continue
+            # Target refs (--id on update/delete/state-transition) resolve via
+            # entity_provided[(ent, None)], which the real creator set, so a
+            # synthesized seed is redundant (and may crash on a NOT NULL column
+            # whose CLI option is optional, e.g. inventory product-add --stock).
+            # Skip them when a real plan already creates the entity; FK refs
+            # (distinct parent values) keep their per-value seed.
+            if ref.get("kind") == "target" and ent in real_creates:
                 continue
             val = _ref_value(plan, flag)
             key = (ent, val)

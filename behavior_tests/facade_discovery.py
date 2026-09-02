@@ -279,6 +279,38 @@ def _parse_bare_script(path: Path) -> dict | None:
     }
 
 
+def _parse_package_cli(root: Path) -> dict | None:
+    """Find a click CLI inside a package subdirectory (e.g. ``hello/cli.py``).
+
+    Prompt 01's spec asks for "a small Python package with a main entry point",
+    and the generator emits ``generated/01/hello/{__init__.py,cli.py}``. Its
+    executable entry is ``python -m hello.cli`` (module execution; the relative
+    import ``from . import main`` breaks direct ``python hello/cli.py``). The
+    top-level scan misses it, so discover package subdirs and parse their
+    ``cli.py``/``main.py``. On success the facade carries ``module: True`` so
+    the mapper/executor build ``python -m <pkg>.<mod>``.
+    """
+    for pkg in sorted(root.iterdir()):
+        if not pkg.is_dir() or not (pkg / "__init__.py").exists():
+            continue
+        for mod_name in ("cli", "main"):
+            mod_file = pkg / (mod_name + ".py")
+            if not mod_file.exists():
+                continue
+            parsed = _parse_click_file(mod_file)
+            if not parsed or not parsed["commands"]:
+                continue
+            is_group = _has_click_group(mod_file)
+            return {
+                "entry": "%s.%s" % (pkg.name, mod_name),
+                "kind": "click_group" if is_group else "click_command",
+                "commands": parsed["commands"],
+                "invoker": "cli" if is_group else mod_name,
+                "module": True,
+            }
+    return None
+
+
 def discover_facade(project_dir: Path | str) -> dict:
     """Return the discovered user-facing facade for a generated project.
 
@@ -339,6 +371,13 @@ def discover_facade(project_dir: Path | str) -> dict:
                 "commands": bare["commands"],
                 "invoker": "main",
             }
+
+    # 3. Package-structured CLI (prompt 01): a click command inside a package
+    #    subdir (hello/cli.py) run as `python -m hello.cli`. The top-level scans
+    #    above miss it because the module lives in a subdir.
+    pkg = _parse_package_cli(root)
+    if pkg:
+        return pkg
 
     return {"entry": "", "kind": "none", "commands": [], "invoker": ""}
 
