@@ -822,6 +822,19 @@ def _service_type_context(entities_by_class, designs):
         rdes = repo_designs.get(_snake(ent["name"]) + "_repository")
         if not rdes:
             continue
+        cls = ent["name"]
+        # Base CRUD methods are rendered deterministically by
+        # _render_repository_file (get_by_id/list/get_all return the entity or
+        # a list of it). Stamp their return tags so semantic fill validation
+        # can type variables assigned from them — otherwise
+        # reservation = self.reservation_repo.get_by_id(id) is never tagged as
+        # an entity, and the .isoformat()-on-a-str rejection in
+        # _semantic_fill_violations misses reservation.start_date.isoformat()
+        # (prompt 27's get_reservation_report crash). Designed custom methods
+        # still override these base tags below.
+        repo_returns[(attr, "get_by_id")] = ("entity", cls)
+        repo_returns[(attr, "list")] = ("list", cls)
+        repo_returns[(attr, "get_all")] = ("list", cls)
         for m in rdes.get("methods") or []:
             if isinstance(m, dict) and m.get("name"):
                 t = _tag(m.get("returns"))
