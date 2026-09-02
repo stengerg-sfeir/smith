@@ -321,8 +321,11 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
             ]
         if name == "delete_%s" % var:
             # Unique-pair delete (declared unique_together covering ALL
-            # method params) delegates to the deterministic repo pair
-            # delete; otherwise fall back to the id-based delete.
+            # method params): an entity WITHOUT a surrogate `id` (pure join
+            # table, e.g. post_tag) deletes directly by the pair. An entity
+            # WITH an `id` PK is deleted by id — resolve the pair through the
+            # deterministic get_by_<a>_and_<b> lookup, then delete by the
+            # row's id. Otherwise fall back to the id-based delete.
             if len(param_names) == 2:
                 pair = next(
                     (
@@ -334,6 +337,21 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
                     None,
                 )
                 if pair is not None:
+                    pair_has_id = any(
+                        f.get("name") == "id"
+                        for f in (ent.get("fields") or [])
+                        if isinstance(f, dict)
+                    )
+                    if pair_has_id:
+                        a_fn = pair[0][:-3] if pair[0].endswith("_id") else pair[0]
+                        b_fn = pair[1][:-3] if pair[1].endswith("_id") else pair[1]
+                        return [
+                            "        row = self.%s_repo.get_by_%s_and_%s(%s)"
+                            % (var, a_fn, b_fn, ", ".join(pair)),
+                            "        if row is None:",
+                            "            return False",
+                            "        return self.%s_repo.delete(row.id)" % var,
+                        ]
                     return [
                         "        return self.%s_repo.delete(%s)"
                         % (var, ", ".join(pair))

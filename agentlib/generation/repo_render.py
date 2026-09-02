@@ -48,6 +48,7 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     exception_names = exception_names or []
     table_names = {cls: _entity_table_name(e) for cls, e in entities_by_class.items()}
     cols = _repo_columns(ent, table_names)
+    has_id = any(c[2] for c in cols)
     nonid = [c for c in cols if not c[2]]
     col_names = [c[0] for c in nonid]
     table = table_names.get(model) or _plural(ent_snake)
@@ -202,7 +203,12 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         L.append("                return False")
     L.append("            return True")
     L.append("")
-    if pair:
+    # Only use the unique-pair delete when the entity has NO surrogate `id`
+    # PK (a pure join table like PostTag). An entity with an `id` column is
+    # deleted by PK — the pair is a lookup/constraint, not the delete key —
+    # so its service design (delete_<entity>(id)) and the deterministic repo
+    # interface (delete(id)) stay consistent.
+    if pair and not has_id:
         a, b = pair
         L.append("    def delete(self, %s: Any, %s: Any) -> bool:" % (a, b))
         L.append("        with self.db.connect() as conn:")
