@@ -745,6 +745,36 @@ def _unmapped(intent: dict, reason: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Non-actionable (architecture) statement detection
+# ---------------------------------------------------------------------------
+# Some extracted intentions are NOT user actions: they declare an architectural
+# property ("The application uses SQLite through a repository pattern", "The CLI
+# interacts with the service layer"). These have no standalone CLI command and
+# make "unmapped => fail" report a false gap. Detect them so the tester can
+# exclude them from the failing set (they are not command-gaps).
+_NON_ACTIONABLE_RE = re.compile(
+    r"^\s*the\s+(application|cli|system|app|service)\b"
+    r".*\b(uses|ensures|interacts|provides|implements|defines|maintains|"
+    r"exposes|abstracts|orchestrates)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_non_actionable(intent: dict) -> bool:
+    """True when an intention declares a system property, not a user action.
+
+    An actionable intention is phrased as a user goal ("I can <verb> ...").
+    A non-actionable one describes the application's architecture/behaviour
+    ("The application ensures ...", "The CLI interacts ..."). We exclude
+    these from the failing set because they are not CLI-command gaps.
+    """
+    text = (intent.get("text") or "").strip()
+    if not text or text.lower().startswith("i can"):
+        return False
+    return bool(_NON_ACTIONABLE_RE.search(text))
+
+
 def _needs_quote(tok: str) -> bool:
     return bool(re.search(r"[\s'\"]", tok))
 
@@ -878,6 +908,21 @@ def map_intentions(intentions: list[dict], facade: dict,
     for i in range(len(intentions)):
         if plans[i] is None:
             plans[i] = _unmapped(intentions[i], "mapping failed after repair")
+    # Reclassify non-actionable architecture statements: an intention that
+    # declares a system property ("The application uses SQLite through a
+    # repository pattern") has no standalone CLI command. It is not an
+    # unmapped command-gap, so exclude it from the failing set rather than
+    # reporting a false unmapped (which "unmapped => fail" would count).
+    for i, p in enumerate(plans):
+        if p is None or p.get("status") != "unmapped":
+            continue
+        if _is_non_actionable(intentions[i]):
+            plans[i] = {
+                "intent_id": intentions[i].get("intent_id", "?"),
+                "text": intentions[i].get("text", ""),
+                "status": "non_actionable",
+                "reason": "non-actionable architecture statement (not a CLI action)",
+            }
     out = []
     for p in plans:
         assert p is not None
