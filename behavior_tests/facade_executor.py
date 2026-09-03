@@ -352,18 +352,20 @@ def execute_prompt(plans: list[dict], project_dir: Path,
         _substitute_fixtures(plan, fx_paths)
         inv = plan.get("invocation", "")
         if not plan.get("seed") and inv in seen_invocations:
-            # Duplicate of an already-run real plan: the LLM mapped two
-            # intentions to the SAME CLI invocation (prompt 23 I3/I5 both
-            # post_tag-add --post-id 2 --tag-id 2). Re-running would hit a
-            # UNIQUE row conflict (UNIQUE post_id+tag_id) and report a false
-            # fail. The command was already proven to work; surface the
-            # duplicate as a pass.
+            # Residual duplicate after the mapper's collision repair: two
+            # intentions still collapse onto one exact command+args. A collision
+            # that survives repair is a legitimate shared command — the app
+            # exposes ONE command for two overlapping read-only intents (prompt
+            # 28's invoice-report serves both "view details" and "calculate
+            # total"). Re-running a read-only report is harmless, so pass it —
+            # but LABEL the reason so the shared mapping is surfaced, not
+            # silently folded into "ok".
             results.append({
                 "intent_id": plan.get("intent_id", "?"),
                 "command": plan.get("command", ""),
                 "invocation": inv,
                 "status": "pass",
-                "reason": "duplicate invocation",
+                "reason": "duplicate invocation (shared with another intention)",
                 "exit_code": 0,
                 "stdout_tail": "",
                 "stderr_tail": "",

@@ -644,6 +644,12 @@ def _apply_impl_floors(entities_by_class, designs):
                             "group_by": group_by,
                         }
                         continue
+            # list_<entity> returning List[Dict] is a grouped report; only
+            # count_by_group above may stamp it. Never give a list_* method a
+            # total_in_period/total_filtered sum — it would sum a string/date
+            # column (prompt 28's list_invoice summed total_amount).
+            if mname.startswith("list_"):
+                continue
             # unique aggregate-capable entity: exactly one date + one numeric
             cands = []
             for cls_, ent_ in entities_by_class.items():

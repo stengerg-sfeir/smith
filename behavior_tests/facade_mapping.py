@@ -827,6 +827,54 @@ def map_intentions(intentions: list[dict], facade: dict,
             if fb is not None:
                 plans[i] = fb
 
+    # --- Duplicate-invocation collision repair -------------------------------
+    # The executor's "duplicate invocation ⇒ pass" workaround masked the LLM
+    # mapper colliding two distinct intentions onto one exact command+args
+    # (e.g. prompt 35's two identical product-update invocations). Fix it at the
+    # source: detect duplicate invocations among mapped plans and re-map the
+    # later ones with feedback to use distinct values. Residual duplicates after
+    # repair are surfaced by the executor, not silently passed.
+    inv_to_idx: dict[str, list[int]] = {}
+    for i, p in enumerate(plans):
+        if p is None or p.get("status") != "mapped" or p.get("seed"):
+            continue
+        inv_to_idx.setdefault(p.get("invocation", ""), []).append(i)
+    if any(len(v) > 1 for v in inv_to_idx.values()):
+        to_remap: list[tuple[int, str]] = []
+        for inv, idxs in inv_to_idx.items():
+            if len(idxs) < 2:
+                continue
+            first = idxs[0]
+            fp = plans[first]
+            if fp is None:
+                continue
+            first_iid = fp.get("intent_id", "?")
+            for i in idxs[1:]:
+                to_remap.append((i, "duplicate invocation %r already used by "
+                                   "intent %s; choose distinct option values "
+                                   "for this intention" % (inv, first_iid)))
+        if to_remap:
+            batch_i = [intentions[i] for i, _ in to_remap]
+            dup_errors = {intentions[i].get("intent_id", "?"): [msg]
+                          for i, msg in to_remap}
+            data = _call_mapping(batch_i, facade, fixtures=fixtures,
+                                 errors=dup_errors, verbose=verbose)
+            if data:
+                by_id = {m.get("intent_id"): m
+                         for m in data.get("mappings", [])
+                         if isinstance(m, dict) and m.get("intent_id")}
+                for i, _ in to_remap:
+                    it = intentions[i]
+                    m = by_id.get(it.get("intent_id", ""))
+                    if m is None or not m.get("command", ""):
+                        plans[i] = _unmapped(it, "duplicate invocation collision")
+                        continue
+                    errs = _validate_mapping(m, facade)
+                    if errs:
+                        plans[i] = _unmapped(it, "; ".join(errs))
+                    else:
+                        plans[i] = _build_plan(it, m, facade, design=design)
+
     for i in range(len(intentions)):
         if plans[i] is None:
             plans[i] = _unmapped(intentions[i], "mapping failed after repair")
