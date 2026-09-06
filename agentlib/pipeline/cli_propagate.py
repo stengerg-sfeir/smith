@@ -859,6 +859,64 @@ svc_design, designs):
     return notes
 
 
+def _canonical_option_field(o):
+    """The service param an option maps to (its declared field), else its
+    CLI var name. Used to detect prompt-verb synonyms that diverge from the
+    entity-field name (--method for payment_method)."""
+    return o.get("field") or _optvar(o)
+
+
+def _dedupe_cli_options_by_param(data, service_methods):
+    """Dedupe each command's options by the service param they resolve to.
+
+    A CLI merged from the LLM design (prompt-verb options, ``--method``) and
+    the intent-derived surface (entity-field options, ``--payment-method``)
+    can expose BOTH names for the SAME service param. The facade mapper picks
+    whichever matches the intent phrase ("payment method" -> ``--payment-method``,
+    "amount" -> ``--amount``) while the renderer wires the prompt verb — so the
+    value the facade passed is dropped (expense-add I1: ``--payment-method
+    'Credit Card'`` -> ``payment_method=method=None`` -> NOT NULL constraint).
+
+    Keep ONE option per resolved param, preferring the option whose CLI var
+    name EXACTLY equals the param (the entity-field name); it names the
+    service param directly, so the renderer wires it and the facade mapper
+    picks it. Drop prompt-verb synonyms that diverge (``--method`` for
+    ``payment_method``). No-op for commands without such duplicates.
+    """
+    sigs = {}
+    for m in service_methods or []:
+        if isinstance(m, dict) and m.get("name"):
+            sigs[m["name"]] = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        params = sigs.get(c.get("target"))
+        if not params:
+            continue
+        chosen = {}   # resolved param (or raw key) -> option
+        order = []    # keeps the surviving options's in original order
+        for o in c.get("options") or []:
+            if not isinstance(o, dict) or not o.get("name"):
+                continue
+            key = _canonical_option_field(o)
+            resolved = _match_param(key, params)
+            rkey = resolved if resolved is not None else key
+            cur = chosen.get(rkey)
+            if cur is None:
+                chosen[rkey] = o
+                order.append(o)
+                continue
+            # Prefer the option whose CLI var name equals its resolved param
+            # (the entity-field name); drop the prompt-verb synonym.
+            if _optvar(o) == rkey and _optvar(cur) != rkey:
+                chosen[rkey] = o
+                order[order.index(cur)] = o
+        c["options"] = order
+
+
 def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
                           verbose=False):
     """Propagation-first reconciliation of one CLI design against the
@@ -890,6 +948,12 @@ def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
 
     errs = _validate(data, service_methods)
     if not errs:
+        # A CLI merged from the LLM design + intent-derived surface may expose
+        # both a prompt-verb option and an entity-field option for the same
+        # service param (expense-add --method / --payment-method). The facade
+        # mapper picks whichever matches the intent phrase; the deterministic
+        # dedupe keeps ONE option per param so the mapper and renderer agree.
+        _dedupe_cli_options_by_param(data, service_methods)
         return data, service_methods
 
     wiring_tokens = (
@@ -941,4 +1005,8 @@ def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
         data = cleaned
         if not data.get("commands"):
             return None, service_methods
+    # Dedupe options by resolved service param (expense-add --method /
+    # --payment-method) so the CLI is unambiguous and the facade mapper +
+    # renderer agree on ONE option per field. No-op for clean commands.
+    _dedupe_cli_options_by_param(data, service_methods)
     return data, service_methods
