@@ -1801,6 +1801,11 @@ def _build_fill_hint(repo_interface, type_ctx):
         "NEVER call self.db directly (no self.db.connect() / self.db.execute()) "
         "— always delegate persistence to the repository layer "
         "(self.<entity>_repo).",
+        "NEVER invent enum/whitelist validation (e.g. valid_statuses = [...], "
+        "if value not in [...] : raise) on a string field — model string "
+        "fields are free text (status:str, priority:str). Import/validation "
+        "logic should only check required fields are present and date fields "
+        "parse; never reject a valid-looking string value.",
     ]
     if repo_interface:
         for attr in sorted(repo_interface):
@@ -1929,6 +1934,88 @@ def _scoped_repo_interface(m, repo_interface, entities_by_class):
     if not related:
         return repo_interface
     return {a: iface for a, iface in repo_interface.items() if a in related}
+
+
+def _strip_import_enum_validation(text):
+    """Remove invented enum/whitelist validation from LLM-filled import_* methods.
+
+    The facade import fixtures carry arbitrary string field values (prompt 19's
+    Task fixture uses status: "completed"). A 4B model, seeing a plain
+    status:str field, invents ``valid_statuses = [...]; if x not in it: raise``,
+    which crashes the import on any value outside its guessed whitelist. Only
+    structural validation (list-of-dicts, required fields present, date
+    parsing) is legal; a hand-rolled string whitelist is not.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return text
+
+    def _is_wl_check(stmt):
+        if not (isinstance(stmt, ast.If) and len(stmt.body) == 1):
+            return False
+        if not isinstance(stmt.body[0], ast.Raise):
+            return False
+        test = stmt.test
+        return (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], (ast.In, ast.NotIn))
+            and isinstance(test.comparators[0], ast.Name)
+            and test.comparators[0].id in wl
+        )
+
+    def _filter(stmts):
+        out = []
+        for stmt in stmts:
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id in wl
+            ):
+                continue
+            if _is_wl_check(stmt):
+                continue
+            if isinstance(stmt, (ast.If, ast.For, ast.While, ast.With)):
+                stmt.body = _filter(stmt.body)
+                orelse = getattr(stmt, "orelse", None)
+                if orelse:
+                    stmt.orelse = _filter(orelse)
+            elif isinstance(stmt, ast.Try):
+                stmt.body = _filter(stmt.body)
+                stmt.orelse = _filter(stmt.orelse)
+                stmt.finalbody = _filter(stmt.finalbody)
+                for h in stmt.handlers:
+                    h.body = _filter(h.body)
+            out.append(stmt)
+        return out
+
+    for fn in [
+        n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name.startswith("import_")
+    ]:
+        wl = {
+            n.targets[0].id
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Assign)
+            and isinstance(n.value, ast.List)
+            and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name)
+            and all(
+                isinstance(e, ast.Constant) and isinstance(e.value, str)
+                for e in n.value.elts
+            )
+            and n.targets[0].id.startswith(("valid_", "allowed_"))
+        }
+        if not wl:
+            continue
+        fn.body = _filter(fn.body)
+    try:
+        return ast.unparse(tree)
+    except Exception:
+        return text
 
 
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
@@ -2092,6 +2179,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         service. Returns the merged text or None."""
         if not candidate:
             return None
+        candidate = _strip_import_enum_validation(candidate)
         if _service_fill_violations(
             candidate, repo_interface, stub_design, type_ctx
         ):
@@ -2331,6 +2419,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             cand = _llm_fill(
                 "service", one_instr, one_mini, prompt_text, verbose=verbose
             )
+            cand = _strip_import_enum_validation(cand)
             # Validate against the SCOPED interface, recomputed after any
             # bounded repair grew repo_interface, so a correct in-scope call
             # is accepted and a wrong-repo call (self.author_repo from
