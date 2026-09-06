@@ -76,6 +76,35 @@ def _render_bulk_update(spec):
     )
 
 
+def _bulk_update_repo_targets(designs, entities_by_class):
+    """{entity_snake: (repo_method, col)} for each designed repository
+    ``bulk_update_<col>`` method, resolved through ``_bulk_update_spec``.
+
+    Feeds the deterministic service ``bulk_update_<entity>`` delegation so it
+    can parse a comma-separated ``ids`` string into ints and delegate to the
+    repo method that already knows the column to set — instead of an LLM
+    fill that compares str ids against int ids (prompt 35's always-raise
+    NotFoundError)."""
+    out = {}
+    for path, kind, data in designs or []:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        if _camel(ent_snake) not in entities_by_class:
+            continue
+        attr = ent_snake + "_repo"
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            spec = _bulk_update_spec(attr, m["name"], entities_by_class)
+            if spec:
+                out[ent_snake] = (m["name"], spec["col"])
+    return out
+
+
 def _zero_param_dict_repo_customs(designs, entities_by_class):
     """[(entity_snake, method_name)] of DESIGNED repository custom methods
     that take no params and return a Dict — aggregate-shaped. Feeds the
@@ -104,7 +133,7 @@ def _zero_param_dict_repo_customs(designs, entities_by_class):
     return out
 
 
-def _service_method_body(m, entities_by_class, exception_names, repo_customs=None):
+def _service_method_body(m, entities_by_class, exception_names, repo_customs=None, repo_bulk_updates=None):
     """Deterministic body lines for a service method, or None (=> stub).
 
     Fully declarative: a designed method may carry an `impl` object naming
@@ -116,6 +145,19 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
     (add_/list_/get_/update_/delete_<entity> convention), then to a locked
     stub for the LLM fill phase.
     """
+    name = m.get("name") or ""
+    # A single-id check_<entity> method is a state probe: return the
+    # entity's declared fields as a dict. The deterministic check_ branch
+    # takes priority over any impl recipe, which can invent bogus aggregate
+    # logic (prompt 26's check_book got a sum_by_group impl summing a date
+    # column -> int + str TypeError). Impl bodies are never run through
+    # _semantic_fill_violations, so without this early route check_book
+    # ships the broken body untouched.
+    for _ent_name in entities_by_class:
+        if name == "check_" + _snake(_ent_name) and len(m.get("params") or []) == 1:
+            return _generic_service_delegation(
+                m, entities_by_class, exception_names, repo_bulk_updates
+            )
     impl = m.get("impl")
     if isinstance(impl, dict):
         lines = dispatch_impl_body(m, impl, None, entities_by_class)
@@ -134,10 +176,12 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
     ):
         ent_snake, meth = repo_customs[0]
         return ["        return self.%s_repo.%s()" % (ent_snake, meth)]
-    return _generic_service_delegation(m, entities_by_class, exception_names)
+    return _generic_service_delegation(
+        m, entities_by_class, exception_names, repo_bulk_updates
+    )
 
 
-def _generic_service_delegation(m, entities_by_class, exception_names=None):
+def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None):
     """Tier-2 deterministic CRUD delegation for any entity.
 
     Handles add_<entity>, list_<entity> / get_<entity>_by_id /
@@ -358,6 +402,43 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
                     ]
             idp = param_names[0] if param_names else "id"
             return ["        return self.%s_repo.delete(%s)" % (var, idp)]
+        if name == "bulk_update_" + var:
+            # Deterministic bulk update: parse a comma-separated ids string
+            # into ints, validate each id exists against the repo, then
+            # delegate to the repo's bulk_update_<col>(ids, value). An LLM
+            # fill compares str ids against the repo's int ids and always
+            # raises NotFoundError (prompt 35's bulk_update_product).
+            bu = (repo_bulk_updates or {}).get(var)
+            if bu is None or len(param_names) < 2:
+                return None
+            repo_meth, col = bu
+            idp = param_names[0]
+            value_param = next((p for p in param_names[1:] if p == col), None)
+            if value_param is None:
+                return None
+            not_found = "%sNotFoundError" % ent_name
+            rows = [
+                "        int_ids = [int(x.strip()) for x in %s.split(',')]" % idp,
+                "        if not int_ids:",
+                "            return False",
+                "        existing = self.%s_repo.get_all()" % var,
+                "        existing_ids = {row.id for row in existing}",
+                "        invalid = [x for x in int_ids if x not in existing_ids]",
+            ]
+            if not_found in exception_names:
+                rows += [
+                    "        if invalid:",
+                    "            raise %s(', '.join(map(str, invalid)))" % not_found,
+                ]
+            else:
+                rows += [
+                    "        if invalid:",
+                    "            return False",
+                ]
+            rows.append(
+                "        return self.%s_repo.%s(int_ids, %s)" % (var, repo_meth, value_param)
+            )
+            return rows
         if name == "check_" + var and len(param_names) == 1:
             # A single-id "check <entity>" reads the entity's state. Return
             # its declared fields as a dict (non-crashing); the LLM fill has
@@ -2110,11 +2191,12 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     )
 
     repo_customs = _zero_param_dict_repo_customs(designs, entities_by_class)
+    repo_bulk_updates = _bulk_update_repo_targets(designs, entities_by_class)
     for m in svc_design.get("methods") or []:
         if not isinstance(m, dict) or not m.get("name"):
             continue
         body = _service_method_body(
-            m, entities_by_class, exception_names, repo_customs
+            m, entities_by_class, exception_names, repo_customs, repo_bulk_updates
         )
         if body is not None:
             def_line = _method_stub_code(m, 1).split("\n")[0]
@@ -2137,7 +2219,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         m for m in svc_design.get("methods") or []
         if isinstance(m, dict) and m.get("name")
         and _service_method_body(
-            m, entities_by_class, exception_names, repo_customs
+            m, entities_by_class, exception_names, repo_customs, repo_bulk_updates
         ) is None
     ]
     if not prompt_text or not stubs:
