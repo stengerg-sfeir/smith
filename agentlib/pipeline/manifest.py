@@ -651,17 +651,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         (i.get("cli_command") or "").strip() for i in intentions
     )
     for cp in cli_paths:
-        if explicit_cli and cli_surface is not None:
-            # Prompt names CLI commands explicitly (cli_command strings):
-            # the deterministic intent-derived surface IS the command tree.
-            # The LLM _design_cli only invents semantic duplicates
-            # (loan/borrow, member/borrow, borrow/borrow for one borrow
-            # capability) that then reshape the same service method
-            # conflictingly and get the real command dropped by the
-            # sanitizer. Keep the deterministic surface; reconciliation
-            # wires its targets.
-            data = cli_surface
-        elif explicit_cli or cli_surface is None:
+        if explicit_cli or cli_surface is None:
             if _service_is_complex(cli_surface, entities_by_class) and cli_surface is not None:
                 # Split the CLI design by command group so no single design
                 # call packs the whole service + context (which hit ~7944
