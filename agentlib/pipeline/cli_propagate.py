@@ -350,14 +350,30 @@ svc_design, designs):
                 )
                 continue
             # Existing service method by name ("authenticate" ->
-            # authenticate_user).
-            tm = next(
-                (
-                    m for m in sigs
-                    if m == cname or m.startswith(cname + "_")
-                ),
-                None,
-            )
+            # authenticate_user). When several candidates match the verb
+            # (borrow_member, borrow_loan), prefer the one whose existing
+            # params ALREADY cover the command's options so the wiring is a
+            # no-op reshape (borrow --member-id --book-id -> borrow_loan,
+            # not borrow_member(id), which the sanitizer then drops).
+            cands = [m for m in sigs if m == cname or m.startswith(cname + "_")]
+            tm = None
+            best_score = -1
+            for mname in cands:
+                mparams = [
+                    p.get("name")
+                    for p in (sigs[mname].get("params") or [])
+                    if isinstance(p, dict) and p.get("name")
+                ]
+                score = 0
+                for o in c.get("options") or []:
+                    if not isinstance(o, dict):
+                        continue
+                    k = o.get("field") or _optvar(o)
+                    if _match_param(k, mparams) is not None:
+                        score += 1
+                if score > best_score:
+                    best_score = score
+                    tm = mname
             if tm is not None:
                 # Reshape the existing method to serve the command's options
                 # (borrow_loan(id) -> borrow_loan(member_id, book_id)). The
