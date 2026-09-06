@@ -841,9 +841,20 @@ svc_design, designs):
                 # (borrow_loan(id) -> borrow_loan(member_id, book_id)). The
                 # synth guard keeps the reshape minimal (only drops params the
                 # options don't cover), so other prompts are unaffected.
-                meth = synth(tgt, mapped, "Dict", replace=True)
-                c["target"] = meth
-                notes.append("%s -> %s (trusted LLM target)" % (label, meth))
+                #
+                # When the target ALREADY exists, do NOT reshape it: a semantic
+                # duplicate (loan/borrow --id on a borrow_loan(member_id,
+                # book_id) already serving library/borrow) would replace the
+                # params and break the deterministic command. Wire to the
+                # existing method as-is; the sanitizer drops the incompatible
+                # duplicate if its options don't cover the required params.
+                if tgt in sigs:
+                    c["target"] = tgt
+                    notes.append("%s -> %s (trusted LLM target, existing)" % (label, tgt))
+                else:
+                    meth = synth(tgt, mapped, "Dict", replace=True)
+                    c["target"] = meth
+                    notes.append("%s -> %s (trusted LLM target)" % (label, meth))
                 continue
     return notes
 
