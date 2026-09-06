@@ -222,24 +222,29 @@ def _service_is_complex(cli_surface, entities_by_class):
 
     Projected method count is approximated by CLI commands (one service method
     per command, enforced by ``cli_surface_constraint``) plus the number of
-    entities (each drives CRUD + business methods). A small expense/inventory
-    prompt (1-3 commands, 1-2 entities) stays simple and uses the proven
-    monolithic design; library_system (9+ commands, 4 entities) is complex and
-    routes to the scoped split design.
+    entities (each drives CRUD + business methods). A CRUD-heavy prompt like
+    expense (22 commands, 3 entities = 25) stays simple and uses the proven
+    monolithic design; a genuinely large cross-entity service such as
+    library_system (31 commands, 4 entities = 35) is complex and routes to the
+    scoped split design. Threshold 28 sits between them: only when the sum
+    exceeds a single design call's safe size does the split engage.
     """
     n_cmds = len((cli_surface or {}).get("commands") or [])
     n_ents = len(entities_by_class)
-    return (n_cmds + n_ents) > 8
+    return (n_cmds + n_ents) > 28
 
 
 def _command_owner_entity(c, entities_by_class):
     """Owner entity class for a CLI command: the command's group entity, else
-    the entity referenced by a leading ``--<entity>_id`` option. '' when
-    neither resolves. Grouping is structural over the CLI surface, never
-    prompt regex."""
+    the JOIN entity a multi-id reference operation addresses (borrow
+    --member-id --book-id -> Loan, the entity FKing to every referenced
+    entity), else the single entity referenced by a leading
+    ``--<entity>_id`` option. '' when neither resolves. Grouping is
+    structural over the CLI surface, never prompt regex."""
     cls = _command_entity(c, entities_by_class)
     if cls:
         return cls
+    refs = []
     for o in c.get("options") or []:
         if not isinstance(o, dict):
             continue
@@ -249,8 +254,30 @@ def _command_owner_entity(c, entities_by_class):
             key = next((n.lstrip("-") for n in names if n.startswith("--")), None)
         if isinstance(key, str) and key.endswith("_id") and key != "id":
             ref = _camel(key[: -len("_id")])
-            if ref in entities_by_class:
-                return ref
+            if ref in entities_by_class and ref not in refs:
+                refs.append(ref)
+    if len(refs) == 1:
+        return refs[0]
+    if len(refs) >= 2:
+        # A multi-id reference operation (borrow --member-id --book-id)
+        # addresses the JOIN entity that FKs to ALL referenced entities.
+        # Exactly one such entity wins.
+        for cls, ent in entities_by_class.items():
+            if cls in refs:
+                continue
+            fk_refs = set()
+            for fk in ent.get("fks") or []:
+                if isinstance(fk, dict) and fk.get("ref"):
+                    fk_refs.add(fk["ref"])
+            if not fk_refs:
+                fk_refs = {
+                    _camel(f["name"][: -len("_id")])
+                    for f in (ent.get("fields") or [])
+                    if isinstance(f, dict) and isinstance(f.get("name"), str)
+                    and f["name"].endswith("_id") and f["name"] != "id"
+                }
+            if set(refs) <= fk_refs:
+                return cls
     return ""
 
 
