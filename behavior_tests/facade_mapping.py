@@ -551,7 +551,16 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
         if opt.get("type") in ("int", "float"):
             val = "1"
         else:
-            val = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
+            # State/status fields: a state-transition consumer (e.g.
+            # return_loan checks `loan.status != 'active'`) needs the seeded
+            # row in a POSITIVE state. Seed `status`/`state` with "active"
+            # instead of "seed-<entity>", which would fail the check and
+            # surface a false error (prompt 27 library I7).
+            dest = (opt.get("dest") or "").lower()
+            if dest in ("status", "state"):
+                val = "active"
+            else:
+                val = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
         args.append({"flag": flag, "value": val})
     for arg in cmd.get("arguments", []):
         dest = arg.get("dest") or ""
