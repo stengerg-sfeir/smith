@@ -216,6 +216,125 @@ def _merge_duplicate_entity(existing, additional):
     return existing
 
 
+def _service_is_complex(cli_surface, entities_by_class):
+    """True when a single schema-constrained service-design call would exceed
+    the 4B model's attention window (~3.1k tokens).
+
+    Projected method count is approximated by CLI commands (one service method
+    per command, enforced by ``cli_surface_constraint``) plus the number of
+    entities (each drives CRUD + business methods). A small expense/inventory
+    prompt (1-3 commands, 1-2 entities) stays simple and uses the proven
+    monolithic design; library_system (9+ commands, 4 entities) is complex and
+    routes to the scoped split design.
+    """
+    n_cmds = len((cli_surface or {}).get("commands") or [])
+    n_ents = len(entities_by_class)
+    return (n_cmds + n_ents) > 8
+
+
+def _command_owner_entity(c, entities_by_class):
+    """Owner entity class for a CLI command: the command's group entity, else
+    the entity referenced by a leading ``--<entity>_id`` option. '' when
+    neither resolves. Grouping is structural over the CLI surface, never
+    prompt regex."""
+    cls = _command_entity(c, entities_by_class)
+    if cls:
+        return cls
+    for o in c.get("options") or []:
+        if not isinstance(o, dict):
+            continue
+        key = o.get("field")
+        if key is None:
+            names = o.get("names") or []
+            key = next((n.lstrip("-") for n in names if n.startswith("--")), None)
+        if isinstance(key, str) and key.endswith("_id") and key != "id":
+            ref = _camel(key[: -len("_id")])
+            if ref in entities_by_class:
+                return ref
+    return ""
+
+
+def _service_design_groups(cli_surface, entities_by_class, designs):
+    """{entity_class: {"commands": [...]}} grouping service-shaping inputs by
+    owner entity, so a complex service can be designed in small scoped calls.
+
+    Derived from the deterministic CLI surface (owner entity + FK options) and
+    the designed repository files (custom methods' owning entity) — never from
+    prompt regex. Entities with a designed repository get a group even when no
+    CLI command targets them directly, so business/custom methods
+    (``get_loan_report``, ``get_overdue_loans``) are designed in scope.
+    """
+    groups = {}
+    for c in (cli_surface or {}).get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        owner = _command_owner_entity(c, entities_by_class)
+        if owner:
+            groups.setdefault(owner, [])
+            groups[owner].append(c)
+    for path, kind, data in designs:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        cls = _camel(ent_snake)
+        if cls in entities_by_class:
+            groups.setdefault(cls, [])
+    return {cls: {"commands": cmds} for cls, cmds in groups.items()}
+
+
+def _scoped_fmt_design_context(ent_cls, designs, entities_by_class):
+    """``_fmt_design_context`` filtered to the entity's model + its repository
+    and the FK-referenced entities' repositories, so a scoped service design
+    sees only the context it needs. Keeps the design conversation small enough
+    for the 4B model to stay instruction-faithful (no cross-entity repo noise)."""
+    ent = entities_by_class.get(ent_cls) or {}
+    fk_refs = {
+        _camel(str(f.get("ref")))
+        for f in (ent.get("fks") or [])
+        if isinstance(f, dict) and f.get("ref")
+    }
+    keep_repo_stems = {_snake(ent_cls) + "_repository"}
+    for ref in fk_refs:
+        keep_repo_stems.add(_snake(ref) + "_repository")
+    scoped = []
+    for p, k, d in designs:
+        if k == "models":
+            scoped.append((p, k, d))
+        elif k == "repositories" and Path(p).stem in keep_repo_stems:
+            scoped.append((p, k, d))
+    return _fmt_design_context(scoped) if scoped else _fmt_design_context(designs)
+
+
+def _scoped_cli_constraint(commands):
+    """``cli_surface_constraint`` over a subset of commands ('' when none)."""
+    if not commands:
+        return ""
+    return cli_surface_constraint({"commands": commands})
+
+
+def _service_method_owner(m, entities_by_class):
+    """Owner entity class for a designed service method, derived from the
+    method name's last entity-matching token (``borrow_loan`` -> Loan,
+    ``get_loan_report`` -> Loan, ``add_book`` -> Book), else the first
+    ``<entity>_id`` parameter. '' when neither resolves. Used to scope the
+    CLI design by command group so no single design call packs the whole
+    service. Structural over the method name/params, never prompt regex."""
+    name = (m.get("name") if isinstance(m, dict) else None) or ""
+    toks = name.split("_")
+    for tok in reversed(toks):
+        cls = _camel(tok)
+        if cls in entities_by_class:
+            return cls
+    for p in m.get("params") or []:
+        pn = p.get("name") if isinstance(p, dict) else None
+        if pn and pn.endswith("_id") and pn != "id":
+            ref = _camel(pn[: -len("_id")])
+            if ref in entities_by_class:
+                return ref
+    return ""
+
+
 def _manifest_first_blocks(prompt_text, verbose=False):
     """smith-style manifest-first pipeline.
 
@@ -427,9 +546,65 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     svc_paths = [s["file"] for s in manifest if s["kind"] == "service"]
     svc_constraint = cli_surface_constraint(cli_surface) if cli_surface else ""
     for sp in svc_paths:
-        if _design_into(sp, "services", _fmt_design_context(designs),
-                        extra_context=svc_constraint) is None:
-            return None, None
+        if _service_is_complex(cli_surface, entities_by_class):
+            if verbose:
+                print(
+                    "    [design] %s: complex service (%d commands, %d entities)"
+                    " — scoped split design" % (
+                        sp,
+                        len((cli_surface or {}).get("commands") or []),
+                        len(entities_by_class),
+                    )
+                )
+            # Split the service design into small per-entity scoped calls so
+            # each conversation stays under the 4B model's attention window
+            # (a monolithic design of a 28-method service hits ~5852 tokens).
+            groups = _service_design_groups(cli_surface, entities_by_class, designs)
+            merged = {"methods": []}
+            failed = False
+            for ent_cls, grp in groups.items():
+                scoped_ctx = _scoped_fmt_design_context(
+                    ent_cls, designs, entities_by_class
+                )
+                scoped_cons = _scoped_cli_constraint(grp["commands"])
+                gdata = _design_module(
+                    sp, "services", prompt_text, scoped_ctx, verbose,
+                    extra_context=scoped_cons,
+                )
+                if gdata is None:
+                    failed = True
+                    break
+                for m in gdata.get("methods") or []:
+                    merged.setdefault("methods", []).append(m)
+                for k, v in gdata.items():
+                    if k != "methods":
+                        merged.setdefault(k, v)
+            if failed:
+                # The scoped split is a best-effort optimization, never a
+                # correctness requirement: fall back to the monolithic design.
+                print("    [design] %s: scoped split failed — monolithic fallback" % sp,
+                      file=sys.stderr)
+                if _design_into(sp, "services", _fmt_design_context(designs),
+                                extra_context=svc_constraint) is None:
+                    return None, None
+            else:
+                # Deduplicate methods by name (keep the first/richest).
+                seen = set()
+                deduped = []
+                for m in merged.get("methods") or []:
+                    nm = m.get("name") if isinstance(m, dict) else None
+                    if nm and nm not in seen:
+                        seen.add(nm)
+                        deduped.append(m)
+                merged["methods"] = deduped
+                designs.append((sp, "services", merged))
+                if verbose:
+                    print("      - %s [services] %s"
+                          % (sp, _describe_design("services", merged)))
+        else:
+            if _design_into(sp, "services", _fmt_design_context(designs),
+                            extra_context=svc_constraint) is None:
+                return None, None
 
     # 5. CLI (targets constrained to designed service methods).
     # A CLI design failure is NOT fatal: the deterministic repos/service are
@@ -450,10 +625,47 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     )
     for cp in cli_paths:
         if explicit_cli or cli_surface is None:
-            data = _design_cli(
-                prompt_text, _fmt_design_context(designs), service_methods,
-                verbose, allow_new_targets=True,
-            )
+            if _service_is_complex(cli_surface, entities_by_class) and cli_surface is not None:
+                # Split the CLI design by command group so no single design
+                # call packs the whole service + context (which hit ~7944
+                # tokens on library_system). Each group designs only the
+                # commands + service methods for its owner entity, then the
+                # results are merged.
+                groups = _service_design_groups(cli_surface, entities_by_class, designs)
+                merged_cli = {"commands": []}
+                cli_split_failed = False
+                for ent_cls, grp in groups.items():
+                    scoped_ctx = _scoped_fmt_design_context(
+                        ent_cls, designs, entities_by_class
+                    )
+                    grp_methods = [
+                        m for m in service_methods
+                        if _service_method_owner(m, entities_by_class) == ent_cls
+                    ]
+                    gdata = _design_cli(
+                        prompt_text, scoped_ctx, grp_methods,
+                        verbose, allow_new_targets=True,
+                    )
+                    if gdata is None:
+                        cli_split_failed = True
+                        break
+                    for c in gdata.get("commands") or []:
+                        merged_cli.setdefault("commands", []).append(c)
+                if cli_split_failed:
+                    # Best-effort split: fall back to the monolithic design.
+                    print("    [design] %s: scoped CLI split failed — monolithic fallback" % cp,
+                          file=sys.stderr)
+                    data = _design_cli(
+                        prompt_text, _fmt_design_context(designs), service_methods,
+                        verbose, allow_new_targets=True,
+                    )
+                else:
+                    data = merged_cli
+            else:
+                data = _design_cli(
+                    prompt_text, _fmt_design_context(designs), service_methods,
+                    verbose, allow_new_targets=True,
+                )
             # Merge with the deterministic intent-derived surface so domain/
             # state commands the LLM missed (overdue, bulk-update, get-by-id)
             # survive the explicit-CLI path. The merge unions by (group, name),
