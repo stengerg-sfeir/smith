@@ -105,6 +105,29 @@ def _bulk_update_repo_targets(designs, entities_by_class):
     return out
 
 
+_STATE_TARGETS = {
+    "confirm": "confirmed",
+    "ship": "shipped",
+    "cancel": "cancelled",
+    "approve": "approved",
+    "reject": "rejected",
+    "complete": "completed",
+    "close": "closed",
+    "open": "opened",
+    "activate": "activated",
+    "deactivate": "deactivated",
+    "start": "started",
+    "finish": "finished",
+    "submit": "submitted",
+    "fulfill": "fulfilled",
+    "pay": "paid",
+    "archive": "archived",
+    "pause": "paused",
+    "resume": "resumed",
+    "return": "returned",
+}
+
+
 def _zero_param_dict_repo_customs(designs, entities_by_class):
     """[(entity_snake, method_name)] of DESIGNED repository custom methods
     that take no params and return a Dict — aggregate-shaped. Feeds the
@@ -439,6 +462,39 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 "        return self.%s_repo.%s(int_ids, %s)" % (var, repo_meth, value_param)
             )
             return rows
+        if "status" in fields and len(param_names) == 1 and name.endswith("_" + var):
+            # A single-id <verb>_<entity> on an entity with a `status` field
+            # is a domain state transition (confirm/ship/cancel/...). Set the
+            # status to the verb's past-participle (ship -> shipped) and
+            # persist it through the repo's update(id, data). The LLM fill
+            # invents terminal-state guards that reject valid transitions
+            # (prompt 32's ship_order raised InvalidStateTransitionError on a
+            # confirmed order -> I3 fail). Deterministic: no invented guards.
+            verb = name[: -len("_" + var)]
+            target = _STATE_TARGETS.get(verb)
+            if target is not None:
+                idp = param_names[0]
+                not_found = "%sNotFoundError" % ent_name
+                rows = [
+                    "        row = self.%s_repo.get_by_id(%s)" % (var, idp),
+                ]
+                if not_found in exception_names:
+                    rows += [
+                        "        if row is None:",
+                        "            raise %s(%s)" % (not_found, idp),
+                    ]
+                else:
+                    rows += [
+                        "        if row is None:",
+                        "            return False",
+                    ]
+                rows += [
+                    "        if row.status == %r:" % target,
+                    "            return False",
+                    "        row.status = %r" % target,
+                    "        return self.%s_repo.update(%s, {'status': row.status})" % (var, idp),
+                ]
+                return rows
         if name == "check_" + var and len(param_names) == 1:
             # A single-id "check <entity>" reads the entity's state. Return
             # its declared fields as a dict (non-crashing); the LLM fill has
