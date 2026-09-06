@@ -358,6 +358,33 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None):
                     ]
             idp = param_names[0] if param_names else "id"
             return ["        return self.%s_repo.delete(%s)" % (var, idp)]
+        if name == "check_" + var and len(param_names) == 1:
+            # A single-id "check <entity>" reads the entity's state. Return
+            # its declared fields as a dict (non-crashing); the LLM fill has
+            # been caught summing a date column (prompt 26's check_book did
+            # results.get(...) + row.loan_date -> int + str TypeError).
+            idp = param_names[0]
+            not_found = "%sNotFoundError" % ent_name
+            rows = [
+                "        row = self.%s_repo.get_by_id(%s)" % (var, idp),
+            ]
+            if not_found in exception_names:
+                rows += [
+                    "        if row is None:",
+                    "            raise %s(%s)" % (not_found, idp),
+                ]
+            else:
+                rows += [
+                    "        if row is None:",
+                    "            return None",
+                ]
+            rows.append(
+                "        return {%s}" % ", ".join(
+                    "'%s': row.%s" % (f, f)
+                    for f in sorted({"id"}.union(fields))
+                )
+            )
+            return rows
     return None
 
 
@@ -918,12 +945,15 @@ def _service_type_context(entities_by_class, designs):
     """
     entity_fields = {}
     required_fields = {}
+    field_types = {}
     for cls, ent in entities_by_class.items():
         fields = {"id"}
         req = set()
+        ft = {}
         for f in ent.get("fields") or []:
             if isinstance(f, dict) and f.get("name"):
                 fields.add(f["name"])
+                ft[f["name"]] = f.get("type")
                 # A field without nullable and not the surrogate id is REQUIRED
                 # in the constructor (no default). Omitting it is a guaranteed
                 # TypeError (prompt 19's import_task built Task(...) without
@@ -934,6 +964,7 @@ def _service_type_context(entities_by_class, designs):
                     req.add(f["name"])
         entity_fields[cls] = fields
         required_fields[cls] = req
+        field_types[cls] = ft
 
     repo_designs = {}
     for path, kind, data in designs or []:
@@ -985,6 +1016,7 @@ def _service_type_context(entities_by_class, designs):
     return {
         "entity_fields": entity_fields,
         "required_fields": required_fields,
+        "field_types": field_types,
         "repo_returns": repo_returns,
     }
 
@@ -1115,8 +1147,34 @@ def _semantic_fill_violations(tree, type_ctx):
             if tag and tag[0] == "list":
                 var_types[node.target.id] = ("entity", tag[1])
 
-    # pass 2: constructor kwargs + attribute accesses
-    violations = []
+    # pass 1c: date/datetime-typed entity fields are read back from SQLite as
+    # ISO strings; arithmetic over them (0 + row.start_date, results.get(...)
+    # + row.loan_date) is a guaranteed TypeError at runtime. Reject any BinOp
+    # that combines a date/datetime entity attribute with another operand.
+    field_types = (type_ctx or {}).get("field_types") or {}
+    DATETIME_TYPES = ("date", "datetime")
+    date_arith = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BinOp):
+            continue
+        for rnd in (node.left, node.right):
+            if not (
+                isinstance(rnd, ast.Attribute)
+                and isinstance(rnd.value, ast.Name)
+            ):
+                continue
+            tag = var_types.get(rnd.value.id)
+            if not (tag and tag[0] == "entity"):
+                continue
+            ftypes = field_types.get(tag[1], {})
+            if ftypes.get(rnd.attr) in DATETIME_TYPES:
+                date_arith.append(
+                    "%s.%s is a date/datetime field (read back as a str); "
+                    "do not add/subtract/compute with it — pass it through"
+                    % (rnd.value.id, rnd.attr)
+                )
+                break
+    violations = list(date_arith)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             fields = entity_fields.get(node.func.id)
