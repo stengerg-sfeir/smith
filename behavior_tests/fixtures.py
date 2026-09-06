@@ -93,6 +93,13 @@ FIXTURES: dict[str, dict] = {
         "description": "A CSV file with only a header row, no data rows.",
         "data": "name,age,city\n",
     },
+    "malformed_csv": {
+        "id": "malformed_csv",
+        "kind": "csv",
+        "description": "A malformed CSV file (empty, missing header) that should "
+                       "produce an error when read.",
+        "data": "",
+    },
 }
 
 

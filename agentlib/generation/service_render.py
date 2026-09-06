@@ -411,6 +411,33 @@ def _apply_filter_floors(entities_by_class, designs):
                 lf.append({"param": fname, "column": fname, "op": "eq"})
                 declared.add(fname)
 
+        # Cross-entity filter: a designed param that is not a field on this
+        # entity but IS a field on a JOIN entity that references this entity
+        # via FK (e.g. Post filtered by PostTag.tag_id — prompt 23's "view
+        # posts by tag"). Add it so repo.list() serves the filter instead of
+        # the CLI's --tag-id being unmappable. The repo renderer emits a JOIN
+        # for these columns (see _render_repository_file).
+        for p in sorted(uniq_set):
+            if p in declared or p == "id" or p in fields:
+                continue
+            for cls, other in entities_by_class.items():
+                if cls == ent["name"]:
+                    continue
+                other_fields = {
+                    f.get("name")
+                    for f in (other.get("fields") or [])
+                    if isinstance(f, dict)
+                }
+                if p not in other_fields:
+                    continue
+                if any(
+                    isinstance(fk, dict) and fk.get("ref") == ent["name"]
+                    for fk in (other.get("fks") or [])
+                ):
+                    lf.append({"param": p, "column": p, "op": "eq"})
+                    declared.add(p)
+                    break
+
         date_cols = [
             n for n in sorted(fields)
             if fields[n].get("type") in ("date", "datetime")
@@ -801,6 +828,14 @@ def _service_repo_interface(entities_by_class, designs, repo_sources=None):
         methods = {
             "create": [("_obj", True)],
             "get_by_id": [("id", True)],
+            # _render_repository_file deterministically appends a
+            # ``find_by_id`` alias (``def find_by_id(self, *args, **kwargs):
+            # return self.get_by_id(*args, **kwargs)``) to every repo. Advertise
+            # it so the 4B model's common ``find_by_id`` lookup call is legal
+            # without burning the bounded alias-repair cap (which is 3/svc and
+            # gets exhausted across library_system's ~30 stubs, so later methods
+            # revert to safe stubs solely because the model used the synonym).
+            "find_by_id": [("id", True)],
             "get_all": [],
             "list": ["_filters"],
             "update": [("id", True), ("data", True)],
@@ -882,12 +917,23 @@ def _service_type_context(entities_by_class, designs):
       ("dict",) — absent when the return type carries no checkable shape.
     """
     entity_fields = {}
+    required_fields = {}
     for cls, ent in entities_by_class.items():
         fields = {"id"}
+        req = set()
         for f in ent.get("fields") or []:
             if isinstance(f, dict) and f.get("name"):
                 fields.add(f["name"])
+                # A field without nullable and not the surrogate id is REQUIRED
+                # in the constructor (no default). Omitting it is a guaranteed
+                # TypeError (prompt 19's import_task built Task(...) without
+                # created_at/updated_at). auto:"now" fields are still required
+                # args — the deterministic add_<entity> stamps them, but a bare
+                # Task(...) without them crashes.
+                if not f.get("nullable") and f.get("name") != "id":
+                    req.add(f["name"])
         entity_fields[cls] = fields
+        required_fields[cls] = req
 
     repo_designs = {}
     for path, kind, data in designs or []:
@@ -936,7 +982,11 @@ def _service_type_context(entities_by_class, designs):
                 t = _tag(m.get("returns"))
                 if t:
                     repo_returns[(attr, m["name"])] = t
-    return {"entity_fields": entity_fields, "repo_returns": repo_returns}
+    return {
+        "entity_fields": entity_fields,
+        "required_fields": required_fields,
+        "repo_returns": repo_returns,
+    }
 
 
 def _repo_return_strings(entities_by_class, designs):
@@ -1090,6 +1140,59 @@ def _semantic_fill_violations(tree, type_ctx):
                         "declares %d field(s)"
                         % (node.func.id, len(node.args), len(fields))
                     )
+                # Missing-required-field gate: an entity constructor must
+                # provide every REQUIRED (non-nullable, non-id) field, else it
+                # is a guaranteed TypeError at runtime (prompt 19's import_task
+                # built Task(...) without created_at/updated_at). The fill must
+                # add them rather than ship a crash.
+                req_fields = (type_ctx or {}).get("required_fields", {}).get(
+                    node.func.id, set()
+                )
+                provided = {
+                    kw.arg for kw in node.keywords
+                    if kw.arg and kw.arg
+                }
+                missing = req_fields - provided
+                if missing:
+                    violations.append(
+                        "%s() missing required field(s) %s (model requires: %s)"
+                        % (
+                            node.func.id,
+                            ", ".join(sorted(missing)),
+                            ", ".join(sorted(req_fields)),
+                        )
+                    )
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Call)
+        ):
+            # Inline repo-call result attribute access (library_system I7:
+            # self.member_repo.get_by_id(loan.member_id).loan_count).
+            # The result of a designed repo method tagged ("entity", cls)
+            # only exposes the entity's declared fields.
+            hit = _repo_call_key_tag(node.value)
+            if hit:
+                (attr, meth), tag = hit
+                if tag and tag[0] == "entity":
+                    if (
+                        node.attr not in entity_fields.get(tag[1], set())
+                        and not (
+                            node.attr.startswith("__")
+                            and node.attr.endswith("__")
+                        )
+                    ):
+                        violations.append(
+                            "%s.%s: unknown field %r on %s (declared: %s)"
+                            % (
+                                ast.unparse(node.value)[:40],
+                                node.attr,
+                                node.attr,
+                                tag[1],
+                                ", ".join(
+                                    sorted(entity_fields.get(tag[1], set()))
+                                ),
+                            )
+                        )
         elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
             tag = var_types.get(node.value.id)
             if not tag or node.attr in _DICT_METHODS:
@@ -1606,6 +1709,7 @@ exception_names, models_module="models", repo_entities=None):
         "from __future__ import annotations",
         "",
         "import csv",
+        "import json",
         "from typing import Any, Dict, List, Optional",
     ]
     # The deterministic create_<entity> recipe stamps date/datetime fields
@@ -1643,13 +1747,16 @@ exception_names, models_module="models", repo_entities=None):
 
 
 def _missing_repo_calls(filled, repo_interface):
-    """(repo_attr, method) pairs a fill CALLS on self.<attr> that are absent
-    from the deterministic repository interface."""
+    """(repo_attr, method, arg_names) triples for calls a fill makes on
+    self.<attr> that are absent from the deterministic repository interface.
+    ``arg_names`` is the union of positional/keyword argument names used
+    across call sites, so the alias repair can prefer a candidate method
+    whose parameter set matches them (arity-aware aliasing)."""
     try:
         tree = ast.parse(filled)
     except SyntaxError:
         return []
-    missing = []
+    missing = {}
     for node in ast.walk(tree):
         if not (
             isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
@@ -1668,10 +1775,160 @@ def _missing_repo_calls(filled, repo_interface):
             continue
         sig = repo_interface.get(attr)
         if sig is not None and func.attr not in sig:
-            pair = (attr, func.attr)
-            if pair not in missing:
-                missing.append(pair)
-    return missing
+            key = (attr, func.attr)
+            arg_names = missing.setdefault(key, set())
+            for a in node.args:
+                if isinstance(a, ast.Name):
+                    arg_names.add(a.id)
+            for kw in node.keywords:
+                if kw.arg:
+                    arg_names.add(kw.arg)
+    return [(a, m, sorted(args)) for (a, m), args in missing.items()]
+
+
+def _build_fill_hint(repo_interface, type_ctx):
+    """Format the repository-API + model-fields + dict-keys hint for a fill.
+
+    Used for the per-method scoped hint (Option B). A 4B model loses
+    instruction fidelity once a fill conversation exceeds ~3k tokens, so a
+    per-method fill lists only the relevant repos (see
+    ``_scoped_repo_interface``) to keep the conversation small while still
+    exposing the model fields and create contract.
+    """
+    hint_parts = [
+        "AVAILABLE REPOSITORY METHODS — you may call ONLY these on self.*_repo "
+        "(never invent repository methods). Signatures are EXACT:",
+        "NEVER call self.db directly (no self.db.connect() / self.db.execute()) "
+        "— always delegate persistence to the repository layer "
+        "(self.<entity>_repo).",
+    ]
+    if repo_interface:
+        for attr in sorted(repo_interface):
+            sigs = []
+            for meth, entries in repo_interface[attr].items():
+                if entries == ["_filters"]:
+                    sigs.append("%s(**filters)" % meth)
+                    continue
+                parts = []
+                for e in entries:
+                    pname = e[0] if isinstance(e, tuple) else e
+                    req = e[1] if isinstance(e, tuple) else True
+                    parts.append(pname if req else "%s=None" % pname)
+                ret = (type_ctx.get("repo_returns_raw") or {}).get(
+                    (attr, meth)
+                )
+                if ret == "dict":
+                    sigs.append("%s(%s) -> dict" % (meth, ", ".join(parts)))
+                elif ret:
+                    sigs.append(
+                        "%s(%s) -> %s" % (meth, ", ".join(parts), ret)
+                    )
+                else:
+                    sigs.append("%s(%s)" % (meth, ", ".join(parts)))
+            hint_parts.append(
+                "  self.%s: %s" % (attr, "; ".join(sorted(sigs)))
+            )
+        hint_parts.append(
+            "  NOTE: update(id, data) takes the changed fields as a single "
+            "dict argument — NEVER as keyword arguments."
+        )
+    else:
+        hint_parts.append("  (none)")
+    hint = "\n".join(hint_parts)
+    hint += (
+        "\n\nMODEL FIELD NAMES — constructor keyword arguments and "
+        "attribute access MUST use exactly these:\n"
+        + "\n".join(
+            "  %s(%s)"
+            % (cls, ", ".join(sorted(type_ctx["entity_fields"][cls])))
+            for cls in sorted(type_ctx["entity_fields"])
+        )
+    )
+    dict_key_lines = [
+        "  self.%s.%s(...) -> dict with keys: %s"
+        % (attr, meth, ", ".join(sorted(keys)))
+        for (attr, meth), keys in sorted(type_ctx.get("dict_keys", {}).items())
+    ]
+    if dict_key_lines:
+        hint += (
+            "\n\nDICT RETURN KEYS  when a call below returns a dict, index "
+            "it ONLY with these keys:\n" + "\n".join(dict_key_lines)
+        )
+    hint += (
+        "\n\nCREATE CONTRACT  self.<entity>_repo.create() takes an ENTITY "
+        "INSTANCE, never a plain dict: build one with EntityClass(**data) "
+        "and pass that object."
+    )
+    return hint
+
+
+def _scoped_repo_interface(m, repo_interface, entities_by_class):
+    """Filter repo_interface to the repos a method's body plausibly touches.
+
+    A 4B model loses instruction fidelity once a fill conversation exceeds
+    ~3k tokens (observed: library_system's full 4-repo menu + 30-stub
+    skeleton reaches 5-6k, so the model invents loan_repo.return_loan).
+    Scoping the per-method hint to the owning entity's repo + FK-referenced
+    repos keeps each fill well under that limit while exposing exactly the
+    repos the body could reasonably need. Falls back to the full interface
+    when no entity matches (a valid body may use any wired repo).
+    """
+    if not repo_interface or not entities_by_class:
+        return repo_interface
+    name = m.get("name") or ""
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+
+    def _attr(cls):
+        attr = _snake(cls) + "_repo"
+        return attr if attr in repo_interface else None
+
+    related = set()
+
+    def _add(cls):
+        if cls in entities_by_class:
+            a = _attr(cls)
+            if a:
+                related.add(a)
+
+    # 1. Primary entity: longest entity-snake/plural substring in the method
+    # name (return_loan -> loan, get_overdue_loans -> loan, add_book -> book).
+    prim = None
+    best = -1
+    for cls in entities_by_class:
+        for tok in (_snake(cls), _plural(_snake(cls))):
+            if tok and tok in name and len(tok) > best:
+                best = len(tok)
+                prim = cls
+    if prim:
+        _add(prim)
+
+    # 2. Foreign-key params: borrow_loan(member_id, book_id) needs both.
+    for p in params:
+        if p.endswith("_id") and p != "id":
+            _add(_camel(p[: -len("_id")]))
+
+    # 3. Primary entity's FK columns / modeled fks: return_loan(loan_id) must
+    # reach book_repo/member_repo (increment copies) even without _id params.
+    if prim:
+        ent = entities_by_class.get(prim)
+        if isinstance(ent, dict):
+            for f in ent.get("fields") or []:
+                if isinstance(f, dict) and isinstance(f.get("name"), str):
+                    fn = f["name"]
+                    if fn.endswith("_id") and fn != "id":
+                        _add(_camel(fn[: -len("_id")]))
+            for fk in ent.get("fks") or []:
+                if isinstance(fk, dict):
+                    ref = fk.get("ref") or fk.get("ref_table") or ""
+                    if ref and _camel(ref) != prim:
+                        _add(_camel(ref))
+
+    if not related:
+        return repo_interface
+    return {a: iface for a, iface in repo_interface.items() if a in related}
 
 
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
@@ -1854,18 +2111,27 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     def _repair_missing(filled_text):
         """True when at least one missing simple finder was synthesized."""
         nonlocal synthesized_count, fill_hint
-        if not filled_text or synthesized_count >= 3 or not repo_sources:
+        # Scale the repair budget with the stub count: a flat cap of 3 is
+        # exhausted by a large service (30 stubs), so later methods lose
+        # their ``find_by_id`` alias while earlier repos keep theirs. The
+        # repair only synthesizes SIMPLE single-column lookups / aliases
+        # (``_simple_finder_spec`` / ``_existing_variant_alias``) — bounded,
+        # legitimate methods — so a proportional budget is safe; the contract
+        # validator still gates every fill.
+        if not filled_text or synthesized_count >= max(3, len(stubs)) or not repo_sources:
             return False
         repaired = False
-        for attr, meth in _missing_repo_calls(filled_text, repo_interface):
+        for attr, meth, call_args in _missing_repo_calls(filled_text, repo_interface):
             spec = _simple_finder_spec(attr, meth, entities_by_class)
             if spec is None:
                 # Name-variant alias: the fill references a method that is a
                 # verb-prefix/entity-suffix variant of an EXISTING repo method
                 # (top_products_by_total_quantity_sold -> get_top_products...).
                 # Synthesize a delegator so the retry can legally call it.
+                # Pass the call's arg names so the alias prefers a candidate
+                # whose param set matches (arity-aware).
                 alias_of = _existing_variant_alias(
-                    attr, meth, repo_interface
+                    attr, meth, repo_interface, call_args
                 )
                 if alias_of is None:
                     continue
@@ -1971,74 +2237,119 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 )
         return repaired
 
-    instruction = fill_hint
-    for attempt in range(4):
-        filled = _llm_fill(
-            "service", instruction, mini, prompt_text, verbose=verbose
-        )
-        merged = _accept(filled)
-        if merged is not None:
-            return merged
-        violations = (
-            _service_fill_violations(
-                filled, repo_interface, stub_design, type_ctx
+    # A 4B model loses instruction fidelity once a fill conversation exceeds
+    # ~3k tokens. A batch fill packs ALL stubs into one skeleton PLUS the
+    # full repo menu PLUS a whole-service decode — library_system has ~30
+    # stubs across 4 repos, so that single conversation reaches 5-6k tokens
+    # and the model forgets "call ONLY these repo methods", inventing
+    # loan_repo.return_loan / get_overdue_loans. When the stub set is large,
+    # skip the batch entirely and fill one method at a time with a repo hint
+    # scoped to that method's entity + FK repos, keeping each conversation
+    # small enough to stay instruction-faithful.
+    LARGE_STUB_SET = 4
+    if len(stubs) <= LARGE_STUB_SET:
+        instruction = fill_hint
+        for attempt in range(4):
+            filled = _llm_fill(
+                "service", instruction, mini, prompt_text, verbose=verbose
             )
-            if filled else ["empty output"]
-        )
-        if filled and _repair_missing(filled):
-            # The interface just grew: re-evaluate against it before
-            # burning a retry — the same fill may now be fully valid.
-            violations = _service_fill_violations(
-                filled, repo_interface, stub_design, type_ctx
+            merged = _accept(filled)
+            if merged is not None:
+                return merged
+            violations = (
+                _service_fill_violations(
+                    filled, repo_interface, stub_design, type_ctx
+                )
+                if filled else ["empty output"]
             )
-            if not violations:
-                merged = _merge_stub_bodies(deterministic, filled, stub_names)
-                if merged is not None:
-                    return merged
-        if filled and verbose:
-            print(
-                "    [fill] service: rejected (attempt %d: %s)"
-                % (attempt + 1, "; ".join(violations[:4]))
+            if filled and _repair_missing(filled):
+                # The interface just grew: re-evaluate against it before
+                # burning a retry — the same fill may now be fully valid.
+                violations = _service_fill_violations(
+                    filled, repo_interface, stub_design, type_ctx
+                )
+                if not violations:
+                    merged = _merge_stub_bodies(deterministic, filled, stub_names)
+                    if merged is not None:
+                        return merged
+            if filled and verbose:
+                print(
+                    "    [fill] service: rejected (attempt %d: %s)"
+                    % (attempt + 1, "; ".join(violations[:4]))
+                )
+            instruction = (
+                fill_hint
+                + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
+                + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
+                + "\n".join("  - " + v for v in violations[:8])
             )
-        instruction = (
-            fill_hint
-            + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
-            + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
-            + "\n".join("  - " + v for v in violations[:8])
-        )
-    # Batch fill exhausted its retries. Salvage per-method: one stubborn
-    # body must not revert every other stub, so fill each stub alone and
-    # merge whichever bodies pass their own contract check.
+
+    # Per-method fill: fill each stub alone with a SCOPED repo hint so the
+    # conversation stays under the 4B model's instruction-following limit
+    # (a batch over 30 stubs reaches 5-6k tokens and loses fidelity).
+    # Validation still uses the FULL repo_interface so a correct call to any
+    # real repo method is accepted; the scoped hint only shrinks the prompt.
+    # A stubborn body must not revert every other stub, so fill each stub
+    # alone and merge whichever bodies pass their own contract check.
     salvaged = deterministic
     reverted = []
     for m in stubs:
         name = m.get("name")
         one_design = {"methods": [m]}
+        # Scope BOTH the hint AND the skeleton header to the repos this
+        # method's entity + FKs plausibly touch. The header MUST NOT wire
+        # every repo: with all four wired, the model "uses" self.loan_repo /
+        # self.author_repo even from add_member / search_book (observed:
+        # search_book -> loan_repo.find_loans_by_member, add_member ->
+        # loan_repo.get_by_id, get_loan_report -> author_repo.find_by_id),
+        # because the skeleton exposes them as live despite the hint's "only
+        # these" instruction. Wiring only the scoped repos makes the wrong
+        # call impossible, and validating against the scoped interface
+        # rejects it if the model still tries.
+        scoped_iface = _scoped_repo_interface(
+            m, repo_interface, entities_by_class
+        )
+        scoped_entities = {
+            _camel(a[: -len("_repo")])
+            for a in scoped_iface
+            if a.endswith("_repo")
+        }
         one_mini = (
             "\n".join(
                 _service_header_lines(
                     svc_class, entities, entities_by_class, exception_names,
-                    models_module=models_module, repo_entities=repo_entities,
+                    models_module=models_module, repo_entities=scoped_entities,
                 )
                 + [_method_stub_code(m, 1)]
             ).rstrip()
             + "\n"
         )
-        one_instr = fill_hint
+        one_hint = _build_fill_hint(scoped_iface, type_ctx)
+        one_instr = one_hint
         ok = False
         for attempt in range(2):
             cand = _llm_fill(
                 "service", one_instr, one_mini, prompt_text, verbose=verbose
             )
+            # Validate against the SCOPED interface, recomputed after any
+            # bounded repair grew repo_interface, so a correct in-scope call
+            # is accepted and a wrong-repo call (self.author_repo from
+            # return_loan) is rejected.
+            cur_iface = _scoped_repo_interface(
+                m, repo_interface, entities_by_class
+            )
             viol = (
                 _service_fill_violations(
-                    cand, repo_interface, one_design, type_ctx
+                    cand, cur_iface, one_design, type_ctx
                 )
                 if cand else ["empty output"]
             )
             if cand and _repair_missing(cand):
                 viol = _service_fill_violations(
-                    cand, repo_interface, one_design, type_ctx
+                    cand,
+                    _scoped_repo_interface(m, repo_interface, entities_by_class),
+                    one_design,
+                    type_ctx,
                 )
             if not viol:
                 # A merge can legitimately fail (fill missing a method);
@@ -2056,7 +2367,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                     % (name, attempt + 1, "; ".join(viol[:3]))
                 )
             one_instr = (
-                fill_hint
+                one_hint
                 + "\n\nYOUR PREVIOUS OUTPUT WAS REJECTED FOR THESE CONTRACT "
                 + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
                 + "\n".join("  - " + v for v in viol[:6])

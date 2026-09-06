@@ -44,7 +44,26 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     repo = model + "Repository"
     ent = entities_by_class.get(model)
     if not ent:
-        return ""
+        # Filename-derived entity mismatch (audit_entry_repository serves
+        # AuditRecord, not AuditEntry). Derive the entity from the designed
+        # custom methods' return types so the repo doesn't render empty.
+        for m in (design or {}).get("methods") or []:
+            if not isinstance(m, dict):
+                continue
+            ret = (m.get("returns") or "")
+            if not ret:
+                continue
+            for cls in entities_by_class:
+                if re.search(r"\b%s\b" % cls, ret):
+                    ent = entities_by_class[cls]
+                    model = cls
+                    ent_snake = _snake(cls)
+                    repo = model + "Repository"
+                    break
+            if ent:
+                break
+        if not ent:
+            return ""
     exception_names = exception_names or []
     table_names = {cls: _entity_table_name(e) for cls, e in entities_by_class.items()}
     cols = _repo_columns(ent, table_names)
@@ -64,6 +83,49 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     # --- declared filter API (from the entity design's list_filters) --------
     filter_specs = _declared_filters(ent)
     filter_params = [(p, None) for p, _, _ in filter_specs]
+    # Cross-table filter columns (filtering by a JOIN entity's column, e.g.
+    # Post filtered by PostTag.tag_id — prompt 23's "posts by tag") need a
+    # JOIN so the list() SQL qualifies the column with the join alias instead
+    # of a bare column that doesn't exist on the entity's own table.
+    own_cols = set(col_names)
+    join_clauses = []
+    qualified = {}
+    for _p, col, _op in filter_specs:
+        if col in own_cols:
+            continue
+        for cls, other in entities_by_class.items():
+            if cls == model:
+                continue
+            other_fields = {
+                f.get("name")
+                for f in (other.get("fields") or [])
+                if isinstance(f, dict)
+            }
+            if col not in other_fields:
+                continue
+            fk_to_me = next(
+                (
+                    fk for fk in (other.get("fks") or [])
+                    if isinstance(fk, dict) and fk.get("ref") == model
+                ),
+                None,
+            )
+            if fk_to_me is None:
+                continue
+            other_table = table_names.get(cls) or _plural(_snake(cls))
+            other_alias = _snake(cls)
+            fk_field = fk_to_me.get("field") or "id"
+            fk_ref = fk_to_me.get("ref_field") or "id"
+            join_clauses.append(
+                "JOIN %s %s ON %s.%s = %s.%s"
+                % (
+                    other_table, other_alias,
+                    other_alias, fk_field,
+                    ent_snake, fk_ref,
+                )
+            )
+            qualified[col] = "%s.%s" % (other_alias, col)
+            break
     # Constant-predicate ops (eq_true/gt_zero) arrive via bounded CLI flag
     # propagation (_apply_filter_floors): they bind NO value and guard on
     # truthiness instead of is-not-None (a click flag defaults to False,
@@ -74,7 +136,7 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     }
     _BOUND_OPS = {"eq", "gte", "lte"}
     filter_where = [
-        (_FRAG[op] % col, p, op in _BOUND_OPS)
+        (_FRAG[op] % qualified.get(col, col), p, op in _BOUND_OPS)
         for p, col, op in filter_specs
     ]
 
@@ -148,7 +210,13 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         sig = ", ".join("%s: Optional[Any] = None" % p[0] for p in filter_params)
         L.append("    def list(self, %s) -> List[%s]:" % (sig, model))
         L.append("        with self.db.connect() as conn:")
-        L.append('            query = "SELECT * FROM %s WHERE 1=1"' % table)
+        if join_clauses:
+            L.append(
+                '            query = "SELECT %s.* FROM %s %s %s WHERE 1=1"'
+                % (ent_snake, table, ent_snake, " ".join(join_clauses))
+            )
+        else:
+            L.append('            query = "SELECT * FROM %s WHERE 1=1"' % table)
         L.append("            params: List[Any] = []")
         for frag, expr, bound in filter_where:
             guard = (
@@ -158,7 +226,11 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
             L.append("                query += %r" % frag)
             if bound:
                 L.append("                params.append(%s)" % expr)
-        L.append("            rows = conn.execute(query + \" ORDER BY id\", params).fetchall()")
+        order_col = "%s.id" % ent_snake if join_clauses else "id"
+        L.append(
+            "            rows = conn.execute(query + \" ORDER BY %s\", params).fetchall()"
+            % order_col
+        )
         L.append("            return [%s(**dict(r)) for r in rows]" % model)
     else:
         L.append("    def list(self) -> List[%s]:" % model)

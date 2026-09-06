@@ -311,6 +311,27 @@ def _entity_from_command_name(name: str, design: dict) -> str:
     return ""
 
 
+def _is_bulk_id_key(resolved: str, target_entity: str) -> bool:
+    """True for the multi-id option of a bulk command (--ids, --skus, ...).
+
+    A bulk update takes a comma-separated list of ids/SKUs. Each element
+    references a row that must exist, so the option is a per-value *bulk* ref
+    (not the single *target* ref consumed by ``_substitute_refs``).
+    """
+    if not resolved:
+        return False
+    r = resolved.lower()
+    if r in ("ids", "skus", "codes", "keys"):
+        return True
+    if target_entity:
+        sn = _snake(target_entity)
+        if r in (sn + "_ids", sn + "_skus", sn + "_codes"):
+            return True
+    if r.endswith("_ids") or r.endswith("_skus"):
+        return True
+    return False
+
+
 def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[dict]]:
     """Derive ``(creates, refs)`` from the design's entities + FKs + method params.
 
@@ -390,6 +411,8 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
                 # so the executor must be able to give this plan a FRESH row
                 # (prompt 32: order-cancel after order-ship on the same id).
                 refs.append({"flag": flag, "entity": target_entity, "kind": "target"})
+            elif _is_bulk_id_key(resolved, target_entity):
+                refs.append({"flag": flag, "entity": target_entity, "kind": "bulk"})
     return creates, refs
 
 
@@ -507,8 +530,22 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
     suffix = str(value) if value not in (None, "") else ""
     for opt in cmd.get("options", []):
         flag = _opt_flag_name(opt)
-        if not flag or opt.get("flag"):
-            continue  # boolean flags are never required by the surface
+        if not flag:
+            continue
+        if opt.get("flag"):
+            # Boolean flags: a seed should set positive-state fields
+            # (active/enabled/available/approved/verified) so consumers that
+            # require them (e.g. borrow needs an active member) can use the
+            # row. Click boolean flags default False, so without this a seed
+            # member is inactive and the follow-up borrow fails. Negative
+            # state flags (is_deleted/is_archived) stay unset (False).
+            dest = (opt.get("dest") or "").lower()
+            if re.search(
+                r"(^|_)(active|enabled|available|approved|verified|paid|confirmed)(_|$)",
+                dest,
+            ):
+                args.append({"flag": flag, "value": ""})
+            continue
         if not opt.get("required"):
             continue
         if opt.get("type") in ("int", "float"):
@@ -608,7 +645,11 @@ def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | 
         "option_args": [],
         "expected": {"exit_code": 0},
         "creates": entity,
-        "refs": [],
+        "refs": [
+            {"flag": fk.get("field"), "entity": fk.get("ref"), "kind": "fk"}
+            for fk in (ent.get("fks") or [])
+            if isinstance(fk, dict) and fk.get("field") and fk.get("ref")
+        ],
         "fixtures": [],
         "target": "",
         "entry": "",
@@ -653,6 +694,13 @@ def _synthesize_seed_plans(plans: list[dict], facade: dict,
                 return pair[1]
         return None
 
+    def _bulk_values(plan: dict, flag: str) -> list[str]:
+        """Distinct elements of a comma-separated multi-id option (--ids 1,3)."""
+        for pair in plan.get("option_args", []):
+            if pair and pair[0] == flag and len(pair) > 1:
+                return [x.strip() for x in pair[1].split(",") if x.strip()]
+        return []
+
     def _seed_for(plan: dict) -> None:
         for ref in plan.get("refs", []):
             if not isinstance(ref, dict):
@@ -660,6 +708,24 @@ def _synthesize_seed_plans(plans: list[dict], facade: dict,
             ent = ref.get("entity")
             flag = ref.get("flag")
             if not ent or not flag:
+                continue
+            if ref.get("kind") == "bulk":
+                # A bulk ref references MULTIPLE rows (--ids 1,3). Seed each
+                # distinct value so the bulk command's per-id lookups find them.
+                for val in _bulk_values(plan, flag):
+                    key = (ent, val)
+                    if key in seeded_keys:
+                        continue
+                    cmd = _find_create_cmd(facade, ent, design)
+                    if cmd is None:
+                        seed = _make_sql_seed_plan(ent, val, design)
+                        if seed is None:
+                            continue
+                    else:
+                        seed = _make_seed_plan(cmd, ent, facade, design, value=val)
+                    seed["seed_for"] = {"entity": ent, "value": val, "flag": flag}
+                    updated.append(seed)
+                    seeded_keys.add(key)
                 continue
             # Target refs (--id on update/delete/state-transition) resolve via
             # entity_provided[(ent, None)], which the real creator set, so a
@@ -736,6 +802,380 @@ def _delete_fallback(intent: dict, facade: dict,
     return None
 
 
+# --- Negative/validation intention handling --------------------------------
+# Some extracted intentions state a constraint the create operation must
+# enforce ("I cannot create a customer with a duplicate email address", "I am
+# prevented from creating a book with a duplicate ISBN"). There is no
+# standalone command for "prevent a duplicate" — the constraint lives on the
+# <entity>-add command. Map these to the create command with an expected
+# NON-ZERO exit (the generated repo raises the unique/validation exception),
+# and synthesize a seed that creates a colliding row first so the duplicate
+# actually exists when the command runs.
+
+_NEG_CREATE_RE = re.compile(
+    r"\b(cannot|can not|must not|prevents?|prevented|refuse[sd]?|"
+    r"reject[sd]?|forbidden|error if)\b",
+    re.IGNORECASE,
+)
+
+_DUP_FIELD_RE = re.compile(
+    r"\b(duplicate|unique)\s+([a-z][a-z0-9_]*)\b", re.IGNORECASE,
+)
+
+
+def _negative_unique_field(text: str) -> str:
+    """The constrained field named by a duplicate/unique negative intention."""
+    m = _DUP_FIELD_RE.search(text or "")
+    if m:
+        return m.group(2).lower().replace("-", "_")
+    m2 = re.search(
+        r"\b([a-z][a-z0-9_]*)\s+must be unique\b", text or "", re.IGNORECASE
+    )
+    if m2:
+        return m2.group(1).lower().replace("-", "_")
+    return ""
+
+
+def _negative_entity(text: str, design: dict | None) -> str:
+    """The entity a negative-create intention names, else ""."""
+    if not design:
+        return ""
+    low = (text or "").lower()
+    for ent in design.get("entities", []):
+        snake = _snake(ent["name"])
+        for tok in (snake, snake + "s", snake.rstrip("s")):
+            if tok in low:
+                return ent["name"]
+    return ""
+
+
+def _negative_value(field: str) -> str:
+    """A representative colliding value for the unique field."""
+    if field in ("email", "email_address"):
+        return "dup@example.com"
+    return "dup-" + field
+
+
+def _patch_seed_field(seed: dict, cmd: dict, field: str, val: str) -> None:
+    """Set the constrained field arg on a synthesized seed to the colliding value."""
+    flag = ""
+    for opt in cmd.get("options", []):
+        if (opt.get("dest") or "").replace("-", "_") == field:
+            flag = _opt_flag_name(opt)
+            break
+    if not flag:
+        return
+    for pair in seed.get("option_args", []):
+        if pair and pair[0] == flag:
+            if len(pair) > 1:
+                pair[1] = val
+            else:
+                pair.append(val)
+            return
+
+
+def _rebuild_plan_invocation(plan: dict) -> None:
+    """Recompute a plan's invocation string from its args.
+
+    The executor runs ``plan["invocation"]`` verbatim, not the structured
+    ``option_args``. Patching a plan's args after ``_build_plan`` leaves the
+    invocation stale (the seed would create the wrong email), so recompute it
+    the same way ``_build_plan`` built it originally. Mirrors the executor's
+    ``_rebuild_invocation`` without importing it (that would be circular).
+    """
+    parts = ["python3"]
+    if plan.get("module"):
+        parts.append("-m")
+    if plan.get("entry"):
+        parts.append(plan["entry"])
+    if plan.get("kind") == "click_group" and plan.get("command"):
+        parts.append(plan["command"])
+    parts.extend(plan.get("positional_args", []))
+    for pair in plan.get("option_args", []):
+        parts.extend(pair)
+    plan["invocation"] = " ".join(
+        shlex.quote(p) if _needs_quote(p) else p for p in parts
+    )
+
+
+def _negative_create_fallback(intent: dict, facade: dict,
+                              design: dict | None) -> tuple[dict, dict] | None:
+    """Map a negative/validation create intention to the create command with an
+    expected non-zero exit, plus a seed that creates a colliding row first.
+
+    Returns ``(plan, seed)`` or None. The plan expects ``exit_code != 0`` (the
+    generator rejects the duplicate/unique violation); the seed creates an
+    entity with the same unique value so the duplicate genuinely exists.
+    """
+    text = (intent.get("text") or "").strip()
+    if not _NEG_CREATE_RE.search(text):
+        return None
+    # The intention may inflect the verb ("creating", "created", "registered").
+    # Use a word-boundary stem matcher so "creating" matches (it does NOT contain
+    # the substring "create"), while "address" does NOT match "add".
+    if not re.search(
+        r"\b(creat\w*|add(?:ed|ing|s)?|insert\w*|register\w*)\b",
+        text, re.IGNORECASE,
+    ):
+        return None
+    entity = _negative_entity(text, design)
+    if not entity:
+        return None
+    field = _negative_unique_field(text)
+    if not field:
+        return None
+    cmd = _find_create_cmd(facade, entity, design)
+    if cmd is None:
+        return None
+
+    val = _negative_value(field)
+
+    def _placeholder(opt: dict) -> str:
+        if opt.get("type") in ("int", "float"):
+            return "1"
+        return "seed-" + _snake(entity)
+
+    args: list[dict] = []
+    for opt in cmd.get("options", []):
+        flag = _opt_flag_name(opt)
+        if not flag or opt.get("flag"):
+            continue
+        key = (opt.get("dest") or "").replace("-", "_")
+        if key == field:
+            args.append({"flag": flag, "value": val})
+        elif opt.get("required"):
+            args.append({"flag": flag, "value": _placeholder(opt)})
+    for arg in cmd.get("arguments", []):
+        dest = (arg.get("dest") or "").replace("-", "_")
+        if arg.get("required") and dest:
+            args.append({"flag": dest, "value": "seed"})
+
+    m = {
+        "intent_id": intent.get("intent_id", "?"),
+        "command": cmd.get("name", ""),
+        "args": args,
+    }
+    plan = _build_plan(intent, m, facade, design=design)
+    plan["expected"] = {"exit_code": "!=0"}
+    # The create plan must run AFTER the colliding seed. Clear `creates` so the
+    # topo sort treats it as an "other" (non-provider) and runs it after all
+    # providers (including the seed we synthesize below).
+    plan["creates"] = ""
+
+    seed = _make_seed_plan(cmd, entity, facade, design, value=val)
+    if seed is None:
+        return None
+    _patch_seed_field(seed, cmd, field, val)
+    # The executor runs plan["invocation"], not option_args — the patch above
+    # leaves the seed's invocation stale (it would create the wrong email), so
+    # recompute it to carry the colliding value.
+    _rebuild_plan_invocation(seed)
+    seed["seed_for"] = {"entity": entity, "value": val, "flag": ""}
+    return plan, seed
+
+
+# --- Error-handling (negative tool behaviour) intent handling ----------------
+# Some extracted intentions declare an ERROR behaviour of the tool ("I get an
+# error if the input CSV file does not exist", "I get an error if the CSV has a
+# malformed format"). There is no standalone command for "error"; the behaviour
+# lives on the command that reads the input. Map these to that command with an
+# input that triggers the error, expecting a NON-ZERO exit (cli_tool's I4/I5).
+
+_ERROR_HANDLING_RE = re.compile(
+    r"\b(get|receive|see|encounter)\s+an\s+error\s+(if|when)\b"
+    r"|\berror\s+if\b"
+    r"|\b(raise[sd]?|return[sd]?|produce[sd]?|throw[sd]?)\s+an?\s+error\b",
+    re.IGNORECASE,
+)
+
+_MISSING_FILE_RE = re.compile(
+    r"\b(does not exist|not found|non.?existent|absent)\b"
+    r"|\bmissing\s+(input\s+)?file\b|\bfile\s+is\s+missing\b",
+    re.IGNORECASE,
+)
+
+_MALFORMED_FILE_RE = re.compile(
+    r"\b(malformed|invalid|bad format|badly.?formatted|missing header|"
+    r"wrong delimiter|inconsisten|corrupt|unparseable)\b",
+    re.IGNORECASE,
+)
+
+
+def _error_handling_fallback(intent: dict, facade: dict,
+                             design: dict | None,
+                             fixtures: dict | None = None):
+    """Map an error-behaviour intention to the tool's input command.
+
+    An intention that declares an error condition ("I get an error if ...")
+    has no standalone command — the error is a property of the command that
+    reads the offending input. For a single-command tool, map to that command
+    with a bad input and expect a non-zero exit: a missing path (nonexistent)
+    or a malformed input file (malformed/missing header). ``fixtures`` is
+    mutated to include the synthesized ``malformed_csv`` fixture.
+    """
+    text = intent.get("text") or ""
+    if not _ERROR_HANDLING_RE.search(text):
+        return None
+    cmds = facade.get("commands") or []
+    cmd = next((c for c in cmds if c.get("name") == "main"), None)
+    if cmd is None and len(cmds) == 1:
+        cmd = cmds[0]
+    if cmd is None:
+        return None
+    # The command must read an external input: a required positional argument
+    # (the file path), or a file-ish option.
+    input_arg = next(
+        (a for a in cmd.get("arguments") or [] if a.get("required")), None,
+    )
+    file_opt = next(
+        (
+            o for o in cmd.get("options") or []
+            if any(k in (o.get("dest") or "")
+                   for k in ("file", "path", "input", "csv"))
+        ),
+        None,
+    )
+    if input_arg is None and file_opt is None:
+        return None
+    missing = bool(_MISSING_FILE_RE.search(text))
+    malformed = bool(_MALFORMED_FILE_RE.search(text))
+    if not missing and not malformed:
+        return None
+    iid = intent.get("intent_id", "?")
+    if missing:
+        arg_name = (input_arg or {}).get("dest")
+        if not arg_name:
+            arg_name = next(
+                (n for n in ((input_arg or {}).get("names") or [])
+                 if n and not n.startswith("-")),
+                "",
+            )
+        if not arg_name:
+            return None
+        m = {
+            "intent_id": iid,
+            "command": cmd.get("name", ""),
+            "args": [{"flag": arg_name, "value": "/nonexistent/missing-input.csv"}],
+        }
+        plan = _build_plan(intent, m, facade, design=design)
+    else:
+        if fixtures is None:
+            return None
+        fid = "malformed_csv"
+        fixtures.setdefault(fid, {
+            "id": fid, "kind": "csv",
+            "description": "A malformed CSV file (empty, missing header).",
+            "data": "",
+        })
+        arg_name = (input_arg or {}).get("dest") or (
+            next(
+                (n for n in ((input_arg or {}).get("names") or [])
+                 if n and not n.startswith("-")),
+                "",
+            ) or "input_file"
+        )
+        m = {
+            "intent_id": iid,
+            "command": cmd.get("name", ""),
+            "args": [{"flag": arg_name, "value": "malformed"}],
+        }
+        plan = _build_plan(intent, m, facade, design=design)
+        plan["fixtures"] = [{"id": fid, "arg": arg_name}]
+    plan["expected"] = {"exit_code": "!=0"}
+    return plan
+
+
+# --- Import-input fixture synthesis ------------------------------------------
+# Some import intentions ("I can import contacts from a CSV file") map to a
+# real import command that takes --filename, but the mapping LLM fills a
+# made-up path and forgets to attach a fixture, so the executor runs against a
+# nonexistent input file -> FileNotFoundError -> ImportError -> exit 1 (prompt
+# 18/19). Deterministically synthesize an entity-shaped CSV/JSON input file
+# from the design and attach it, so the import genuinely runs against a valid
+# file.
+
+_IMPORT_KIND_RE = re.compile(r"\b(csv|json)\b", re.IGNORECASE)
+
+
+def _import_file_kind(text):
+    m = _IMPORT_KIND_RE.search(text or "")
+    return m.group(1).lower() if m else None
+
+
+def _import_field_value(fname, ftype):
+    """Type-aware placeholder for one field in a synthesized import input."""
+    t = (ftype or "").lower()
+    if fname == "id":
+        return "1"
+    if "int" in t:
+        return "1"
+    if "float" in t or "decimal" in t:
+        return "1.5"
+    if "bool" in t or fname.startswith(("is_", "has_")):
+        return "1"
+    if "datetime" in t:
+        return "2024-01-01T00:00:00"
+    if "date" in t:
+        return "2024-01-01"
+    if "email" in fname:
+        return "alice@example.com"
+    # Common enum-like fields: the generated import validates these against a
+    # closed value set (e.g. task status/priority). Pick a value most
+    # validators accept so the import runs past the validation (prompt 19).
+    if fname == "status":
+        return "completed"
+    if fname == "priority":
+        return "medium"
+    if fname == "category":
+        return "general"
+    return "sample-" + fname.replace("_", "-")
+
+
+def _synthesize_import_fixture(intent, cmd, design):
+    """Return (fixture_id, fixture_dict) for an import command, else None."""
+    target = (cmd.get("target") or "")
+    if not target.lower().startswith("import_"):
+        return None
+    ent_snake = target[len("import_"):]
+    if not ent_snake or not design:
+        return None
+    ent = next(
+        (e for e in design.get("entities", []) if _snake(e["name"]) == ent_snake),
+        None,
+    )
+    if ent is None:
+        return None
+    kind = _import_file_kind(intent.get("text", ""))
+    if kind not in ("csv", "json"):
+        return None
+    fields = [
+        f for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    ]
+    if not fields:
+        return None
+    fid = "import_%s_%s" % (ent_snake, kind)
+    if kind == "csv":
+        header = ",".join(f["name"] for f in fields)
+        row = ",".join(
+            _import_field_value(f["name"], f.get("type")) for f in fields
+        )
+        data = header + "\n" + row + "\n"
+    else:  # json
+        data = [
+            {
+                f["name"]: _import_field_value(f["name"], f.get("type"))
+                for f in fields
+            }
+        ]
+    return fid, {
+        "id": fid,
+        "kind": kind,
+        "description": "Synthesized import input for %s (%s)" % (ent["name"], kind),
+        "data": data,
+    }
+
+
 def _unmapped(intent: dict, reason: str) -> dict:
     return {
         "intent_id": intent.get("intent_id", "?"),
@@ -756,23 +1196,42 @@ def _unmapped(intent: dict, reason: str) -> dict:
 _NON_ACTIONABLE_RE = re.compile(
     r"^\s*the\s+(application|cli|system|app|service)\b"
     r".*\b(uses|ensures|interacts|provides|implements|defines|maintains|"
-    r"exposes|abstracts|orchestrates)\b",
+    r"exposes|abstracts|orchestrates|validates|guarantees|enforces)\b",
+    re.IGNORECASE,
+)
+
+
+# A constraint / validation statement ("I cannot X when Y", "I can ... be
+# rejected if ...", "the operation either succeeds or fails entirely") enforces
+# a business rule the command applies, but has no standalone CLI command of its
+# own. These are not CLI-command gaps, so exclude them from the failing set.
+_CONSTRAINT_RE = re.compile(
+    r"\b(be\s+rejected|is\s+rejected|rejected\s+if|cannot|can\s+not|must\s+not|"
+    r"(?:am|are|is|be)\s+prevented|prevent\w*|refuse\w*|reject\w*|forbid|"
+    r"either\s+succeeds\s+.*\s+or\s+fails\s+entirely|all\s+or\s+nothing|"
+    r"no\s+partial|guarantees?|atomically)\b",
     re.IGNORECASE,
 )
 
 
 def _is_non_actionable(intent: dict) -> bool:
-    """True when an intention declares a system property, not a user action.
+    """True when an intention is not a user-CLI action.
 
-    An actionable intention is phrased as a user goal ("I can <verb> ...").
-    A non-actionable one describes the application's architecture/behaviour
-    ("The application ensures ...", "The CLI interacts ..."). We exclude
-    these from the failing set because they are not CLI-command gaps.
+    An actionable intention is phrased as a user goal ("I can <verb> ...") and
+    drives a real command. A non-actionable one is either:
+      - an architectural statement ("The application uses SQLite through a
+        repository pattern"), or
+      - a constraint/validation rule ("I cannot ship a cancelled order", "the
+        bulk update either succeeds or fails entirely") — a business rule the
+        operation enforces, not a standalone command.
+    We exclude these from the failing set because they are not command-gaps.
     """
     text = (intent.get("text") or "").strip()
-    if not text or text.lower().startswith("i can"):
+    if not text:
         return False
-    return bool(_NON_ACTIONABLE_RE.search(text))
+    if _NON_ACTIONABLE_RE.search(text):
+        return True
+    return bool(_CONSTRAINT_RE.search(text))
 
 
 def _needs_quote(tok: str) -> bool:
@@ -856,6 +1315,68 @@ def map_intentions(intentions: list[dict], facade: dict,
             fb = _delete_fallback(intentions[i], facade, design)
             if fb is not None:
                 plans[i] = fb
+
+    # Negative/validation fallback: "I cannot create X with a duplicate
+    # <field>" (or "prevented from ... duplicate ISBN") maps to the create
+    # command expecting a non-zero exit, plus a seed that creates a colliding
+    # row first so the constraint genuinely triggers (prompt 12's I8, prompt
+    # 11's I6). Handled after the delete fallback so we only touch intents
+    # still unmapped.
+    extra_seeds: list[dict] = []
+    for i in range(len(intentions)):
+        p = plans[i]
+        if p is None or p.get("status") != "unmapped":
+            continue
+        res = _negative_create_fallback(intentions[i], facade, design)
+        if res is not None:
+            plan, seed = res
+            plans[i] = plan
+            extra_seeds.append(seed)
+    if extra_seeds:
+        plans.extend(extra_seeds)
+
+    # Error-handling fallback: "I get an error if <input> does not exist / is
+    # malformed" maps to the single-command tool's input command with a bad
+    # input, expecting a non-zero exit (cli_tool I4/I5). Fires for ANY such
+    # intention (the LLM may map it to `main` with expected 0, which is wrong
+    # for an error behaviour) — deterministically install the bad-input plan.
+    for i in range(len(intentions)):
+        fb = _error_handling_fallback(intentions[i], facade, design, fixtures)
+        if fb is not None:
+            plans[i] = fb
+
+    # Import-input fixture fallback: a mapped plan for an import command with a
+    # file option but NO fixture runs against a nonexistent input file ->
+    # FileNotFoundError -> ImportError -> exit 1 (prompt 18/19). Synthesize an
+    # entity-shaped CSV/JSON file and attach it so the import genuinely runs.
+    for i in range(len(intentions)):
+        p = plans[i]
+        if p is None or p.get("status") != "mapped" or p.get("seed"):
+            continue
+        if p.get("fixtures"):
+            continue
+        cmd = next(
+            (c for c in facade.get("commands", [])
+             if c.get("name") == p.get("command", "")),
+            None,
+        )
+        if cmd is None:
+            continue
+        res = _synthesize_import_fixture(intentions[i], cmd, design)
+        if res is not None:
+            fid, fx = res
+            if fixtures is not None:
+                fixtures.setdefault(fid, fx)
+            file_opt = next(
+                (
+                    u for u in (
+                        _opt_flag_name(o) for o in cmd.get("options", [])
+                    )
+                    if "file" in u or "path" in u or "input" in u or "csv" in u
+                ),
+                None,
+            ) or "--filename"
+            p["fixtures"] = [{"id": fid, "arg": file_opt}]
 
     # --- Duplicate-invocation collision repair -------------------------------
     # The executor's "duplicate invocation ⇒ pass" workaround masked the LLM

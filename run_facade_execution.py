@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         status = "ok"
         if not mapped:
             status = "no_mapped"
-        elif outcome["fail"] == 0:
+        elif outcome["fail"] == 0 and not unmapped:
             status = "pass"
         else:
             status = "fail"
@@ -114,11 +114,13 @@ def main(argv: list[str] | None = None) -> int:
             ident, status, len(mapped), len(unmapped),
             outcome.get("pass", 0), outcome.get("fail", 0)), flush=True)
         for r in outcome.get("results", []):
-            print("    %-4s %-24s %s  %s" % (
-                r["status"], r["command"], r["exit_code"], r["reason"]),
+            print("    %-4s %-4s %-24s %s  %s  %s" % (
+                r["status"], r.get("intent_id", "?"), r["command"],
+                r["exit_code"], r["reason"], r.get("text", "")),
                 flush=True)
         for u in unmapped:
-            print("    UNMAPPED %-20s %s" % (u["intent_id"], u.get("reason", "")), flush=True)
+            print("    UNMAPPED %-20s %-45s %s" % (
+                u["intent_id"], u.get("text", ""), u.get("reason", "")), flush=True)
 
         summary["results"].append({
             "ident": ident,

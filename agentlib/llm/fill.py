@@ -23,7 +23,26 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False):
     Returns the full file text or None. Two attempts with corrective retry
     on compile failure.
     """
+    # The original requirements are BUSINESS CONTEXT the fill needs to
+    # implement domain-verb stubs correctly. Without them the model only
+    # sees a bare method name + flat repo API and must guess the semantics
+    # (library_system's return_loan invented Member.loan_count, and
+    # get_loan_report summed a date field, because the fill never saw the
+    # prompt). Pass it through as a lead-in; the locked skeleton + repo
+    # interface stay authoritative, and the semantic validator still gates
+    # the output. This is purely additive — deterministic contract bodies
+    # never pass through here, so it cannot regress those.
     user = instruction + "\n\nSKELETON:\n```python\n" + skeleton + "\n```"
+    if prompt_text:
+        user = (
+            "ORIGINAL REQUIREMENTS — read these to implement the business "
+            "bodies below. The locked skeleton and the repository API are "
+            "AUTHORITATIVE: never invent methods, fields, or models beyond "
+            "what they declare.\n\n"
+            + prompt_text.strip()
+            + "\n\n"
+            + user
+        )
     messages = [
         {
             "role": "system",
@@ -37,10 +56,12 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False):
     ]
     # Sanity bound on a legit fill output: repo fills re-emit the whole file
     # (~skeleton size); service fills re-emit the full service (~4x the mini
-    # skeleton). 2x with a 10k floor leaves headroom for real files while
-    # catching degenerate repetition loops that otherwise decode to
-    # max_tokens (observed: 6250+ tokens for a ~1900-token repo fill).
-    max_output_chars = max(len(skeleton) * 2, 10000)
+    # skeleton). The previous 2x/10k floor was too tight: a large service
+    # skeleton (~5k chars) produced a legitimate ~6k-token (~24k char) fill
+    # that the local stream cutoff mislabelled "output runaway" even though
+    # the server completed it untruncated. 4x with a 30k floor keeps catching
+    # degenerate repetition loops while leaving real large files headroom.
+    max_output_chars = max(len(skeleton) * 4, 30000)
     for attempt in range(2):
         try:
             raw = _chat_completion(

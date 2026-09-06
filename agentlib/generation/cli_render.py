@@ -105,7 +105,7 @@ def _match_param(key, params):
     category_id, --price -> price_cents)."""
     if key in params:
         return key
-    return next(
+    m = next(
         (
             p
             for p in params
@@ -113,6 +113,26 @@ def _match_param(key, params):
         ),
         None,
     )
+    if m:
+        return m
+    # FK option (--category enriched to field "category_id") may name the FK
+    # column while the designed service param is the bare entity token
+    # ("category"). Match the stem so a command like `budget list --category`
+    # wires onto list_budget(category, ...) instead of being dropped by the
+    # sanitizer for an uncovered category_id param.
+    if key.endswith("_id"):
+        stem = key[: -len("_id")]
+        if stem in params:
+            return stem
+        return next(
+            (
+                p
+                for p in params
+                if p.startswith(stem + "_") or p.endswith("_" + stem)
+            ),
+            None,
+        )
+    return None
 
 
 def _build_service_call(target, opts, service_methods):

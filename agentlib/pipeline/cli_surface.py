@@ -30,7 +30,7 @@ from agentlib.naming import _camel, _snake, _plural
 _CRUD_VERBS = {
     "add": "add", "create": "add", "insert": "add",
     "list": "list", "view": "list", "show": "list", "display": "list",
-    "fetch": "list", "read": "list", "get": "list", "retrieve": "list",
+    "fetch": "list", "read": "list", "get": "get", "retrieve": "list",
     "update": "update", "edit": "update", "modify": "update",
     "delete": "delete", "remove": "delete",
 }
@@ -40,7 +40,7 @@ _SEARCH_VERBS = {"search", "query", "find"}
 _VERB_RE = re.compile(
     r"\b(add|create|insert|list|view|show|display|fetch|read|get|retrieve|"
     r"update|edit|modify|delete|remove|search|query|find|report|export|"
-    r"summary|aggregate|total)\b",
+    r"summary|aggregate|total|import)\b",
     re.IGNORECASE,
 )
 
@@ -59,8 +59,12 @@ def _normalize_verb(v):
         return _CRUD_VERBS[v]
     if v in _SEARCH_VERBS:
         return "search"
-    if v in ("report", "export", "summary", "aggregate", "total"):
+    if v in ("report", "summary", "aggregate", "total"):
         return "report"
+    if v == "export":
+        return "export"
+    if v == "import":
+        return "import"
     return None
 
 
@@ -86,13 +90,29 @@ def _intent_verb(text):
     state-transition spec: "can confirm an order", "can ship an order"),
     falls back to the verb right after "can"/"to" — so the derived surface
     still exposes ``confirm_order`` / ``ship_order`` / ``cancel_order``.
+
+    "retrieve ... by their unique identifier" is a GET-BY-ID, not a list.
     """
+    low = (text or "").lower()
+    # "retrieve/get ... by (their/its/the) unique id/identifier" -> get-by-id.
+    # Only "their" was matched before; other possessives ("its", "his", "her",
+    # "the") fell through to a generic "list" classification, producing a
+    # list command instead of a get-by-id (prompt 29 I6 "retrieve an order by
+    # its unique identifier" -> order-get missing).
+    if re.search(
+        r"\bby\s+(?:(?:my|your|his|her|its|our|their|the)\s+)?"
+        r"(?:unique\s+)?(?:id|identifier|key)\b", low
+    ):
+        m = _VERB_RE.search(text or "")
+        if m:
+            v = _normalize_verb(m.group(1))
+            if v in ("list", "get"):
+                return "get"
     m = _VERB_RE.search(text or "")
     if m:
         v = _normalize_verb(m.group(1))
         if v:
             return v
-    low = (text or "").lower()
     m2 = re.search(r"\b(?:can|to)\s+([a-z]+)\b", low)
     if m2:
         cand = m2.group(1)
@@ -122,12 +142,18 @@ def _field_option(f, required=False):
     }
 
 
-def _derive_options(verb, entity):
+def _derive_options(verb, entity, page=False):
     """Options for a derived (non-explicit) command from the entity design."""
     fields = [
         f for f in (entity.get("fields") or [])
         if isinstance(f, dict) and f.get("name") and f["name"] != "id"
     ]
+    # File I/O operations (export to CSV/JSON, import from CSV/JSON) take a
+    # file path, not an entity id. The old domain-verb fallback produced
+    # ``--id``, and "export" was collapsed into "report" — both leaving the
+    # prompt's "export all X to CSV" intent unmappable (prompt 18/19).
+    if verb in ("export", "import"):
+        return [{"name": "--filename", "required": True, "type": "str", "field": "filename"}]
     if verb == "add":
         return [
             _field_option(f, required=not f.get("nullable"))
@@ -145,11 +171,20 @@ def _derive_options(verb, entity):
                 if f["name"].endswith("_id")
                 or f["name"] in ("status", "is_active", "active", "category")
             ]
-        return [
+        opts = [
             {"name": "--" + s["param"].replace("_", "-"), "required": False,
              "type": "str", "field": s["param"]}
             for s in lf
         ]
+        # A paginated listing spec ("The caller specifies page number and page
+        # size") needs --page/--page-size on the list command (prompt 16's
+        # customer-list lacked them, leaving the pagination intent unmapped).
+        if page:
+            opts += [
+                {"name": "--page", "required": False, "type": "int", "field": "page"},
+                {"name": "--page-size", "required": False, "type": "int", "field": "page_size"},
+            ]
+        return opts
     if verb == "update":
         return (
             [{"name": "--id", "required": True, "type": "int", "field": "id"}]
@@ -160,6 +195,34 @@ def _derive_options(verb, entity):
             ]
         )
     if verb == "delete":
+        # A pure join entity has no surrogate `id` PK (PostTag: post_id +
+        # tag_id). Its deterministic repository delete takes the
+        # unique_together pair, so the CLI options must be the pair columns
+        # (--post-id --tag-id), not a nonexistent --id. With `has_id` True the
+        # repo deletes by PK, so keep the id-based shape.
+        has_id = any(
+            isinstance(f, dict) and f.get("name") == "id"
+            for f in (entity.get("fields") or [])
+        )
+        if not has_id:
+            pair = next(
+                (
+                    [str(x) for x in up]
+                    for up in (entity.get("unique_together") or [])
+                    if isinstance(up, list) and len(up) == 2
+                ),
+                None,
+            )
+            if pair:
+                return [
+                    {
+                        "name": "--" + p.replace("_", "-"),
+                        "required": True,
+                        "type": "int",
+                        "field": p,
+                    }
+                    for p in pair
+                ]
         return [{"name": "--id", "required": True, "type": "int", "field": "id"}]
     if verb == "bulk-update":
         # Bulk update: the rows to touch (multiple ids) + the fields to set.
@@ -184,6 +247,8 @@ def _crud_target(verb, ent_snake):
         return "add_" + ent_snake
     if verb == "list":
         return "list_" + ent_snake
+    if verb == "get":
+        return "get_" + ent_snake + "_by_id"
     if verb == "update":
         return "update_" + ent_snake
     if verb == "delete":
@@ -280,7 +345,8 @@ def classify_intentions(intentions, entities_by_class, verbose=False):
     return []
 
 
-def derive_cli_from_intents(classified, entities_by_class, verbose=False):
+def derive_cli_from_intents(classified, entities_by_class, verbose=False,
+                            page=False):
     """Mechanically derive a CLI command design from LLM-classified
     ``(entity, operation)`` pairs.
 
@@ -318,13 +384,13 @@ def derive_cli_from_intents(classified, entities_by_class, verbose=False):
             op = "delete"
         elif op in ("edit", "modify"):
             op = "update"
-        elif op in ("summary", "aggregate", "export"):
+        elif op in ("summary", "aggregate"):
             op = "report"
         key = "%s/%s" % (ent_snake, op)
         if key in seen:
             continue
         seen.add(key)
-        options = _derive_options(op, ent)
+        options = _derive_options(op, ent, page=page)
         if op in ("add", "list", "update", "delete", "search"):
             target = _crud_target(op, ent_snake) or ("search_" + ent_snake if op == "search" else "%s_%s" % (op, ent_snake))
         elif op in ("report", "total"):
@@ -340,8 +406,11 @@ def derive_cli_from_intents(classified, entities_by_class, verbose=False):
         })
     # Seeding floor: parent-add for FK options (same as derive_cli_surface).
     for c in list(commands):
+        cgrp = c.get("group") or []
+        if not cgrp:
+            continue
         owner = next(
-            (e for cls, e in entities_by_class.items() if _snake(cls) == c.get("group", [""])[0]),
+            (e for cls, e in entities_by_class.items() if _snake(cls) == cgrp[0]),
             None,
         )
         if owner is None:
@@ -414,8 +483,22 @@ def _parse_explicit_command(s):
             verb_idx = idx
             break
     if verb_idx is None:
+        # Domain-verb fallback: no CRUD/search/report verb found. Use the
+        # last non-option token as the verb so state/domain commands like
+        # "library overdue" or "product bulk-update" survive (previously
+        # dropped because neither token normalized as a known verb).
+        for idx in range(len(raw) - 1, -1, -1):
+            tok = raw[idx][0]
+            if tok.startswith("-"):
+                continue
+            if tok.lower() in _STOP_TOKENS:
+                continue
+            verb_idx = idx
+            break
+    if verb_idx is None:
         return None
-    verb = _normalize_verb(raw[verb_idx][0])
+    verb_raw = raw[verb_idx][0].lower()
+    verb = _normalize_verb(verb_raw) or verb_raw
     group = [t.lower() for t, _ in raw[:verb_idx] if not t.startswith("-")]
     options = []
     seen = set()
@@ -492,6 +575,45 @@ def _extract_explicit_commands(intentions, entities_by_class):
 
 # --- main derivation --------------------------------------------------------
 
+def _crud_floor(commands, prompt_text, entities_by_class):
+    """Expand a prompt's explicit CRUD into full add/list/update/delete.
+
+    The spec says "Provide CRUD operations for customers and orders". Intent
+    extraction is LLM-based and may miss a verb (e.g. "update a customer"
+    isn't always emitted as a separate intention even though CRUD requires
+    it), but the word CRUD is a deterministic contract. For every designed
+    entity the prompt actually names, ensure add/list/update/delete all
+    exist so no required command can silently disappear from the surface
+    (prompt 21's I7 "update a customer's information" -> customer-update).
+    """
+    low = (prompt_text or "").lower()
+    if not re.search(r"\bcrud\b", low):
+        return commands
+    seen = {
+        ((c.get("group") or [""])[0], c.get("name"))
+        for c in (commands or [])
+        if isinstance(c, dict)
+    }
+    expanded = list(commands or [])
+    for cls, ent in entities_by_class.items():
+        snake = _snake(cls)
+        plural = _plural(snake)
+        # Only entities the prompt names are in scope for the CRUD contract.
+        if not (snake in low or plural in low):
+            continue
+        for op in ("add", "list", "update", "delete"):
+            if (snake, op) in seen:
+                continue
+            seen.add((snake, op))
+            expanded.append({
+                "group": [snake],
+                "name": op,
+                "options": _derive_options(op, ent),
+                "target": _crud_target(op, snake),
+            })
+    return expanded
+
+
 def derive_cli_surface(intentions, prompt_text, entities_by_class,
                        verbose=False):
     """Deterministic CLI command surface from the prompt's user intentions.
@@ -503,12 +625,29 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
     if not entities_by_class:
         return None
 
-    commands = _extract_explicit_commands(intentions, entities_by_class)
-    if commands:
-        return {"commands": commands}
-
-    commands = []
+    explicit = _extract_explicit_commands(intentions, entities_by_class)
+    commands = list(explicit)
     seen = set()
+    for c in commands:
+        seen.add("%s/%s" % (
+            "/".join(str(g) for g in (c.get("group") or [])),
+            str(c.get("name") or ""),
+        ))
+    # When the prompt names CLI commands explicitly, the deterministic path
+    # must ONLY supplement with domain-verb / get-by-id commands the explicit
+    # surface missed (overdue, bulk-update, get, authenticate). Running the
+    # full CRUD/search/report derivation on top inflates the service design
+    # with methods no command needs (prompt 38's login()/create_document(),
+    # library's add/list/borrow duplicates), which forces the LLM fill to
+    # retry on wrong signatures.
+    explicit_mode = bool(explicit)
+    # Paginated-listing detection: "page number", "page size", "pagination" in
+    # the spec are a deterministic contract that list commands expose
+    # --page/--page-size (prompt 16's customer-list lacked them, leaving the
+    # "retrieve customers paginated" intent unmapped).
+    paginated = bool(
+        re.search(r"\b(page|pagina\w*)\b", (prompt_text or "").lower())
+    )
     for intent in intentions or []:
         text = (intent.get("text") or "").strip()
         entity = _intent_entity(text, entities_by_class)
@@ -529,18 +668,25 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
         if key in seen:
             continue
         seen.add(key)
-        options = _derive_options(verb, entity)
+        options = _derive_options(verb, entity, page=paginated)
         if verb == "bulk-update":
             target = "bulk_update_" + ent_snake
         elif verb in _CRUD_VERBS:
             target = _crud_target(_CRUD_VERBS[verb], ent_snake)
         elif verb == "search":
             target = "search_" + ent_snake
-        elif verb in (_REPORT_VERBS if False else ("report", "export", "summary", "aggregate", "total")):
+        elif verb in ("report", "summary", "aggregate", "total"):
             target = "get_%s_report" % ent_snake
         else:
             # state-transition / domain verb -> <verb>_<entity>(id)
             target = "%s_%s" % (verb, ent_snake)
+        if explicit_mode and verb in (
+            "add", "list", "update", "delete", "search", "report"
+        ):
+            # Explicit-CLI mode: skip standard CRUD/search/report — the
+            # explicit commands already cover them, and re-deriving them
+            # inflates the service design (LLM-fill retry-storm root cause).
+            continue
         commands.append({
             "group": [ent_snake],
             "name": verb,
@@ -553,8 +699,11 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
     # "FOREIGN KEY constraint failed" (prompt 27's reservation-add needs
     # customer-add/room-add). Synthesize missing parent create commands.
     for c in list(commands):
+        cgrp = c.get("group") or []
+        if not cgrp:
+            continue
         owner = next(
-            (e for cls, e in entities_by_class.items() if _snake(cls) == c.get("group", [""])[0]),
+            (e for cls, e in entities_by_class.items() if _snake(cls) == cgrp[0]),
             None,
         )
         if owner is None:
@@ -581,9 +730,274 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
                 "options": _derive_options("add", parent),
                 "target": "add_" + parent_snake,
             })
+    # Join-entity delete floor: "remove <T> from <E>" detaches a relationship
+    # between two entities (prompt 23: "remove a tag from a post" ->
+    # post_tag-delete). The deterministic intent-verb regex maps this to a
+    # delete on the "container" entity (post-delete), colliding with a real
+    # "delete a post" intention. Detect it here and synthesize the join-entity
+    # delete command with the unique_together pair options instead.
+    for intent in intentions or []:
+        text = (intent.get("text") or "").strip()
+        m = re.search(
+            r"\b(remove|delete|detach|unlink)\b\s+(.+?)\s+from\s+(.+)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if not m:
+            continue
+        # Group 1 is the verb; group 2 the removed entity; group 3 the
+        # container. The regex is (VERB) (removed) from (container).
+        removed_txt, container_txt = m.group(2), m.group(3)
+        removed_ent = _intent_entity(removed_txt, entities_by_class)
+        container_ent = _intent_entity(container_txt, entities_by_class)
+        if not removed_ent or not container_ent:
+            continue
+        removed_cls = removed_ent["name"]
+        container_cls = container_ent["name"]
+        if removed_cls == container_cls:
+            continue
+        # Find a join entity that FKs to BOTH the removed and container.
+        # The design may not populate ``fks`` until reconciliation, so fall
+        # back to unique_together columns ending in _id (post_id -> Post,
+        # tag_id -> Tag) to detect the join relationship.
+        join_cls = None
+        for cls, ent in entities_by_class.items():
+            fk_refs = {
+                fk.get("ref")
+                for fk in (ent.get("fks") or [])
+                if isinstance(fk, dict) and fk.get("ref")
+            }
+            if not fk_refs:
+                for up in ent.get("unique_together") or []:
+                    if isinstance(up, list):
+                        for col in up:
+                            if (
+                                isinstance(col, str)
+                                and col.endswith("_id")
+                                and col != "id"
+                            ):
+                                fk_refs.add(_camel(col[: -len("_id")]))
+            if not fk_refs:
+                # Field-name fallback: any ``_id`` field names a referenced
+                # entity (post_id -> Post, tag_id -> Tag). Robust even when
+                # the design hasn't populated fks/unique_together yet.
+                for f in ent.get("fields") or []:
+                    if isinstance(f, dict) and isinstance(f.get("name"), str):
+                        col = f["name"]
+                        if col.endswith("_id") and col != "id":
+                            fk_refs.add(_camel(col[: -len("_id")]))
+            if removed_cls in fk_refs and container_cls in fk_refs:
+                join_cls = cls
+                break
+        if not join_cls:
+            continue
+        join_ent = entities_by_class[join_cls]
+        join_snake = _snake(join_cls)
+        if any(
+            c.get("group") == [join_snake] and c.get("name") == "delete"
+            for c in commands
+        ):
+            continue
+        commands.append({
+            "group": [join_snake],
+            "name": "delete",
+            "options": _derive_options("delete", join_ent),
+            "target": "delete_" + join_snake,
+        })
+    # Join-entity completeness floor: a pure join entity (no surrogate id,
+    # unique_together pair) linking two entities named in the prompt needs
+    # both <join>-add and <join>-delete — the "add a tag to a post" / "remove
+    # a tag from a post" pair (prompt 23). Intent extraction may drop one of
+    # the two verbs, so synthesize both deterministically from the entity
+    # design instead of relying on a fragile intent-text match.
+    prompt_low = (prompt_text or "").lower()
+    for jcls, jent in entities_by_class.items():
+        if any(
+            isinstance(f, dict) and f.get("name") == "id"
+            for f in (jent.get("fields") or [])
+        ):
+            continue  # not a pure join entity (has surrogate id)
+        pair = next(
+            (
+                [str(x) for x in up]
+                for up in (jent.get("unique_together") or [])
+                if isinstance(up, list) and len(up) == 2
+            ),
+            None,
+        )
+        if not pair:
+            continue
+        refs = {
+            _camel(col[: -len("_id")])
+            for col in pair
+            if isinstance(col, str) and col.endswith("_id") and col != "id"
+        }
+        if len(refs) < 2:
+            continue
+        if not all(
+            _snake(r) in prompt_low or _plural(_snake(r)) in prompt_low
+            for r in refs
+        ):
+            continue
+        j_snake = _snake(jcls)
+        for op in ("add", "delete"):
+            if any(
+                c.get("group") == [j_snake] and c.get("name") == op
+                for c in commands
+            ):
+                continue
+            commands.append({
+                "group": [j_snake],
+                "name": op,
+                "options": _derive_options(op, jent),
+                "target": ("add_" if op == "add" else "delete_") + j_snake,
+            })
+    # Cross-entity list filter floor: "view/list <E> that have/by <T>" filters
+    # E through a join entity J (prompt 23: "view all posts that have a
+    # specific tag" -> post-list --tag-id). The join entity's FK column that
+    # references T becomes a filter option on E's list command, so the prompt's
+    # "posts searched by tag" is CLI-drivable instead of unmapped.
+    for intent in intentions or []:
+        text = (intent.get("text") or "").strip()
+        entity = _intent_entity(text, entities_by_class)
+        if not entity:
+            continue
+        ent_snake = _snake(entity["name"])
+        list_cmd = next(
+            (
+                c for c in commands
+                if c.get("group") == [ent_snake] and c.get("name") == "list"
+            ),
+            None,
+        )
+        if not list_cmd:
+            continue
+        existing_opts = {
+            o.get("name") for o in list_cmd.get("options", [])
+        }
+        for cls, other in entities_by_class.items():
+            if cls == entity["name"]:
+                continue
+            o_snake = _snake(cls)
+            if o_snake not in text.lower() and _plural(o_snake) not in text.lower():
+                continue
+            # Find a join entity J that links E and T. The design may not
+            # populate ``fks`` yet, so fall back to unique_together columns
+            # ending in _id to detect the relationship.
+            for jcls, jent in entities_by_class.items():
+                fk_refs = {
+                    fk.get("ref")
+                    for fk in (jent.get("fks") or [])
+                    if isinstance(fk, dict) and fk.get("ref")
+                }
+                if not fk_refs:
+                    for up in jent.get("unique_together") or []:
+                        if isinstance(up, list):
+                            for ucol in up:
+                                if (
+                                    isinstance(ucol, str)
+                                    and ucol.endswith("_id")
+                                    and ucol != "id"
+                                ):
+                                    fk_refs.add(_camel(ucol[: -len("_id")]))
+                if entity["name"] not in fk_refs or cls not in fk_refs:
+                    continue
+                col = next(
+                    (
+                        fk.get("field")
+                        for fk in jent.get("fks") or []
+                        if isinstance(fk, dict) and fk.get("ref") == cls
+                    ),
+                    None,
+                )
+                if not col:
+                    # Fall back to the unique_together column that names T.
+                    col = next(
+                        (
+                            ucol for up in jent.get("unique_together") or []
+                            if isinstance(up, list)
+                            for ucol in up
+                            if (
+                                isinstance(ucol, str)
+                                and ucol.endswith("_id")
+                                and ucol != "id"
+                                and _camel(ucol[: -len("_id")]) == cls
+                            )
+                        ),
+                        None,
+                    )
+                if not col:
+                    continue
+                flag = "--" + col.replace("_", "-")
+                if flag in existing_opts:
+                    continue
+                list_cmd.setdefault("options", []).append({
+                    "name": flag,
+                    "required": False,
+                    "type": "int",
+                    "field": col,
+                })
+                existing_opts.add(flag)
+                break
+    # CRUD-completeness floor: the spec's explicit "CRUD" word is a
+    # deterministic contract. Intent extraction may drop a verb ("update a
+    # customer"), but CRUD always means add/list/update/delete for every
+    # entity the prompt names, so any missing operation is re-added here.
+    commands = _crud_floor(commands, prompt_text, entities_by_class)
     if not commands:
         return None
     return {"commands": commands}
+
+
+def _merge_cli_surfaces(primary, secondary):
+    """Union two CLI surfaces by (group, name), keeping the primary's options.
+
+    ``derive_cli_from_intents`` is LLM-classification-driven and can
+    occasionally drop a CRUD command when the classifier misses an intention
+    (e.g. prompt 21's ``I7 update a customer`` -> ``customer-update``).
+    ``derive_cli_surface`` is a deterministic regex derivation that never
+    misses a verb+entity the prompt names. Unioning the two guarantees every
+    command the prompt's intentions require is present in the surface, so a
+    single dropped classification cannot silently remove a required command.
+    The primary (LLM, richer options) wins on collisions.
+    """
+    if not primary and not secondary:
+        return None
+    if not secondary:
+        return primary
+    if not primary:
+        return secondary
+    merged = {"commands": []}
+    seen = set()
+    for c in primary.get("commands", []):
+        key = (tuple(c.get("group") or []), c.get("name"))
+        seen.add(key)
+        merged["commands"].append(c)
+    for c in secondary.get("commands", []):
+        key = (tuple(c.get("group") or []), c.get("name"))
+        if key in seen:
+            # A cross-entity filter added by the deterministic floor on the
+            # same command (e.g. post-list --tag-id) must survive the merge.
+            # Union the secondary's extra options into the primary command
+            # (primary wins on duplicate flag names, so its option types/shapes
+            # stay authoritative).
+            primary_cmd = next(
+                (m for m in merged["commands"]
+                 if (tuple(m.get("group") or []), m.get("name")) == key),
+                None,
+            )
+            if primary_cmd is not None:
+                existing = {
+                    o.get("name") for o in primary_cmd.get("options", [])
+                }
+                for o in c.get("options", []):
+                    if o.get("name") not in existing:
+                        primary_cmd.setdefault("options", []).append(o)
+                        existing.add(o.get("name"))
+            continue
+        seen.add(key)
+        merged["commands"].append(c)
+    return merged
 
 
 def cli_surface_constraint(surface):

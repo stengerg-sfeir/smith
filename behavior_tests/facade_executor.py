@@ -67,6 +67,7 @@ def execute_plan(plan: dict, project_dir: Path) -> dict:
     ok, reason = evaluate_plan(plan, result)
     return {
         "intent_id": plan.get("intent_id", "?"),
+        "text": plan.get("text", ""),
         "command": plan.get("command", ""),
         "invocation": plan.get("invocation", ""),
         "status": "pass" if ok else "fail",
@@ -203,6 +204,11 @@ def _substitute_refs(plan: dict, entity_provided: dict) -> None:
     """
     if not entity_provided:
         return
+    if not plan.get("command"):
+        # Direct-SQL seed (python3 -c "..."): its hardcoded FK values are
+        # correct once the topo sort (which orders by refs) runs the parents
+        # first. Never rewrite the invocation by appending option_args.
+        return
     changed = False
     for ref in plan.get("refs", []):
         flag = ref.get("flag", "")
@@ -216,6 +222,39 @@ def _substitute_refs(plan: dict, entity_provided: dict) -> None:
                     orig_val = pair[1]
                 break
         kind = ref.get("kind", "fk")
+        if kind == "bulk":
+            # A bulk ref is a comma-separated list (--ids 1,3). Substitute each
+            # element through entity_provided, then rejoin so the bulk command
+            # targets the seeded real ids.
+            if not orig_val:
+                continue
+            elems = [x.strip() for x in orig_val.split(",") if x.strip()]
+            mapped: list[str] = []
+            ok = True
+            for el in elems:
+                eid = entity_provided.get((ent, el))
+                if eid is None:
+                    eid = entity_provided.get((ent, None))
+                if eid is None:
+                    ok = False
+                    break
+                mapped.append(str(eid))
+            if not ok:
+                continue
+            new_val = ",".join(mapped)
+            found = False
+            for pair in plan["option_args"]:
+                if pair and pair[0] == flag:
+                    if len(pair) == 1:
+                        pair.append(new_val)
+                    else:
+                        pair[1] = new_val
+                    found = True
+                    break
+            if not found:
+                plan["option_args"].append([flag, new_val])
+            changed = True
+            continue
         if kind == "target":
             # A "target" ref points at the row the command MUTATES (update/
             # delete/state-transition). Prefer the real FIRST-created row (keyed
@@ -362,6 +401,7 @@ def execute_prompt(plans: list[dict], project_dir: Path,
             # silently folded into "ok".
             results.append({
                 "intent_id": plan.get("intent_id", "?"),
+                "text": plan.get("text", ""),
                 "command": plan.get("command", ""),
                 "invocation": inv,
                 "status": "pass",

@@ -7,6 +7,7 @@ deterministic render phase, then the LLM fill phase. It never lets the
 inside locked skeletons.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from agentlib.pipeline.intents import (
 from agentlib.pipeline.cli_surface import (
     classify_intentions,
     derive_cli_from_intents,
+    derive_cli_surface,
+    _merge_cli_surfaces,
     cli_surface_constraint,
 )
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
@@ -397,10 +400,20 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         classified = classify_intentions(
             intentions, entities_by_class, verbose=verbose
         )
+        _paginated = bool(
+            re.search(r"\b(page|pagina\w*)\b", (prompt_text or "").lower())
+        )
         if classified:
             cli_surface = derive_cli_from_intents(
-                classified, entities_by_class, verbose=verbose
+                classified, entities_by_class, verbose=verbose, page=_paginated
             )
+        # CRUD-completeness guarantee: union the LLM-classified surface with
+        # the deterministic regex surface so a dropped classification can't
+        # silently remove a required CRUD command (prompt 21's customer-update).
+        det_surface = derive_cli_surface(
+            intentions, prompt_text, entities_by_class, verbose=verbose
+        )
+        cli_surface = _merge_cli_surfaces(cli_surface, det_surface)
 
     # 3. repositories (custom methods only; CRUD is generated)
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
@@ -441,6 +454,12 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 prompt_text, _fmt_design_context(designs), service_methods,
                 verbose, allow_new_targets=True,
             )
+            # Merge with the deterministic intent-derived surface so domain/
+            # state commands the LLM missed (overdue, bulk-update, get-by-id)
+            # survive the explicit-CLI path. The merge unions by (group, name),
+            # keeping the LLM's richer options on collisions.
+            if cli_surface is not None:
+                data = _merge_cli_surfaces(data, cli_surface)
         else:
             data = cli_surface
         if data is None:

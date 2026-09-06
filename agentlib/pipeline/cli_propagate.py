@@ -19,7 +19,7 @@ from agentlib.pipeline.design import (
     _cli_wiring_errors,
     _sanitize_cli_design,
 )
-from agentlib.naming import _snake, _camel
+from agentlib.naming import _snake, _camel, _plural
 from agentlib.generation.cli_render import _optvar, _match_param
 
 
@@ -77,6 +77,20 @@ svc_design, designs):
         norm = _VERB_SYN.get(cname)
         if norm is not None:
             c["name"] = norm
+    # Dedupe after flattening: "library book add" collapses to ["book","add"]
+    # and can collide with the deterministic "book add". Keep the FIRST
+    # occurrence so the explicit spelling's options win.
+    _seen_cmds = set()
+    _unique_cmds = []
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        _key = (tuple(c.get("group") or []), str(c.get("name") or ""))
+        if _key in _seen_cmds:
+            continue
+        _seen_cmds.add(_key)
+        _unique_cmds.append(c)
+    data["commands"] = _unique_cmds
 
     def required_missing(cls, covered):
         fields = [
@@ -148,7 +162,8 @@ svc_design, designs):
             ]
             repo_customs.append((attr, m["name"], ps))
 
-    def synth(name, params, returns, defaults=None, flag_filters=None):
+    def synth(name, params, returns, defaults=None, flag_filters=None,
+              replace=False):
         if name in sigs:
             # Signature-coherence repair (option diffusion fix). A CLI command
             # that targets an EXISTING service method may expose options for
@@ -159,6 +174,41 @@ svc_design, designs):
             # deterministic renderer then emits the repaired signature and the
             # fill produces a consistent body — never edit generated code.
             entry = sigs[name]
+            # Pair-based CRUD (update/delete by unique_together) is
+            # authoritative over an id-bearing signature the CLI options
+            # cannot serve (budget update/delete --category-id --month, no
+            # --id). Replacing the params keeps the rendered method signature
+            # aligned with the surface so the sanitizer doesn't drop the
+            # command.
+            if replace:
+                new_names = {n for n, _ in params}
+                existing_extra = {
+                    p.get("name")
+                    for p in entry.get("params") or []
+                    if isinstance(p, dict) and p.get("name")
+                } - new_names
+                # Only reshape when the existing signature is over-constrained
+                # by a param (usually an id) the command surface cannot serve —
+                # e.g. borrow_loan(id) -> borrow_loan(member_id, book_id). When
+                # the existing params are all covered by the new ones, keep the
+                # extend path so a richer-but-compatible signature survives.
+                if existing_extra:
+                    entry["params"] = [{"name": n, "type": t} for n, t in params]
+                    if defaults is not None:
+                        entry["defaults"] = defaults
+                    if flag_filters is not None:
+                        entry["flag_filters"] = flag_filters
+                    notes.append(
+                        "reshaped %s(%s) to serve CLI surface"
+                        % (
+                            name,
+                            ", ".join(
+                                str(p.get("name"))
+                                for p in (entry.get("params") or [])
+                            ),
+                        )
+                    )
+                    return name
             existing = {
                 p.get("name")
                 for p in entry.get("params") or []
@@ -264,10 +314,131 @@ svc_design, designs):
                     if ent_ok:
                         continue
         if cls is None:
+            cname = str(c.get("name") or "").strip().lower()
+            # Domain-verb command with no entity group (e.g. "library
+            # overdue"): match a repo custom find_<verb>_<entity>s and
+            # synthesize get_<verb>_<entity>s() delegating to it.
+            hit = None
+            for attr, meth, ps in repo_customs:
+                mm = re.match(r"find_%s_(.+)$" % re.escape(cname), meth)
+                if not mm:
+                    continue
+                suffix = mm.group(1)
+                for cls_name in entities_by_class:
+                    s = _snake(cls_name)
+                    if suffix == _plural(s) or suffix == s:
+                        hit = (attr, meth, s, suffix)
+                        break
+                if hit:
+                    break
+            if hit:
+                attr, meth, s, suffix = hit
+                sname = "get_%s_%s" % (cname, suffix)
+                rret = "List[Any]"
+                for path, kind, d in designs or []:
+                    if kind != "repositories" or not isinstance(d, dict):
+                        continue
+                    for m in d.get("methods") or []:
+                        if isinstance(m, dict) and m.get("name") == meth:
+                            rret = m.get("returns") or rret
+                synth(sname, [], rret)
+                c["target"] = sname
+                c["group"] = []
+                notes.append(
+                    "%s -> %s (delegates to %s.%s)"
+                    % (label, sname, attr, meth)
+                )
+                continue
+            # Existing service method by name ("authenticate" ->
+            # authenticate_user).
+            tm = next(
+                (
+                    m for m in sigs
+                    if m == cname or m.startswith(cname + "_")
+                ),
+                None,
+            )
+            if tm is not None:
+                # Reshape the existing method to serve the command's options
+                # (borrow_loan(id) -> borrow_loan(member_id, book_id)). The
+                # options' field names drive the params; the existing sig's
+                # return type is preserved.
+                mapped = []
+                for o in c.get("options") or []:
+                    if not isinstance(o, dict):
+                        continue
+                    if o.get("type") == "flag":
+                        continue
+                    key = o.get("field") or _optvar(o)
+                    if not key:
+                        continue
+                    mapped.append(
+                        (key, "int" if o.get("type") == "int" else "str")
+                    )
+                rret = "Any"
+                if tm in sigs:
+                    rret = sigs[tm].get("returns") or rret
+                synth(tm, mapped, rret, replace=True)
+                c["target"] = tm
+                notes.append("%s -> %s (existing service method)" % (label, tm))
+                continue
             continue
         sn = _snake(cls)
         cname = str(c.get("name") or "")
         opts = [o for o in (c.get("options") or []) if isinstance(o, dict)]
+
+        if cname == "get":
+            # get-by-id: synth get_<entity>_by_id(id). The deterministic
+            # renderer already handles this shape.
+            idopts = [
+                o for o in opts
+                if str(o.get("field") or _optvar(o) or "") in ("id", sn + "_id")
+                and o.get("type") == "int"
+            ]
+            if len(idopts) != 1 or len(opts) != 1:
+                continue
+            meth = synth("get_" + sn + "_by_id", [("id", "int")], "Optional[%s]" % cls)
+            c["target"] = meth
+            notes.append("%s -> %s (get-by-id)" % (label, meth))
+            continue
+
+        if cname == "bulk-update":
+            # Bulk update: synth bulk_update_<entity>(ids, value). The ids
+            # option identifies the rows (SKUs/ids); the value option is the
+            # field to set. The repo renderer has _bulk_update_spec.
+            id_fields = {"ids", "id", "sku", "skus", sn + "_id", sn + "_sku"}
+            fields = {
+                f.get("name"): f.get("type")
+                for f in (entities_by_class[cls].get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            value_keys = []
+            id_key = None
+            for o in opts:
+                if o.get("type") == "flag":
+                    continue
+                key = o.get("field") or _optvar(o)
+                if key in id_fields:
+                    id_key = key
+                    continue
+                fm = _match_param(key, sorted(fields))
+                if fm is None:
+                    continue
+                if fm in [v for v, _ in value_keys]:
+                    continue
+                value_keys.append(
+                    (fm, "int" if fields.get(fm) == "int" else "str")
+                )
+            if id_key is None or not value_keys:
+                continue
+            meth = synth(
+                "bulk_update_" + sn,
+                [("ids", "str")] + value_keys,
+                "bool",
+            )
+            c["target"] = meth
+            notes.append("%s -> %s (bulk-update)" % (label, meth))
+            continue
 
         if cname in ("add", "create"):
             params, covered, dead = [], set(), []
@@ -455,6 +626,7 @@ svc_design, designs):
                     (hit[1], "int" if hit[1].endswith("_id") else "str"),
                 ],
                 "bool",
+                replace=True,
             )
             c["target"] = meth
             notes.append("%s -> %s (unique-pair)" % (label, meth))
@@ -535,6 +707,7 @@ svc_design, designs):
                         ]
                         + [(m, _ptype(m)) for m in extra],
                         "bool",
+                        replace=True,
                     )
                     c["target"] = meth
                     notes.append(
@@ -645,7 +818,14 @@ svc_design, designs):
                     (fm, "int" if o.get("type") == "int" else "str")
                 )
             if ok:
-                meth = synth(tgt, mapped, "Dict")
+                # The CLI is the single source of truth for a domain-verb
+                # command (borrow/return/search): the synthesized method's
+                # params are the command's non-flag options, so replace an
+                # existing id-bearing LLM signature the options cannot serve
+                # (borrow_loan(id) -> borrow_loan(member_id, book_id)). The
+                # synth guard keeps the reshape minimal (only drops params the
+                # options don't cover), so other prompts are unaffected.
+                meth = synth(tgt, mapped, "Dict", replace=True)
                 c["target"] = meth
                 notes.append("%s -> %s (trusted LLM target)" % (label, meth))
                 continue
