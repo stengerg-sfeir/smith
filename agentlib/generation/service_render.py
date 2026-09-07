@@ -1933,7 +1933,6 @@ exception_names, models_module="models", repo_entities=None):
         "",
         "class %s:" % svc_class,
         "    def __init__(self, db: Database) -> None:",
-        "        self.db = db",
     ]
     for attr, cls in repo_attrs:
         lines.append("        self.%s = %s(db)" % (attr, cls))

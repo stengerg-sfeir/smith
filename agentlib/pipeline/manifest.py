@@ -836,6 +836,13 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                     verbose=verbose, db_file=db_file,
                 )
                 if content:
+                    # A CLI file must be invocable: the LLM per-file fallback
+                    # can emit a click group without dispatching it, leaving
+                    # `python3 cli.py <cmd> ...` a silent no-op (library_system
+                    # __seed_Loan FK failure was traced to exactly this).
+                    # Guarantee the entry point even on the fallback path.
+                    if Path(spec["file"]).stem == "cli" and "if __name__" not in content:
+                        content = content.rstrip() + "\n\nif __name__ == \"__main__\":\n    cli()\n"
                     files[spec["file"]] = content
                 else:
                     print("    %s: %s" % (spec["file"], status), file=sys.stderr)
@@ -898,5 +905,17 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         print("    Validation: %d issue(s)" % (len(ast_errors) + len(struct_errors)))
         for e in (ast_errors + struct_errors)[:5]:
             print("      - %s" % e)
+
+    # LAST-RESORT entry-point guarantee: the AST repair above can rewrite a
+    # broken cli.py (e.g. a syntax error in the LLM/merged click group) and
+    # drop the `if __name__ == "__main__": cli()` appended earlier. A CLI file
+    # with no dispatch is a silent no-op — `python3 cli.py <cmd> ...` defines
+    # the group and exits 0 without running anything, so every seed/intent
+    # that relies on it either vacuously passes or FK-fails (library_system
+    # __seed_Loan was traced to exactly this). Re-assert the dispatch on the
+    # FINAL output so the CLI is always invocable.
+    for fn, content in files.items():
+        if Path(fn).stem == "cli" and "if __name__" not in content:
+            files[fn] = content.rstrip() + "\n\nif __name__ == \"__main__\":\n    cli()\n"
 
     return files, design_ctx
