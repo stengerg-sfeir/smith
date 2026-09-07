@@ -610,7 +610,7 @@ def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | 
     db_file = design.get("database_file") or "app.db"
     suffix = str(value) if value not in (None, "") else ""
     cols: list[str] = []
-    vals: list[str] = []
+    vals: list[tuple[str, bool]] = []
     for f in ent.get("fields", []):
         if f.get("primary_key") or f.get("nullable"):
             continue
@@ -621,18 +621,29 @@ def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | 
             continue
         cols.append(col)
         if f.get("type") in ("int", "float"):
-            vals.append("1")
+            vals.append(("1", True))
         else:
             v = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
-            vals.append(v)
+            vals.append((v, False))
     if cols:
         col_list = ", ".join(cols)
         ph = ", ".join("?" for _ in cols)
         # Build a Python tuple literal, ensuring a trailing comma for a single
         # value (('x',) is a tuple, ('x') is just a parenthesised string).
-        lit = "(" + ", ".join(
-            "'" + v.replace("\\", "\\\\").replace("'", "\\'") + "'" for v in vals
-        ) + (", " if len(vals) == 1 else "") + ")"
+        # Numeric values (int/float, including FK ids) must be emitted
+        # UNQUOTED so SQLite binds them as INTEGER/REAL — a TEXT '1' FK value
+        # does not match an INTEGER parent PK under PRAGMA foreign_keys=ON
+        # (library_system's __seed_Loan raised FOREIGN KEY constraint failed on
+        # book_id/member_id). Strings are quoted.
+        lit_parts = []
+        for v, is_num in vals:
+            if is_num:
+                lit_parts.append(v)
+            else:
+                lit_parts.append(
+                    "'" + v.replace("\\", "\\\\").replace("'", "\\'") + "'"
+                )
+        lit = "(" + ", ".join(lit_parts) + (", " if len(vals) == 1 else "") + ")"
         py = ("import sqlite3; from database import create_tables; "
               "con=sqlite3.connect('%s'); create_tables(con); "
               "con.execute('INSERT INTO %s (%s) VALUES (%s)', %s); con.commit()"

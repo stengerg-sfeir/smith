@@ -105,6 +105,35 @@ def _bulk_update_repo_targets(designs, entities_by_class):
     return out
 
 
+def _search_repo_targets(designs, entities_by_class):
+    """{entity_snake: repo_method} for each designed repository method that
+    is a search (``search`` or ``search_<plural>``) over its OWN entity.
+
+    Feeds the deterministic service ``search_<entity>`` delegation: a book
+    search is a Book-only predicate, so ``search_book(term)`` must become
+    ``self.book_repo.search_books(term)`` instead of an LLM stub that
+    hallucinates member_repo/loan_repo (the single ``term`` param hides that
+    the search spans title/isbn/author — an abstraction problem the 4B model
+    resolves by dragging in unrelated repos)."""
+    out = {}
+    for path, kind, data in designs or []:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        if _camel(ent_snake) not in entities_by_class:
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            mn = m["name"]
+            if mn == "search" or (mn.startswith("search_") and mn != "search_" + _plural(ent_snake) + "_all"):
+                out.setdefault(ent_snake, mn)
+    return out
+
+
 _STATE_TARGETS = {
     "confirm": "confirmed",
     "ship": "shipped",
@@ -156,7 +185,7 @@ def _zero_param_dict_repo_customs(designs, entities_by_class):
     return out
 
 
-def _service_method_body(m, entities_by_class, exception_names, repo_customs=None, repo_bulk_updates=None):
+def _service_method_body(m, entities_by_class, exception_names, repo_customs=None, repo_bulk_updates=None, repo_search_targets=None):
     """Deterministic body lines for a service method, or None (=> stub).
 
     Fully declarative: a designed method may carry an `impl` object naming
@@ -179,7 +208,7 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
     for _ent_name in entities_by_class:
         if name == "check_" + _snake(_ent_name) and len(m.get("params") or []) == 1:
             return _generic_service_delegation(
-                m, entities_by_class, exception_names, repo_bulk_updates
+                m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets
             )
     impl = m.get("impl")
     if isinstance(impl, dict):
@@ -200,11 +229,11 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
         ent_snake, meth = repo_customs[0]
         return ["        return self.%s_repo.%s()" % (ent_snake, meth)]
     return _generic_service_delegation(
-        m, entities_by_class, exception_names, repo_bulk_updates
+        m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets
     )
 
 
-def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None):
+def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None, repo_search_targets=None):
     """Tier-2 deterministic CRUD delegation for any entity.
 
     Handles add_<entity>, list_<entity> / get_<entity>_by_id /
@@ -462,6 +491,19 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 "        return self.%s_repo.%s(int_ids, %s)" % (var, repo_meth, value_param)
             )
             return rows
+        if name == "search_" + var:
+            # Deterministic search delegation: a book search is a Book-only
+            # predicate, so search_book(term) -> self.book_repo.search_books(term).
+            # The single query/term param is passed POSITIONALLY (the arity-aware
+            # alias repair maps a name mismatch like term->query if needed). An
+            # LLM stub hallucinates member_repo/loan_repo because the single
+            # `term` param hides that the search spans title/isbn/author — an
+            # abstraction problem the small model resolves by dragging in
+            # unrelated repos (library_system search_book).
+            smeth = (repo_search_targets or {}).get(var)
+            if smeth is None or not param_names:
+                return None
+            return ["        return self.%s_repo.%s(%s)" % (var, smeth, param_names[0])]
         if "status" in fields and len(param_names) == 1 and name.endswith("_" + var):
             # A single-id <verb>_<entity> on an entity with a `status` field
             # is a domain state transition (confirm/ship/cancel/...). Set the
@@ -2247,11 +2289,13 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
 
     repo_customs = _zero_param_dict_repo_customs(designs, entities_by_class)
     repo_bulk_updates = _bulk_update_repo_targets(designs, entities_by_class)
+    repo_search_targets = _search_repo_targets(designs, entities_by_class)
     for m in svc_design.get("methods") or []:
         if not isinstance(m, dict) or not m.get("name"):
             continue
         body = _service_method_body(
-            m, entities_by_class, exception_names, repo_customs, repo_bulk_updates
+            m, entities_by_class, exception_names, repo_customs,
+            repo_bulk_updates, repo_search_targets
         )
         if body is not None:
             def_line = _method_stub_code(m, 1).split("\n")[0]
@@ -2274,7 +2318,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         m for m in svc_design.get("methods") or []
         if isinstance(m, dict) and m.get("name")
         and _service_method_body(
-            m, entities_by_class, exception_names, repo_customs, repo_bulk_updates
+            m, entities_by_class, exception_names, repo_customs,
+            repo_bulk_updates, repo_search_targets
         ) is None
     ]
     if not prompt_text or not stubs:

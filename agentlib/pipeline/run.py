@@ -321,6 +321,15 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
         ):
             existing.unlink()
 
+    # LAST-RESORT entry-point guarantee: the LLM repair loop above rewrites a
+    # cli.py with a syntax error and drops the `if __name__ == "__main__":
+    # cli()` block, leaving every CLI command a silent no-op (library_system
+    # __seed_Loan FK failure was traced to exactly this). Re-assert the
+    # dispatch on the FINAL output so the CLI is always invocable.
+    for fn, content in list(files.items()):
+        if Path(fn).stem == "cli" and "if __name__" not in content:
+            files[fn] = content.rstrip() + "\n\nif __name__ == \"__main__\":\n    cli()\n"
+
     for rel_path, content in files.items():
         target = project_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
