@@ -184,7 +184,9 @@ def _mapping_user(intentions: list[dict], facade: dict,
         parts.append("")
     parts.append("INTENTIONS:")
     for it in intentions:
-        parts.append("[%s] %s" % (it.get("intent_id", "?"), it.get("text", "")))
+        op = (it.get("operation") or "").strip()
+        suffix = " (op: %s)" % op if op else ""
+        parts.append("[%s] %s%s" % (it.get("intent_id", "?"), it.get("text", ""), suffix))
     return "\n".join(parts)
 
 

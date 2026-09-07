@@ -22,6 +22,7 @@ intention-extraction logic here is a distinct copy that lives in the
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from agentlib.config import LLM_MAX_TOKENS_LONG, LLM_RETRY_TEMPERATURE
 from agentlib.llm.client import _json_complete
@@ -39,6 +40,7 @@ def intent_schema():
                     "properties": {
                         "intent_id": {"type": "string"},
                         "text": {"type": "string"},
+                        "operation": {"type": "string"},
                         "cli_command": {"type": "string"},
                         "requires": {"type": "string"},
                         "observable": {"type": "string"},
@@ -66,6 +68,14 @@ _INTENT_SYSTEM = (
     "- intent_id: a short id, e.g. I1, I2, ...\n"
     "- text: the user goal in natural language, e.g. \"I can add a product to "
     "the inventory\".\n"
+    "- operation: a normalized snake_case verb naming the capability, chosen "
+    "SEMANTICALLY (never by the English word). Use one of add, list, get, "
+    "update, delete, report, export, import, search, calculate, or a domain "
+    "state-transition verb (confirm, ship, cancel, approve, restock, ...). "
+    "A non-English goal maps to the same normalized token (e.g. \"ajouter un "
+    "produit\" -> add). Leave EMPTY only for a non-actionable statement (an "
+    "architecture/property claim such as \"the app uses SQLite\", which is "
+    "not a user capability).\n"
     "- cli_command: the command(s) the SPEC explicitly gives for this "
     "capability, VERBATIM as written in the spec. If the spec does NOT "
     "explicitly name a command/interface, leave this empty.\n"
@@ -102,9 +112,59 @@ def _prompt_specifies_cli(prompt_text: str) -> bool:
     return bool(_CLI_MARKERS.search(prompt_text or ""))
 
 
+_OP_SYN = {
+    "add": "add", "create": "add", "insert": "add", "register": "add",
+    "new": "add", "ajouter": "add", "creer": "add", "créer": "add",
+    "list": "list", "view": "list", "show": "list", "display": "list",
+    "fetch": "list", "read": "list", "retrieve": "list", "lister": "list",
+    "voir": "list", "afficher": "list",
+    "get": "get", "obtenir": "get",
+    "update": "update", "edit": "update", "modify": "update",
+    "change": "update", "set": "update", "modifier": "update",
+    "delete": "delete", "remove": "delete", "supprimer": "delete",
+    "search": "search", "query": "search", "find": "search",
+    "chercher": "search", "rechercher": "search",
+    "report": "report", "summary": "report", "aggregate": "report",
+    "total": "report", "rapport": "report", "synthese": "report",
+    "synthèse": "report",
+    "export": "export", "exporter": "export",
+    "import": "import", "importer": "import",
+    "calculate": "calculate", "compute": "calculate", "count": "calculate",
+    "calculer": "calculate",
+}
+
+
+def _normalize_operation(op):
+    """LLM-emitted operation -> normalized verb token (lowercase snake).
+
+    Maps closed-set synonyms to one canonical token; a domain verb (confirm,
+    ship, cancel, restock, ...) is kept verbatim. Returns '' for empty/garbage
+    so a non-actionable intention (architecture statement) carries no token.
+    """
+    if not isinstance(op, str):
+        return ""
+    # Fold accents (créer -> creer) so a French/accented token normalizes to
+    # the same canonical verb as its unaccented spelling, then lowercase/snake.
+    o = unicodedata.normalize("NFKD", op)
+    o = o.encode("ascii", "ignore").decode("ascii")
+    o = o.strip().lower().replace("-", "_")
+    o = re.sub(r"[^a-z0-9_]", "", o)
+    if not o:
+        return ""
+    if o in _OP_SYN:
+        return _OP_SYN[o]
+    if re.fullmatch(r"[a-z][a-z0-9_]*", o):
+        return o  # domain verb kept verbatim
+    return ""
+
+
 def extract_intentions(prompt_text: str, verbose: bool = False) -> list[dict]:
     """Return a list of ``{intent_id, text, cli_command, requires,
-    observable, spec_level}`` user intentions.
+    observable, spec_level, operation}`` user intentions.
+
+    ``operation`` is the LLM-normalized capability verb (language-agnostic):
+    the intent extractor emits it directly, so ``compute_needs_cli`` and the
+    CLI surface derivation never depend on an English regex/synonym table.
 
     Reads ONLY the prompt (never the design/code), so the intent set is an
     independent oracle of what the user asked for at the facade level.
@@ -149,6 +209,7 @@ def extract_intentions(prompt_text: str, verbose: bool = False) -> list[dict]:
                 out.append({
                     "intent_id": intent_id,
                     "text": text.strip(),
+                    "operation": _normalize_operation(it.get("operation")),
                     "cli_command": cli,
                     "requires": (it.get("requires") or "").strip(),
                     "observable": (it.get("observable") or "").strip(),
@@ -186,10 +247,14 @@ def compute_needs_cli(intentions: list[dict]) -> bool:
        command line.
     2. Any intention's ``observable`` is CLI-visible (confirmation message,
        displayed list/report, stdout, exit, terminal output).
-    3. Any intention's ``text`` describes a data-management capability
-       (create/add/view/list/update/delete/report/export/...). For an
-       entity-driven application, these are the operations a real user
-       performs at the surface, so the surface is a CLI.
+    3. Any intention carries an LLM-normalized ``operation`` token (the
+       capability verb, language-agnostic — emitted directly by the intent
+       extractor, never an English regex/synonym table). Any concrete
+       operation is a user-facing capability exercised at the surface, so the
+       surface is a CLI.
+    4. Any intention's ``text`` describes a data-management capability via the
+       English regex (fallback for intentions the LLM left without an
+       operation — a cheap, zero-LLM safety net that can only ADD a CLI).
 
     Returns ``False`` when there are no intentions (or the oracle produced
     nothing), so a failed extraction degrades gracefully to no CLI — never a
@@ -208,7 +273,13 @@ def compute_needs_cli(intentions: list[dict]) -> bool:
         if obs and _CLI_OBSERVABLE_RE.search(obs):
             return True
 
-    # 3. Data-management capability.
+    # 3. LLM-normalized operation token (language-agnostic): any concrete
+    # operation is a user-facing capability exercised at the surface, so the
+    # surface is a CLI.
+    if any((i.get("operation") or "").strip() for i in intentions):
+        return True
+
+    # 4. Data-management capability via the English regex (fallback).
     return any(
         _CRUD_RE.search((i.get("text") or "").strip())
         for i in intentions
