@@ -451,6 +451,14 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
             if opt.get("flag"):
                 option_pairs.append([_opt_flag_name(opt)])  # bare flag
             else:
+                # A non-flag option with an EMPTY value is useless — click
+                # rejects `--opt ""` as "requires an argument". The LLM
+                # sometimes emits an optional filter it cannot fill
+                # (book-list --title), so omit it rather than crash the
+                # invocation. Required options are still caught by
+                # _validate_mapping's required-missing check.
+                if not value.strip():
+                    continue
                 option_pairs.append([_opt_flag_name(opt), value])
         elif flag.lstrip("-") in arg_by_name or flag in arg_by_name:
             positional_values.append(value)
