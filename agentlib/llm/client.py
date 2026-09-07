@@ -8,7 +8,7 @@ import json
 import sys
 import urllib.request
 
-from ..config import LLM_BASE_URL
+from ..config import LLM_BASE_URL, LLM_SEED, LLM_RETRY_TEMPERATURE
 
 
 class _StreamLimitExceeded(Exception):
@@ -23,8 +23,9 @@ class _StreamLimitExceeded(Exception):
         super().__init__("stream output exceeded max_output_chars")
 
 
-def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
-                     timeout=180, stream=False, max_output_chars=None):
+def _chat_completion(messages, max_tokens=2048, temperature=0.0, seed=None,
+                     top_p=None, schema=None, timeout=180, stream=False,
+                     max_output_chars=None):
     """Call the local OpenAI-compatible llama-server.
 
     When `schema` is a dict, it is passed as response_format so the server
@@ -42,6 +43,16 @@ def _chat_completion(messages, max_tokens=2048, temperature=0.0, schema=None,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    # Deterministic primary: temp=0 + fixed seed=42 so a given prompt is
+    # reproducible. Retries (temp>0) omit the seed, so the server samples a
+    # fresh random sequence each time — otherwise a fixed seed + temp>0 would
+    # re-emit the same sample and reproduce the identical error.
+    if seed is None and temperature == 0.0:
+        seed = LLM_SEED
+    if seed is not None:
+        body["seed"] = seed
+    if top_p is not None:
+        body["top_p"] = top_p
     if schema is not None:
         body["response_format"] = {"type": "json_object", "schema": schema}
     if stream:
@@ -130,13 +141,24 @@ def _json_block(text):
     return None
 
 
-def _json_complete(messages, schema=None, max_tokens=2048, attempts=2, verbose=False):
-    """Constrained JSON completion: schema-enforced, else re-ask once.
+def _json_complete(messages, schema=None, max_tokens=2048, attempts=2, verbose=False,
+                   temperature=0.0):
+    """Constrained JSON completion: schema-enforced.
 
-    Returns a parsed JSON object, or None if both attempts fail to parse.
+    The first attempt uses `temperature`; when the JSON does not parse, the
+    retry raises it to LLM_RETRY_TEMPERATURE so the model explores a
+    different sample instead of re-emitting the identical broken JSON.
     """
     for attempt in range(attempts):
-        raw = _chat_completion(messages, max_tokens=max_tokens, schema=schema)
+        attempt_temp = (
+            temperature
+            if (attempt == 0 or temperature != 0.0)
+            else LLM_RETRY_TEMPERATURE
+        )
+        raw = _chat_completion(
+            messages, max_tokens=max_tokens, schema=schema,
+            temperature=attempt_temp,
+        )
         block = _json_block(raw)
         if block is None:
             if verbose:

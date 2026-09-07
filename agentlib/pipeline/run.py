@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
-from agentlib.config import OUTPUT_DIR
+from agentlib.config import OUTPUT_DIR, LLM_RETRY_TEMPERATURE
 from agentlib.pipeline.manifest import _NoEntityScript, _manifest_first_blocks
 from agentlib.pipeline.generate import (
     generate_code,
@@ -203,7 +203,8 @@ def _multi_pass(prompt_text, verbose=False):
                 fp,
                 file_content[:3000],
             )
-            raw = generate_code(repair_prompt)
+            attempt_temp = 0.0 if repair_attempt == 0 else LLM_RETRY_TEMPERATURE
+            raw = generate_code(repair_prompt, temperature=attempt_temp)
             repaired = _extract_code_block(raw)
             if repaired and len(repaired) > len(file_content) * 0.3:
                 files[fp] = repaired

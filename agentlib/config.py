@@ -28,3 +28,9 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
 # retry with a different context: a major hidden run-to-run variance
 # source. Keep it well above the largest expected file.
 LLM_MAX_TOKENS_LONG = int(os.environ.get("LLM_MAX_TOKENS_LONG", "8192"))
+# Deterministic sampling is owned by the CLIENT (not server.sh). The PRIMARY
+# attempt uses temp=0 + seed=42 for reproducibility; RETRY attempts raise
+# temperature so the model explores a different sample instead of re-landing
+# on the same greedy output (the "identical error on retry" failure mode).
+LLM_SEED = int(os.environ.get("LLM_SEED", "42"))
+LLM_RETRY_TEMPERATURE = float(os.environ.get("LLM_RETRY_TEMPERATURE", "0.7"))

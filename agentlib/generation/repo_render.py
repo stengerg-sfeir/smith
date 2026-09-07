@@ -8,6 +8,7 @@ import ast
 import re
 from pathlib import Path
 
+from ..config import LLM_RETRY_TEMPERATURE
 from ..naming import _camel, _entity_table_name, _plural, _snake
 from ..llm.fill import _llm_fill
 from ..kernel.service.common import _declared_filters
@@ -372,6 +373,7 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         filled = _llm_fill(
             "repository", instruction, mini, prompt_text,
             verbose=verbose,
+            temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
         )
         if not filled:
             break

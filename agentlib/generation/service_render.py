@@ -10,6 +10,7 @@ import builtins
 import re
 from pathlib import Path
 
+from ..config import LLM_RETRY_TEMPERATURE
 from ..naming import _camel, _entity_table_name, _plural, _snake
 from ..llm.fill import _llm_fill
 from ..kernel.service import dispatch_impl_body
@@ -2103,6 +2104,51 @@ def _build_fill_hint(repo_interface, type_ctx):
     return hint
 
 
+def _has_repo_interface_violations(violations):
+    """True when a rejection is a repo-interface failure (unknown attribute /
+    no such method), not a semantic/arity/undefined-name issue."""
+    return any(
+        "calls unknown repository attribute" in v
+        or "has no method" in v
+        for v in (violations or [])
+    )
+
+
+def _positive_repo_targets(repo_interface, type_ctx=None):
+    """Format the repos in scope as a positive target list for a retry.
+
+    A negative-only rejection (''calls unknown repository attribute
+    self.book_repo'') gives the 4B model no concrete alternative, so it
+    re-guesses and re-emits the same broken body. List the EXACT
+    ``self.<attr>.<method>(params)`` call shapes available in the scoped
+    interface so the retry has a real option to pick instead.
+    """
+    if not repo_interface:
+        return "  (no repository calls available)"
+    lines = []
+    for attr in sorted(repo_interface):
+        for meth, entries in sorted((repo_interface[attr] or {}).items()):
+            if entries == ["_filters"]:
+                lines.append("  self.%s.%s(**filters)" % (attr, meth))
+                continue
+            parts = []
+            for e in entries:
+                pname = e[0] if isinstance(e, tuple) else e
+                req = e[1] if isinstance(e, tuple) else True
+                parts.append(pname if req else "%s=None" % pname)
+            ret = (type_ctx.get("repo_returns_raw") or {}).get(
+                (attr, meth)
+            ) if type_ctx else None
+            if ret:
+                lines.append(
+                    "  self.%s.%s(%s) -> %s"
+                    % (attr, meth, ", ".join(parts), ret)
+                )
+            else:
+                lines.append("  self.%s.%s(%s)" % (attr, meth, ", ".join(parts)))
+    return "\n".join(lines)
+
+
 def _scoped_repo_interface(m, repo_interface, entities_by_class):
     """Filter repo_interface to the repos a method's body plausibly touches.
 
@@ -2134,6 +2180,14 @@ def _scoped_repo_interface(m, repo_interface, entities_by_class):
             if a:
                 related.add(a)
 
+    # Anchor entities: the name-derived primary PLUS every entity referenced
+    # by an FK parameter. A cross-entity method like history(member_id) names
+    # no entity in its own name, so the FK parameter supplies the anchor; the
+    # FK closure below then pulls in the repos it legitimately walks (loan,
+    # book). CRUD methods (add_/list_/update_/delete_/get_/search_) are
+    # rendered deterministically and never reach this fill scope, so widening
+    # here only affects business/extras methods.
+    anchors = set()
     # 1. Primary entity: longest entity-snake/plural substring in the method
     # name (return_loan -> loan, get_overdue_loans -> loan, add_book -> book).
     prim = None
@@ -2144,28 +2198,64 @@ def _scoped_repo_interface(m, repo_interface, entities_by_class):
                 best = len(tok)
                 prim = cls
     if prim:
-        _add(prim)
-
+        anchors.add(prim)
     # 2. Foreign-key params: borrow_loan(member_id, book_id) needs both.
     for p in params:
         if p.endswith("_id") and p != "id":
-            _add(_camel(p[: -len("_id")]))
+            ref = _camel(p[: -len("_id")])
+            if ref in entities_by_class:
+                anchors.add(ref)
+                _add(ref)
 
-    # 3. Primary entity's FK columns / modeled fks: return_loan(loan_id) must
-    # reach book_repo/member_repo (increment copies) even without _id params.
-    if prim:
-        ent = entities_by_class.get(prim)
-        if isinstance(ent, dict):
-            for f in ent.get("fields") or []:
+    for anchor in sorted(anchors):
+        _add(anchor)
+        ent = entities_by_class.get(anchor)
+        if not isinstance(ent, dict):
+            continue
+        # 3. Anchor's FK columns / modeled fks: return_loan(loan_id) must
+        # reach book_repo/member_repo (increment copies) even without _id params.
+        for f in ent.get("fields") or []:
+            if isinstance(f, dict) and isinstance(f.get("name"), str):
+                fn = f["name"]
+                if fn.endswith("_id") and fn != "id":
+                    _add(_camel(fn[: -len("_id")]))
+        for fk in ent.get("fks") or []:
+            if isinstance(fk, dict):
+                ref = fk.get("ref") or fk.get("ref_table") or ""
+                if ref and _camel(ref) != anchor:
+                    _add(_camel(ref))
+        # 4. Reverse-FK widening for cross-entity methods (history/overdue/
+        # report/search over an entity referenced by others): get_member_history
+        # spans Member + Loan + Book. Walk the entities that FK to the anchor
+        # (Loan -> Member) and, transitively, the repos those reference
+        # (Loan -> Book). Bounded to designed entities so the scoped hint
+        # stays small while a correct cross-entity body is possible.
+        for cls, other in entities_by_class.items():
+            if cls == anchor:
+                continue
+            refs = set()
+            for f in other.get("fields") or []:
                 if isinstance(f, dict) and isinstance(f.get("name"), str):
                     fn = f["name"]
                     if fn.endswith("_id") and fn != "id":
-                        _add(_camel(fn[: -len("_id")]))
-            for fk in ent.get("fks") or []:
-                if isinstance(fk, dict):
-                    ref = fk.get("ref") or fk.get("ref_table") or ""
-                    if ref and _camel(ref) != prim:
-                        _add(_camel(ref))
+                        refs.add(_camel(fn[: -len("_id")]))
+            for fk in other.get("fks") or []:
+                if isinstance(fk, dict) and fk.get("ref"):
+                    refs.add(_camel(fk["ref"]))
+            if anchor in refs:
+                _add(cls)
+                # One level deeper: repos the referrer itself references
+                # (Loan -> Book), so a history/report can read related rows.
+                other_ent = entities_by_class.get(cls)
+                if isinstance(other_ent, dict):
+                    for f in other_ent.get("fields") or []:
+                        if isinstance(f, dict) and isinstance(f.get("name"), str):
+                            fn = f["name"]
+                            if fn.endswith("_id") and fn != "id":
+                                _add(_camel(fn[: -len("_id")]))
+                    for fk in other_ent.get("fks") or []:
+                        if isinstance(fk, dict) and fk.get("ref"):
+                            _add(_camel(fk["ref"]))
 
     if not related:
         return repo_interface
@@ -2579,7 +2669,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         instruction = fill_hint
         for attempt in range(4):
             filled = _llm_fill(
-                "service", instruction, mini, prompt_text, verbose=verbose
+                "service", instruction, mini, prompt_text, verbose=verbose,
+                temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
             )
             merged = _accept(filled)
             if merged is not None:
@@ -2611,6 +2702,13 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
                 + "\n".join("  - " + v for v in violations[:8])
             )
+            if _has_repo_interface_violations(violations):
+                instruction += (
+                    "\n\nAVAILABLE REPO CALLS — your call was rejected because "
+                    "the repository or method is not valid here. Use ONLY these "
+                    "exact forms:\n"
+                    + _positive_repo_targets(repo_interface, type_ctx)
+                )
 
     # Per-method fill: fill each stub alone with a SCOPED repo hint so the
     # conversation stays under the 4B model's instruction-following limit
@@ -2657,7 +2755,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         ok = False
         for attempt in range(2):
             cand = _llm_fill(
-                "service", one_instr, one_mini, prompt_text, verbose=verbose
+                "service", one_instr, one_mini, prompt_text, verbose=verbose,
+                temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
             )
             cand = _strip_import_enum_validation(cand)
             # Validate against the SCOPED interface, recomputed after any
@@ -2701,6 +2800,13 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
                 + "\n".join("  - " + v for v in viol[:6])
             )
+            if _has_repo_interface_violations(viol):
+                one_instr += (
+                    "\n\nAVAILABLE REPO CALLS — your call was rejected because "
+                    "the repository or method is not valid in this method's "
+                    "scoped interface. Use ONLY these exact forms:\n"
+                    + _positive_repo_targets(cur_iface, type_ctx)
+                )
         if not ok:
             reverted.append(name)
     if verbose and len(reverted) < len(stub_names):

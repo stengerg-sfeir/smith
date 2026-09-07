@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 
-from agentlib.config import LLM_MAX_TOKENS_LONG
+from agentlib.config import LLM_MAX_TOKENS_LONG, LLM_RETRY_TEMPERATURE
 from agentlib.llm.client import _json_complete
 
 
@@ -120,9 +120,10 @@ def extract_intentions(prompt_text: str, verbose: bool = False) -> list[dict]:
         {"role": "user", "content": user},
     ]
     for _ in range(2):
+        out_temp = 0.0 if _ == 0 else LLM_RETRY_TEMPERATURE
         data = _json_complete(
             messages, schema=intent_schema(), verbose=verbose,
-            max_tokens=LLM_MAX_TOKENS_LONG,
+            max_tokens=LLM_MAX_TOKENS_LONG, temperature=out_temp,
         )
         if isinstance(data, dict) and isinstance(data.get("intentions"), list):
             specifies_cli = _prompt_specifies_cli(prompt_text)

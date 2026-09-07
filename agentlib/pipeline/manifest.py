@@ -43,12 +43,7 @@ from agentlib.generation.model_render import (
 )
 from agentlib.generation.cli_render import _render_cli_file, _render_main_file
 from agentlib.generation.repo_render import _render_repository_file
-from agentlib.checks.ast_utils import (
-    _extract_model_ast,
-    _check_syntax_and_imports,
-    _check_structural,
-    _extract_defined_names,
-)
+from agentlib.checks.ast_utils import _extract_model_ast
 from agentlib.naming import _generate_database_file, _snake, _camel
 from agentlib.pipeline.generate import _generate_file
 
@@ -537,15 +532,39 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         kept.append(spec)
     manifest[:] = kept
 
-    # CLI surface from the USER INTENTIONS. The LLM classifies each intention
-    # into (entity, operation) semantically (fixing "invoice line" -> InvoiceLine
-    # that the regex could not), then a mechanical rule table derives the
-    # command shape (rich for CRUD/report, generic <op>_<entity>(id) otherwise).
+    # CLI surface from the USER INTENTIONS, LLM-normalized. The LLM classifier
+    # maps each intention to a language-agnostic (entity, operation) pair, so
+    # a non-English or badly-worded prompt is interpreted semantically instead
+    # of against an English regex/synonym table. The classified operations are
+    # the AUTHORITATIVE signal for both whether a CLI surface is needed and
+    # for its command shape. The deterministic compute_needs_cli regex gate
+    # above remains only as a cheap, zero-LLM safety net (it can only ADD an
+    # early CLI, never refuse one), so the agent is not dependent on it.
     cli_surface = None
-    if needs_cli and entities_by_class:
+    if entities_by_class:
         classified = classify_intentions(
             intentions, entities_by_class, verbose=verbose
         )
+        if classified and not needs_cli:
+            # The LLM normalized the intentions into data-management
+            # operations even though the regex gate missed them (e.g. a
+            # non-English prompt). That is an authoritative CLI signal.
+            needs_cli = True
+            if not manifest_has_cli and not any(
+                s["kind"] == "cli" for s in manifest
+            ):
+                manifest.append({
+                    "file": "cli.py",
+                    "role": "command-line interface",
+                    "kind": "cli",
+                    "entity": "",
+                    "imports_from": [],
+                })
+                if verbose:
+                    print(
+                        "    Intent gate (LLM-normalized): CLI required — "
+                        "injecting cli.py"
+                    )
         _paginated = bool(
             re.search(r"\b(page|pagina\w*)\b", (prompt_text or "").lower())
         )
@@ -570,6 +589,18 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # 4. services (constrained to the CLI surface, so every method is
     # CLI-drivable — primitive params, one method per command; no whole-object
     # signatures that would make the CLI sanitizer drop commands).
+    #
+    # Design-vs-CLI single source of truth (FIX 3 mitigation): the service is
+    # constrained HERE to the deterministic intent-derived surface (built from
+    # the LLM classifier in the block above, merged with the explicit-command
+    # floor), and the service is RENDERED LATER (step 5.2) — AFTER
+    # _reconcile_cli_design has back-propagated any CLI-required methods/params
+    # into svc_design. So the shipped service always reflects the FINAL CLI
+    # surface: the service renderer consumes the reconciled svc_design, not a
+    # stale pre-CLI one. The bounded propagation remains the recovery path for
+    # genuinely ambiguous prompts (data model not aligned with CLI section);
+    # the two LLM design passes (service + CLI) may still disagree on NEW
+    # commands, and that divergence is reconciled deterministically here.
     svc_paths = [s["file"] for s in manifest if s["kind"] == "service"]
     svc_constraint = cli_surface_constraint(cli_surface) if cli_surface else ""
     for sp in svc_paths:
@@ -894,17 +925,13 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 file=sys.stderr,
             )
 
-    # Mechanical AST validation of the generated tree (same as the legacy
-    # path): syntax, sibling-import resolution, structural checks.
-    all_exports = {Path(f).stem: _extract_defined_names(c) for f, c in files.items()}
-    ast_errors, ast_fixes = _check_syntax_and_imports(files, all_exports)
-    for fp, fixed in ast_fixes.items():
-        files[fp] = fixed
-    struct_errors = _check_structural(files, design_ctx)
-    if verbose and (ast_errors or struct_errors):
-        print("    Validation: %d issue(s)" % (len(ast_errors) + len(struct_errors)))
-        for e in (ast_errors + struct_errors)[:5]:
-            print("      - %s" % e)
+    # NOTE: _multi_pass (run.py) runs the authoritative validation
+    # (_check_syntax_and_imports + _check_structural) over this tree. Running
+    # it here too produced a duplicate "Validation: N issue(s)" line in the
+    # log that looked like the repair repeated the same message, so the
+    # validation pass happens ONLY in _multi_pass now. The provisional
+    # database.py above is still required so the sibling import resolves while
+    # _manifest_first_blocks returns.
 
     # LAST-RESORT entry-point guarantee: the AST repair above can rewrite a
     # broken cli.py (e.g. a syntax error in the LLM/merged click group) and

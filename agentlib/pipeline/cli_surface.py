@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 
-from agentlib.config import LLM_MAX_TOKENS_LONG
+from agentlib.config import LLM_MAX_TOKENS_LONG, LLM_RETRY_TEMPERATURE
 from agentlib.llm.client import _json_complete
 from agentlib.naming import _camel, _snake, _plural
 
@@ -316,9 +316,10 @@ def classify_intentions(intentions, entities_by_class, verbose=False):
         )},
     ]
     for _ in range(2):
+        out_temp = 0.0 if _ == 0 else LLM_RETRY_TEMPERATURE
         data = _json_complete(
             messages, schema=_intent_ops_schema(), verbose=verbose,
-            max_tokens=LLM_MAX_TOKENS_LONG,
+            max_tokens=LLM_MAX_TOKENS_LONG, temperature=out_temp,
         )
         if isinstance(data, dict) and isinstance(data.get("mappings"), list):
             out = []

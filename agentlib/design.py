@@ -8,6 +8,7 @@ skeleton locks them as stubs.
 import re
 from pathlib import Path
 
+from .config import LLM_RETRY_TEMPERATURE
 from .llm.client import _json_complete
 from .naming import _camel, _snake
 
@@ -111,7 +112,11 @@ def _generate_manifest(prompt_text, verbose=False):
         {"role": "user", "content": user},
     ]
     for attempt in (0, 1):
-        data = _json_complete(messages, schema=_manifest_schema(), verbose=verbose)
+        out_temp = 0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE
+        data = _json_complete(
+            messages, schema=_manifest_schema(), verbose=verbose,
+            temperature=out_temp,
+        )
         if isinstance(data, dict) and data.get("files"):
             return data
     return None
@@ -170,7 +175,11 @@ def _route_mode(prompt_text, verbose=False):
         },
     ]
     for attempt in (0, 1):
-        data = _json_complete(messages, schema=_route_schema(), verbose=verbose)
+        out_temp = 0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE
+        data = _json_complete(
+            messages, schema=_route_schema(), verbose=verbose,
+            temperature=out_temp,
+        )
         if isinstance(data, dict) and data.get("mode") in ("single", "multi"):
             return data["mode"]
     return "single"

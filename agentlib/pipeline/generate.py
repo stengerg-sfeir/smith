@@ -10,7 +10,9 @@ import subprocess
 from pathlib import Path
 from textwrap import dedent
 
-from agentlib.config import SYSTEM_CONTEXT, LLM_MAX_TOKENS_LONG
+from agentlib.config import (
+    SYSTEM_CONTEXT, LLM_MAX_TOKENS_LONG, LLM_RETRY_TEMPERATURE,
+)
 from agentlib.llm.client import _chat_completion
 from agentlib.prompts import _extract_code_block, _split_multifile, _join_files
 from agentlib.checks.ast_utils import _check_syntax_and_imports, _extract_defined_names
@@ -31,13 +33,16 @@ def _run_ruff_fix(project_dir):
 # Code generation
 # ---------------------------------------------------------------------------
 
-def generate_code(prompt_text):
+def generate_code(prompt_text, temperature=0.0):
     """Free-text generation against the local OpenAI-compatible server."""
     messages = [
         {"role": "system", "content": SYSTEM_CONTEXT},
         {"role": "user", "content": prompt_text},
     ]
-    return _chat_completion(messages, max_tokens=LLM_MAX_TOKENS_LONG).strip()
+    return _chat_completion(
+        messages, max_tokens=LLM_MAX_TOKENS_LONG,
+        temperature=temperature,
+    ).strip()
 
 
 def generate_with_validation(prompt_text, spec_text="", sibling_exports=None,
@@ -45,7 +50,8 @@ def generate_with_validation(prompt_text, spec_text="", sibling_exports=None,
     """Generate code with AST validation and retry."""
     last_result = None
     for attempt in range(max_retries):
-        raw = generate_code(prompt_text)
+        attempt_temp = 0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE
+        raw = generate_code(prompt_text, temperature=attempt_temp)
         code = _extract_code_block(raw)
         last_result = code
 

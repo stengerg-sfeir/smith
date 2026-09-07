@@ -4,7 +4,7 @@ Extracted from agent.py. A fill is one constrained streamed completion that
 re-emits the whole file with the locked skeleton's signatures preserved;
 it is only accepted if it compiles.
 """
-from ..config import LLM_MAX_TOKENS_LONG
+from ..config import LLM_MAX_TOKENS_LONG, LLM_RETRY_TEMPERATURE
 from ..prompts import _extract_code_block
 from .client import _StreamLimitExceeded, _chat_completion
 
@@ -17,11 +17,15 @@ def _compiles(text):
         return False
 
 
-def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False):
+def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False,
+              temperature=0.0):
     """One LLM call: fill skeleton bodies, keep signatures/imports exact.
 
     Returns the full file text or None. Two attempts with corrective retry
-    on compile failure.
+    on compile failure. `temperature` is the sampling temperature of the
+    FIRST attempt; the retry raises it to LLM_RETRY_TEMPERATURE so the
+    model explores a different sample instead of re-emitting the same
+    broken body.
     """
     # The original requirements are BUSINESS CONTEXT the fill needs to
     # implement domain-verb stubs correctly. Without them the model only
@@ -63,10 +67,16 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False):
     # degenerate repetition loops while leaving real large files headroom.
     max_output_chars = max(len(skeleton) * 4, 30000)
     for attempt in range(2):
+        # temp=0 on the primary attempt (reproducible); a retry raises temp
+        # so the model explores a different sample instead of re-emitting the
+        # same broken body. A caller already on a retry passes temperature>0
+        # so even this function's first attempt explores.
+        attempt_temp = temperature if attempt == 0 else LLM_RETRY_TEMPERATURE
         try:
             raw = _chat_completion(
                 messages, max_tokens=LLM_MAX_TOKENS_LONG,
                 stream=True, max_output_chars=max_output_chars,
+                temperature=attempt_temp,
             )
         except _StreamLimitExceeded:
             if verbose:
