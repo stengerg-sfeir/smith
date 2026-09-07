@@ -527,6 +527,7 @@ svc_design, designs):
             }
             mapped = []
             flag_filters = {}
+            dead = []
             ok = True
             for o in opts:
                 if not isinstance(o, dict):
@@ -571,12 +572,24 @@ svc_design, designs):
                 if fm is None:
                     ok = False
                     break
+                # A value option for a field the list already filters via a
+                # '<field>_only' flag is redundant (member-list --active-only
+                # vs --is-active): drop it so the facade mapper can't emit a
+                # useless --is-active that requires an argument.
+                if fm in {v.get("column") for v in flag_filters.values()}:
+                    dead.append(o.get("name"))
+                    continue
                 if fm not in {p for p, _ in mapped}:
                     mapped.append(
                         (fm, "int" if o.get("type") == "int" else "str")
                     )
             if not ok:
                 continue
+            if dead:
+                c["options"] = [
+                    o for o in c["options"]
+                    if not (isinstance(o, dict) and o.get("name") in dead)
+                ]
             # Zero-option lists ("category list") legitimately synthesize
             # as list_<entity>() — the delegation tier renders a plain
             # repo.list(). Unresolvable flags stay dropped above (ok=False).

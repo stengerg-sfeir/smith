@@ -42,6 +42,13 @@ def _existing_variant_alias(attr, meth, repo_interface, call_args=None):
         return None
     call_args = call_args or []
 
+    # A generic by-id lookup (``find_by_id``/``get_by_id``) is the CRUD id
+    # getter — never alias it to a semantically-different method that merely
+    # shares an arg NAME (e.g. member_repo.find_by_id -> get_member_loan_history,
+    # which returns loans, not a Member). The generic getter always exists.
+    if meth in ("get_by_id", "find_by_id") and "get_by_id" in sig:
+        return "get_by_id"
+
     def _param_vals(m):
         return [p[0] if isinstance(p, tuple) else p for p in (sig.get(m) or [])]
 
