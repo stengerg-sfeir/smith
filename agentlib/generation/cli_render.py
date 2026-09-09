@@ -102,7 +102,20 @@ def _optvar(o):
 
 def _match_param(key, params):
     """Exact match first, then bounded suffix matching (--category ->
-    category_id, --price -> price_cents)."""
+    category_id, --price -> price_cents). The key is dash-normalized so a
+    CLI option whose declared field name carries a hyphen ('from-date' ->
+    'from_date') matches the snake_case service param — a '-'-vs-'_' drift
+    between the LLM's CLI design and the service signature would otherwise
+    leave the option unmapped and the command dropped."""
+    if isinstance(key, str):
+        # Mirror _optvar: strip leading dashes ('--from-date' -> 'from-date')
+        # then normalize dashes AND spaces to underscores ('from date' /
+        # 'from-date' -> 'from_date'), so a CLI option whose declared field
+        # carries a flag prefix, hyphen, or space matches the snake_case
+        # service param. Any '-'-vs-'_' / space drift between the LLM's CLI
+        # design and the service signature would otherwise leave the option
+        # unmapped and the command dropped.
+        key = re.sub(r"[- ]", "_", key.lstrip("-"))
     if key in params:
         return key
     m = next(
@@ -135,6 +148,29 @@ def _match_param(key, params):
     return None
 
 
+def _resolve_option_param(o, params):
+    """Resolve a CLI option to a target param, trying the declared field
+    first then falling back to the option-name-derived key.
+
+    The LLM's ``field`` hint can point at a param name the target does not
+    have (e.g. ``start_date`` for a service param named ``from_date``).
+    Click binds values by option NAME, so if the declared field does not
+    resolve onto the target, fall back to the option variable — a stray or
+    misnamed ``field`` must never drop the option from the call or falsely
+    reject the command.
+    """
+    key = o.get("field") or _optvar(o)
+    m = _match_param(key, params) if params is not None else key
+    if m is not None:
+        return m
+    if o.get("field"):
+        alt = _optvar(o)
+        m = _match_param(alt, params) if params is not None else alt
+        if m is not None:
+            return m
+    return None
+
+
 def _build_service_call(target, opts, service_methods):
     """Wire click options to a service method call, passing ONLY options
     that map to real parameters of the target's designed signature."""
@@ -159,9 +195,10 @@ def _build_service_call(target, opts, service_methods):
             if p == "data":
                 continue
             for o in opts:
-                if o.get("name") and key_of(o) == p:
+                if (o.get("name")
+                        and _resolve_option_param(o, params) == p):
                     parts.append("%s=%s" % (p, _optvar(o)))
-                    used.add(key_of(o))
+                    used.add(o.get("field") or _optvar(o))
                     break
         for o in opts:
             if not o.get("name"):
@@ -182,7 +219,7 @@ def _build_service_call(target, opts, service_methods):
         key = key_of(o)
         if key in used:
             continue
-        match = _match_param(key, params) if params is not None else key
+        match = _resolve_option_param(o, params) if params is not None else key
         if match is None:
             continue  # option does not map to the target signature
         used.add(key)

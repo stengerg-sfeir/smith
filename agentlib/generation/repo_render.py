@@ -29,6 +29,62 @@ from .splice import (
 )
 
 
+def _repo_method_purpose(m, ent):
+    """One-line deterministic purpose for a designed repository custom method,
+    from its spelling + owning entity. Prompt-independent and bounded, so the
+    repo fill conversation stays small (a rich spec like expense embedded the
+    whole app on every repo fill, hitting ~4398 tokens)."""
+    name = m.get("name") or ""
+    ent_snake = _snake(ent["name"]) if ent else ""
+    low = name.lower()
+    if not name:
+        return "implement the query over %s using the designed schema." % (ent_snake or "the entity")
+    if low.startswith(("find_", "list_", "get_", "search_", "fetch_")):
+        return "retrieve %s rows matching the given arguments." % (ent_snake or "the entity")
+    if low.startswith(("count_", "total_", "sum_")):
+        return "aggregate/count %s rows per the given arguments." % (ent_snake or "the entity")
+    if "pattern" in low or "recurring" in low:
+        return "find recurring %s patterns (same amount/category over consecutive months)." % (ent_snake or "rows")
+    if any(k in low for k in ("budget", "status", "exceed", "month", "year", "summary", "report")):
+        return "report an aggregate/status detail over %s for the given period or key." % (ent_snake or "the entity")
+    return "implement the '%s' query over %s." % (name, ent_snake or "the entity")
+
+
+def _repo_requirement_context(stub_methods, ent_snake, ent):
+    """Compact, prompt-independent business context for a repository fill.
+
+    Replaces the always-full ``prompt_text`` (the whole spec) with a bounded
+    block derived ONLY from the designed stub methods' signatures + returns +
+    one-line purposes, so the per-repo fill conversation never scales with the
+    prompt length. The fill is still validated by ``_merge_repo_fill`` against
+    the designed SQL schema, so a weaker-but-in-scope fill is caught and
+    reverted to a safe stub rather than shipping broken SQL."""
+    lines = [
+        "REPOSITORY TO IMPLEMENT — %sRepository" % _camel(ent_snake),
+        "Write a real body for each custom method below using ONLY the "
+        "designed tables/columns (see the SQL context) and the shared Database "
+        "object (with self.db.connect() as conn:).",
+        "CUSTOM METHODS:",
+    ]
+    for m in stub_methods:
+        name = m.get("name") or ""
+        params = ", ".join(
+            "%s: %s" % (p.get("name"), p.get("type") or "Any")
+            for p in (m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        )
+        lines.append(
+            "  - %s(%s) -> %s"
+            % (name, params, m.get("returns") or "Any")
+        )
+    lines.append("PURPOSES:")
+    for m in stub_methods:
+        lines.append(
+            "  - %s: %s" % ((m.get("name") or "?"), _repo_method_purpose(m, ent))
+        )
+    return "\n".join(lines)
+
+
 def _render_repository_file(ent_snake, design, entities_by_class, exception_names=None,
                             prompt_text="", verbose=False, models_module="models"):
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
@@ -349,6 +405,7 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     )
     own_table = _entity_table_name(own_ent)
     stub_names = [m["name"] for m in stub_methods]
+    req_ctx = _repo_requirement_context(stub_methods, ent_snake, own_ent)
 
     def _hint(extra=""):
         return _repo_sql_context_hint(schema_ctx, stub_names) + extra
@@ -371,7 +428,7 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     instruction = _hint()
     for attempt in range(3):
         filled = _llm_fill(
-            "repository", instruction, mini, prompt_text,
+            "repository", instruction, mini, req_ctx,
             verbose=verbose,
             temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
         )
@@ -382,6 +439,11 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
             model_fields=model_fields, own_table=own_table,
         )
         if merged is not None and not rejected:
+            if verbose:
+                print(
+                    "    [fill] repository <%s>: filled %d custom(s)"
+                    % (ent_snake, len(stub_names))
+                )
             return merged
         if merged is not None and rejected:
             instruction = _hint(
@@ -429,6 +491,57 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     return merged
 
 
+# Stdlib names a repository fill may legitimately reference. If the fill uses
+# one without the file importing it, we INJECT the import rather than reject —
+# this keeps the LLM's richer body (e.g. an export-by-criteria helper writing
+# csv/datetime) instead of reverting it to a stub for a forgotten import.
+_STDLIB_IMPORTS = {
+    "csv": "import csv",
+    "os": "import os",
+    "math": "import math",
+    "statistics": "import statistics",
+    "json": "import json",
+    "date": "from datetime import date",
+    "datetime": "from datetime import datetime",
+    "timedelta": "from datetime import timedelta",
+    "time": "from datetime import time",
+    "Decimal": "from decimal import Decimal",
+    "Path": "from pathlib import Path",
+}
+
+
+def _inject_stdlib_imports(text, names):
+    """Add missing stdlib import lines to a spliced repository file.
+
+    Idempotent: skips lines already present (e.g. ``import json`` when the
+    file already imports it for to_json/from_json). Inserted after the
+    ``from __future__ import annotations`` line so it never splits the
+    docstring/future block. Keeps the LLM's richer body instead of reverting
+    it for a name it forgot to import."""
+    present = set()
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("import ") or s.startswith("from "):
+            present.add(s)
+    to_add = []
+    for n in sorted(names):
+        imp = _STDLIB_IMPORTS.get(n)
+        if imp and imp not in present:
+            to_add.append(imp)
+    if not to_add:
+        return text
+    lines = text.splitlines(keepends=True)
+    insert_at = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("from __future__"):
+            insert_at = i + 1
+            break
+    if insert_at is None:
+        insert_at = 0
+    lines.insert(insert_at, "\n".join(to_add) + "\n\n")
+    return "".join(lines)
+
+
 def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
                      model_fields=None, own_table=None):
     """Per-method splice of an LLM repository fill into the deterministic
@@ -456,6 +569,7 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
         return None, [], {}
     module_names = _module_defined_names(deterministic)
     rejected = {}
+    stdlib_used = set()
     # Inter-file surface of the shared Database object (rendered
     # deterministically by _generate_database_file): instance attrs/methods
     # a repository fill may legitimately touch.
@@ -483,11 +597,21 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
                 "the DESIGNED tables/columns listed above"
             )
         undef = _fn_undefined_names(fn, module_names)
-        if undef:
+        # Split undefined names into true hallucinations vs stdlib names the
+        # fill forgot to import. Stdlib names are auto-imported below (keeps
+        # the LLM's richer body — export-by-criteria, date math, csv write);
+        # only genuine hallucinations are rejected.
+        hallucinated = (
+            sorted(u for u in undef if u not in _STDLIB_IMPORTS)
+            if undef else []
+        )
+        if hallucinated:
             violations.append(
                 "references undefined name%s %s"
-                % ("s" if len(undef) > 1 else "", ", ".join(undef))
+                % ("s" if len(hallucinated) > 1 else "", ", ".join(hallucinated))
             )
+        elif undef:
+            stdlib_used |= {u for u in undef if u in _STDLIB_IMPORTS}
         # Inter-file attribute gate: self.db.<attr> must exist on the
         # rendered Database class. Bare-name checks cannot see attribute
         # access, so 'self.db.connection' used to validate clean and crash
@@ -603,6 +727,8 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
     if len(repls) != len(needed) - len(rejected):
         return None, sorted(rejected), rejected
     merged = _splice_functions(deterministic, repls)
+    if stdlib_used:
+        merged = _inject_stdlib_imports(merged, stdlib_used)
     try:
         mtree = ast.parse(merged)
     except SyntaxError:

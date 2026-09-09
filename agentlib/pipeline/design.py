@@ -25,7 +25,7 @@ from agentlib.design import (
 )
 from agentlib.llm.client import _json_complete
 from agentlib.naming import _snake, _camel
-from agentlib.generation.cli_render import _optvar, _match_param
+from agentlib.generation.cli_render import _optvar, _match_param, _resolve_option_param
 
 
 def _cli_schema():
@@ -149,8 +149,104 @@ _CLI_SYSTEM_ALLOW_NEW = (
 )
 
 
+def _fill_missing_cli_options(data, service_methods):
+    """Deterministically fill required-option gaps on a CLI design.
+
+    The CLI design is a SEPARATE LLM call from the service design, so it may
+    omit an option for a REQUIRED parameter of the target (budget-update has
+    no ``--id`` for ``update_budget(id, ...)``). Left alone, that forces
+    ``_reconcile_cli_design`` to hard-retrofit the service signature (reshape
+    the method, synth a duplicate). Fill the gap HERE, at design time: for
+    every non-Optional param of the target that no option currently covers,
+    add a default-typed option bound to that param. Deterministic and
+    design-driven; never mutates the target. ``data``-style targets pack
+    leftovers, so only their non-data required params (usually the id) are
+    ensured. Idempotent — safe on the corrective retry.
+    """
+    sigs = _cli_target_sigs(service_methods)
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        sig = sigs.get(c.get("target"))
+        if not sig:
+            continue
+        params = [n for n, _ in sig]
+        opts = [o for o in (c.get("options") or []) if isinstance(o, dict)]
+        covered = set()
+        for o in opts:
+            m = _resolve_option_param(o, params)
+            if m is not None:
+                covered.add(m)
+        required = [
+            (n, t) for n, t in sig
+            if n != "data" and n not in ("data", "payload", "record")
+            and not t.strip().startswith("Optional")
+            and n not in covered
+        ]
+        existing = {o.get("name") for o in opts}
+        for n, t in required:
+            flag = "--" + n.replace("_", "-")
+            if flag in existing:
+                continue
+            otype = "int" if "int" in t.lower() else "str"
+            c.setdefault("options", []).append({
+                "name": flag,
+                "required": True,
+                "type": otype,
+                "field": n,
+            })
+            existing.add(flag)
+    return data
+
+
+def _repair_cross_entity_targets(data, service_methods, entities_by_class):
+    """Deterministically rewrite a command whose target belongs to a DIFFERENT
+    entity than the command's OWNER entity (expense/category/add ->
+    add_expense, where the group names Category but the target adds an
+    Expense). The command owner (via ``_command_entity``) is authoritative:
+    if a ``<verb>_<owner>`` method was designed, point the command at it so
+    the design validates on the FIRST attempt instead of burning a retry on
+    a semantically wrong target. Conservative: only rewrites when the
+    ``<verb>_<owner>`` method actually exists and the target's entity is a
+    strict mismatch; every other case is left to ``_reconcile_cli_design``.
+    """
+    if not entities_by_class or not service_methods:
+        return
+    allowed = {
+        m.get("name")
+        for m in service_methods
+        if isinstance(m, dict) and m.get("name")
+    }
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        tgt = c.get("target")
+        if not isinstance(tgt, str) or not tgt:
+            continue
+        cls = _command_entity(c, entities_by_class)
+        if cls is None:
+            continue
+        own_snake = _snake(cls)
+        tlow = tgt.lower()
+        # Longest matching entity name wins (book_loan before book).
+        tent = None
+        best_len = -1
+        for e in sorted(entities_by_class):
+            es = _snake(e).lower()
+            if es and es in tlow and len(es) > best_len:
+                tent = e
+                best_len = len(es)
+        if tent is None or tent == cls:
+            continue
+        verb = str(c.get("name") or "").strip().lower()
+        cand = "%s_%s" % (verb, own_snake)
+        if cand in allowed:
+            c["target"] = cand
+
+
 def _design_cli(prompt_text, context, service_methods, verbose=False,
-                allow_new_targets=False):
+                allow_new_targets=False, entities_by_class=None,
+                repair_methods=None):
     """Design the CLI command tree.
 
     ``allow_new_targets=False`` (default): every command target must be one of
@@ -216,6 +312,25 @@ def _design_cli(prompt_text, context, service_methods, verbose=False,
             tgt = c.get("target")
             if isinstance(tgt, str) and "." in tgt:
                 c["target"] = tgt.split(".")[-1].strip()
+        # Deterministic cross-entity target repair: a command whose target
+        # belongs to a DIFFERENT entity than its owner (expense/category/add
+        # -> add_expense) would burn a retry; point it at the owner's
+        # <verb>_<entity> method when one was designed. The repair checks the
+        # FULL designed method list (repair_methods), not the scoped subset
+        # passed to the LLM — a scoped call for one entity may still emit a
+        # command for another (expense/category/add in the Expense group), and
+        # add_category is only in the full list.
+        _repair_cross_entity_targets(
+            data, repair_methods if repair_methods is not None else service_methods,
+            entities_by_class,
+        )
+        # Fill required-option gaps at design time so the CLI surface is
+        # complete BEFORE the reconcile, which would otherwise hard-retrofit
+        # the service signature (budget-update --id for update_budget(id,...)).
+        # The CLI design is a separate LLM call from the service design, so it
+        # can omit an option for a required param; fill it deterministically
+        # here. This saves the retrofit AND the LLM-corrective retry.
+        _fill_missing_cli_options(data, service_methods)
         errs = _v_cli(data)
         # Constrain targets to existing service methods UNLESS new targets are
         # allowed, in which case _reconcile_cli_design synthesizes them. The
@@ -235,7 +350,9 @@ def _design_cli(prompt_text, context, service_methods, verbose=False,
         # deterministic renderer silently ships dead flags / calls with
         # missing arguments (observed as `--author-id` + svc.borrow_book()
         # on the ambiguous library spec).
-        errs.extend(_cli_wiring_errors(data, service_methods))
+        errs.extend(_cli_wiring_errors(
+            data, service_methods, entities_by_class, lenient_fk=True
+        ))
         if not errs:
             return data
         if verbose:
@@ -269,7 +386,8 @@ def _cli_target_sigs(service_methods):
     return sigs
 
 
-def _cli_wiring_errors(data, service_methods, entities_by_class=None):
+def _cli_wiring_errors(data, service_methods, entities_by_class=None,
+                       lenient_fk=False):
     """Cross-design consistency between the CLI design and the designed
     service signatures (models/services designs are authoritative):
 
@@ -332,8 +450,7 @@ def _cli_wiring_errors(data, service_methods, entities_by_class=None):
                 oname = o.get("name")
                 if not isinstance(oname, str) or not oname.startswith("--"):
                     continue
-                key = o.get("field") or _optvar(o)
-                match = _match_param(key, direct)
+                match = _resolve_option_param(o, direct)
                 if match is not None:
                     covered.add(match)
             missing = sorted(
@@ -353,9 +470,23 @@ def _cli_wiring_errors(data, service_methods, entities_by_class=None):
             oname = o.get("name")
             if not isinstance(oname, str) or not oname.startswith("--"):
                 continue
-            key = o.get("field") or _optvar(o)
-            match = _match_param(key, params)
+            match = _resolve_option_param(o, params)
             if match is None:
+                # An FK option (--<entity>_id) referencing a designed entity is
+                # NOT an arity error when lenient: _propagate_cli_commands adds
+                # the FK param to the target on reconcile (book/add
+                # --author-id -> add_book(..., author_id)). The design-time
+                # gate would otherwise burn a retry on a gap the reconcile
+                # resolves deterministically. Reconcile stays strict
+                # (lenient_fk=False) so propagation still triggers there.
+                if lenient_fk and entities_by_class:
+                    okey = o.get("field") or _optvar(o)
+                    if (
+                        isinstance(okey, str) and okey.endswith("_id")
+                        and okey != "id"
+                        and _camel(okey[: -len("_id")]) in entities_by_class
+                    ):
+                        continue
                 errs.append(
                     "%s: option %r maps to no parameter of %s(%s)"
                     % (label, oname, target, ", ".join(params))
@@ -399,8 +530,7 @@ def _sanitize_cli_design(data, service_methods):
             continue
         kept, covered, dropped = [], set(), []
         for o in opts:
-            key = o.get("field") or _optvar(o)
-            match = _match_param(key, params)
+            match = _resolve_option_param(o, params)
             if match is None:
                 dropped.append(o.get("name"))
             else:
@@ -535,14 +665,36 @@ def _design_module(path, kind, prompt_text, context, verbose=False,
                 stripped = _strip_invalid_list_filters(data)
                 label = "invalid list_filter(s)"
             else:
+                # Snapshot (name, has_impl) so the drop log can NAME the
+                # methods whose impl recipe was removed (opacity fix: the
+                # old log said "dropped N" with no method names).
+                _before_map = {
+                    m.get("name"): (m.get("impl") is not None)
+                    for m in (data.get("methods") or [])
+                    if isinstance(m, dict) and m.get("name")
+                }
                 stripped = _strip_invalid_impls(data)
                 stripped += _strip_reserved_methods(data)
                 label = "invalid impl(s)/method(s)"
             if stripped:
                 errs = validator(data)
                 if not errs:
-                    print("    [design] %s: dropped %d %s, accepted"
-                          % (path, stripped, label))
+                    detail = ""
+                    if kind != "models":
+                        _after_map = {
+                            m.get("name"): (m.get("impl") is not None)
+                            for m in (data.get("methods") or [])
+                            if isinstance(m, dict) and m.get("name")
+                        }
+                        _affected = sorted(
+                            n for n, had in _before_map.items()
+                            if n not in _after_map
+                            or (had and not _after_map[n])
+                        )
+                        if _affected:
+                            detail = " (%s)" % ", ".join(_affected)
+                    print("    [design] %s: dropped %d %s%s, accepted"
+                          % (path, stripped, label, detail))
                     return data
         if not errs:
             return data
@@ -559,7 +711,7 @@ def _design_module(path, kind, prompt_text, context, verbose=False,
     return None
 
 
-def _describe_design(kind, data):
+def _describe_design(kind, data, compact=False):
     if kind == "exceptions":
         return ", ".join(data.get("exceptions", [])) or "(none)"
     if kind == "models":
@@ -577,6 +729,19 @@ def _describe_design(kind, data):
             )
             parts.append("%s(%s)" % (ent.get("name", "?"), fields))
         return "; ".join(parts)
+    if compact:
+        # Method-name-only summary. The design model needs to know WHAT exists
+        # to keep a new file consistent, not the full signature of every prior
+        # repo/service method (the schema already constrains the current file;
+        # bodies are filled later). This keeps the growing "PROJECT LAYOUT SO
+        # FAR" context bounded so a design conversation stays under the 4B
+        # model's attention window (expense's service/CLI design hit ~5256
+        # tokens with full signatures embedded on every call).
+        return ", ".join(
+            m.get("name")
+            for m in data.get("methods", [])
+            if isinstance(m, dict) and m.get("name")
+        ) or "(none)"
     return "; ".join(
         "%s(%s) -> %s"
         % (
@@ -590,9 +755,17 @@ def _describe_design(kind, data):
     ) or "(none)"
 
 
-def _fmt_design_context(designs):
-    """Compact human-readable summary of the designs emitted so far."""
+def _fmt_design_context(designs, compact=False):
+    """Compact human-readable summary of the designs emitted so far.
+
+    ``compact=True`` lists repo/service methods by NAME only (see
+    ``_describe_design``) so the design-phase context stays bounded; models and
+    exceptions are always shown in full (field/exception names are essential
+    for cross-file consistency)."""
     lines = []
     for path, kind, data in designs:
-        lines.append("  %s [%s]: %s" % (path, kind, _describe_design(kind, data)))
+        lines.append(
+            "  %s [%s]: %s"
+            % (path, kind, _describe_design(kind, data, compact=compact))
+        )
     return "\n".join(lines) if lines else "(none)"

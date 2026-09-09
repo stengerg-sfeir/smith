@@ -23,6 +23,7 @@ import re
 from agentlib.config import LLM_MAX_TOKENS_LONG, LLM_RETRY_TEMPERATURE
 from agentlib.llm.client import _json_complete
 from agentlib.naming import _camel, _snake, _plural
+from agentlib.pipeline.design import _command_entity
 
 
 # --- verb classification ----------------------------------------------------
@@ -407,13 +408,10 @@ def derive_cli_from_intents(classified, entities_by_class, verbose=False,
         })
     # Seeding floor: parent-add for FK options (same as derive_cli_surface).
     for c in list(commands):
-        cgrp = c.get("group") or []
-        if not cgrp:
-            continue
-        owner = next(
-            (e for cls, e in entities_by_class.items() if _snake(cls) == cgrp[0]),
-            None,
-        )
+        # The command may be nested (invoice_line add -> group=["invoice_line"]),
+        # so resolve the owner by scanning ALL group/name tokens, never group[0].
+        owner_cls = _command_entity(c, entities_by_class)
+        owner = entities_by_class.get(owner_cls) if owner_cls else None
         if owner is None:
             continue
         for o in c.get("options") or []:
@@ -519,13 +517,15 @@ def _parse_explicit_command(s):
 
 def _enrich_explicit_options(command, entities_by_class):
     """Fill option ``field``/``type`` from the command's owning entity."""
-    group = command.get("group") or []
-    if not group:
-        return
-    owner = next(
-        (ent for cls, ent in entities_by_class.items() if _snake(cls) == group[0]),
-        None,
-    )
+    # The command may be nested under a parent group (library book add ->
+    # group=["library","book"]), so the owner is NOT group[0] — it is the
+    # entity named ANYWHERE in the command (last matching group/name token).
+    # Resolving with group[0] ("library", not an entity) returned early and
+    # left every option un-enriched (*_id / --author / --available-only all
+    # fell back to their option var names). Scan all tokens via
+    # _command_entity instead.
+    owner_cls = _command_entity(command, entities_by_class)
+    owner = entities_by_class.get(owner_cls) if owner_cls else None
     if owner is None:
         return
     fields = {}
@@ -700,13 +700,11 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
     # "FOREIGN KEY constraint failed" (prompt 27's reservation-add needs
     # customer-add/room-add). Synthesize missing parent create commands.
     for c in list(commands):
-        cgrp = c.get("group") or []
-        if not cgrp:
-            continue
-        owner = next(
-            (e for cls, e in entities_by_class.items() if _snake(cls) == cgrp[0]),
-            None,
-        )
+        # The command may be nested under a parent group (library book add ->
+        # group=["library","book"]), so resolve the owner by scanning ALL
+        # group/name tokens, never group[0] ("library", not an entity).
+        owner_cls = _command_entity(c, entities_by_class)
+        owner = entities_by_class.get(owner_cls) if owner_cls else None
         if owner is None:
             continue
         for o in c.get("options") or []:
@@ -1035,3 +1033,53 @@ def cli_surface_constraint(surface):
         cmd = "/".join(group + [name])
         lines.append("  %s -> %s(%s)" % (cmd, target, ", ".join(opts)))
     return "\n".join(lines)
+
+
+# --- repository design-time constraint --------------------------------------
+
+def repo_surface_constraint(cli_surface, ent_snake):
+    """Human-readable design constraint for a repository design call.
+
+    The repository design is otherwise the ONE unconstrained phase: it only
+    sees the spec + model field graph and freely enumerates every filter
+    combination (library_system's book_repository ~55 methods). Passing the
+    CLI surface here bounds the design to the capabilities the CLI-driven
+    service layer actually needs — the design-time analogue of
+    ``cli_surface_constraint`` for services. A command targets ``ent_snake``
+    when its group names it OR its target mentions it. Returns '' when no
+    command applies, so a repo with no CLI surface is left unconstrained
+    (its CRUD + spec-named methods still render deterministically).
+    """
+    if not cli_surface or not ent_snake:
+        return ""
+    cmds = []
+    for c in cli_surface.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        grp = [str(g) for g in (c.get("group") or [])]
+        tgt = str(c.get("target") or "")
+        if ent_snake not in grp and ent_snake not in tgt:
+            continue
+        name = str(c.get("name") or "")
+        tgt_label = tgt or name
+        opts = []
+        for o in c.get("options") or []:
+            if isinstance(o, dict) and o.get("name"):
+                opts.append(str(o.get("name")))
+        cmds.append("%s %s -> %s(%s)" % (
+            "/".join(grp), name, tgt_label, ", ".join(opts)))
+    if not cmds:
+        return ""
+    return (
+        "THIS APPLICATION EXPOSES A COMMAND-LINE INTERFACE (click). The service "
+        "layer will serve these commands; design ONLY the repository custom "
+        "methods they need.\n"
+        "REQUIRED CAPABILITIES FOR %s:\n"
+        "  %s\n"
+        "Do NOT enumerate every combination of filter fields — a filtered "
+        "listing is a single list() driven by the entity's declared "
+        "list_filters, never one method per field combination, and never a "
+        "chain of multiple 'and'/'with' relationships in one method name. The "
+        "bound is what the service needs, not every possible query."
+        % (ent_snake, "\n  ".join(cmds))
+    )

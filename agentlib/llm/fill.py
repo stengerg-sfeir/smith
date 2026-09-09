@@ -18,7 +18,7 @@ def _compiles(text):
 
 
 def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False,
-              temperature=0.0):
+              temperature=0.0, extra_system=None):
     """One LLM call: fill skeleton bodies, keep signatures/imports exact.
 
     Returns the full file text or None. Two attempts with corrective retry
@@ -47,15 +47,15 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False,
             + "\n\n"
             + user
         )
+    system_content = (
+        "You are a meticulous senior Python engineer. You produce "
+        "complete, runnable, dependency-correct code and you NEVER "
+        "change signatures, class names, or imports you are told to keep."
+    )
+    if extra_system:
+        system_content += "\n\n" + extra_system
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a meticulous senior Python engineer. You produce "
-                "complete, runnable, dependency-correct code and you NEVER "
-                "change signatures, class names, or imports you are told to keep."
-            ),
-        },
+        {"role": "system", "content": system_content},
         {"role": "user", "content": user},
     ]
     # Sanity bound on a legit fill output: repo fills re-emit the whole file

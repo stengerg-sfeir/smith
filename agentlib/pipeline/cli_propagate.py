@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+from agentlib.config import LLM_RETRY_TEMPERATURE, LLM_MAX_TOKENS_LONG
+from agentlib.llm.client import _json_complete
 from agentlib.pipeline.design import (
     _command_entity,
     _entity_field_names,
@@ -20,7 +22,7 @@ from agentlib.pipeline.design import (
     _sanitize_cli_design,
 )
 from agentlib.naming import _snake, _camel, _plural
-from agentlib.generation.cli_render import _optvar, _match_param
+from agentlib.generation.cli_render import _optvar, _match_param, _resolve_option_param
 
 
 def _propagate_cli_commands(data, prompt_text, entities_by_class,
@@ -56,13 +58,22 @@ svc_design, designs):
     # the command. Only flatten when the group is actually nested (a single
     # token group is already flat) and only when an entity resolves.
     _VERB_SYN = {
-        "add": "add", "create": "add", "insert": "add",
+        "add": "add", "create": "add", "insert": "add", "register": "add",
+        "new": "add", "ajouter": "add", "creer": "add", "créer": "add",
         "list": "list", "view": "list", "show": "list", "display": "list",
-        "fetch": "list", "read": "list", "retrieve": "list",
+        "fetch": "list", "read": "list", "retrieve": "list", "lister": "list",
+        "voir": "list", "afficher": "list",
+        "get": "get", "obtenir": "get",
         "update": "update", "edit": "update", "modify": "update",
-        "delete": "delete", "remove": "delete",
-        "report": "report", "export": "report", "summary": "report",
+        "change": "update", "set": "update", "modifier": "update",
+        "delete": "delete", "remove": "delete", "supprimer": "delete",
+        "search": "search", "query": "search", "find": "search",
+        "chercher": "search", "rechercher": "search",
+        "report": "report", "export": "export", "summary": "report",
         "aggregate": "report", "total": "report", "calculate": "report",
+        "rapport": "report", "synthese": "report", "synthèse": "report",
+        "exporter": "export", "importer": "import", "import": "import",
+        "calculer": "calculate",
     }
     for c in data.get("commands") or []:
         if not isinstance(c, dict):
@@ -78,18 +89,37 @@ svc_design, designs):
         if norm is not None:
             c["name"] = norm
     # Dedupe after flattening: "library book add" collapses to ["book","add"]
-    # and can collide with the deterministic "book add". Keep the FIRST
-    # occurrence so the explicit spelling's options win.
-    _seen_cmds = set()
+    # and can collide with the deterministic "book add", or the LLM's
+    # "book list" can collide with the deterministic "library book list".
+    # Keeping only the FIRST would discard the other command's options, so a
+    # shared target (list_book) is left with required params NO surviving
+    # command covers -> the sanitizer drops the whole command. UNION the
+    # options by name instead (first non-empty target wins) so every option
+    # survives and the target is fully wired.
+    _by_key = {}
     _unique_cmds = []
     for c in data.get("commands") or []:
         if not isinstance(c, dict):
             continue
         _key = (tuple(c.get("group") or []), str(c.get("name") or ""))
-        if _key in _seen_cmds:
+        prev = _by_key.get(_key)
+        if prev is None:
+            _by_key[_key] = c
+            _unique_cmds.append(c)
             continue
-        _seen_cmds.add(_key)
-        _unique_cmds.append(c)
+        have = {
+            o.get("name") for o in (prev.get("options") or [])
+            if isinstance(o, dict) and o.get("name")
+        }
+        for o in c.get("options") or []:
+            if not isinstance(o, dict) or not o.get("name"):
+                continue
+            if o.get("name") in have:
+                continue
+            prev.setdefault("options", []).append(o)
+            have.add(o.get("name"))
+        if not prev.get("target") and c.get("target"):
+            prev["target"] = c["target"]
     data["commands"] = _unique_cmds
 
     def required_missing(cls, covered):
@@ -320,7 +350,16 @@ svc_design, designs):
             # synthesize get_<verb>_<entity>s() delegating to it.
             hit = None
             for attr, meth, ps in repo_customs:
-                mm = re.match(r"find_%s_(.+)$" % re.escape(cname), meth)
+                # The prompt names the business verb directly ("library
+                # overdue" -> loan_repository.get_overdue_loans). Match any
+                # read verb prefix (find/get/list/search/fetch), not only
+                # find_, so a designed get_<verb>_<entity>s repo custom wires
+                # instead of the command being dropped as an unknown target.
+                mm = re.match(
+                    r"(?:find|get|list|search|fetch)_%s_(.+)$"
+                    % re.escape(cname),
+                    meth,
+                )
                 if not mm:
                     continue
                 suffix = mm.group(1)
@@ -580,8 +619,16 @@ svc_design, designs):
                     dead.append(o.get("name"))
                     continue
                 if fm not in {p for p, _ in mapped}:
+                    # A list FILTER is inherently optional. Extending a shared
+                    # list_<entity> with a REQUIRED filter param that the
+                    # surviving command does not expose (book/list carries
+                    # --author/--title but the shared list_book was extended
+                    # with author_id from another variant) makes the sanitizer
+                    # drop the whole command. Mark filters Optional so an
+                    # over-extended shared method stays wired.
                     mapped.append(
-                        (fm, "int" if o.get("type") == "int" else "str")
+                        (fm, "Optional[int]" if o.get("type") == "int"
+                             else "Optional[str]")
                     )
             if not ok:
                 continue
@@ -747,15 +794,32 @@ svc_design, designs):
         if cname in ("history", "loans"):
             idopts = [
                 o for o in opts
-                if str(o.get("field") or _optvar(o) or "").endswith("_id")
-                and o.get("type") == "int"
+                if str(_optvar(o) or "").endswith("_id")
+                or str(o.get("field") or "").endswith("_id")
             ]
             if len(opts) != 1 or len(idopts) != 1:
                 continue
-            key = idopts[0].get("field") or _optvar(idopts[0])
+            field = idopts[0].get("field")
+            optvar = _optvar(idopts[0])
+            # Prefer the option variable when it names the FK (member_id);
+            # the LLM's semantic mapping often binds --member-id to the
+            # owner PRIMARY KEY ("id"), which is not the repo custom's key.
+            key = optvar if str(optvar or "").endswith("_id") else (field or optvar)
+            # The history key is always an integer FK (--member-id). The
+            # explicit surface may carry it as a str option (no matching
+            # '<entity>_id' field to infer int from), so normalize it to int
+            # — otherwise the synthesized get_<entity>_history(<key>: int)
+            # and the rendered click INTEGER option disagree, the branch
+            # declines, and the command is dropped as an unknown target.
+            idopts[0]["type"] = "int"
             hit = next(
                 ((a, m) for a, m, ps in repo_customs if ps == [key]), None
             )
+            if hit is None and field and field != key:
+                key = field
+                hit = next(
+                    ((a, m) for a, m, ps in repo_customs if ps == [key]), None
+                )
             if hit is None:
                 continue
             attr, meth = hit
@@ -773,6 +837,108 @@ svc_design, designs):
                 "%s -> %s (delegates to %s.%s)"
                 % (label, sname, attr, meth)
             )
+            continue
+
+        if cname in ("export", "import"):
+            # File I/O command (expense export --from-date --to-date --output).
+            # The options map to the target method's PARAMS, not the owner
+            # entity's fields, so the report branch (entity-field mapping)
+            # bails and the command is dropped — leaving the designed
+            # export_<entity> method orphaned (expense export -> no I12).
+            # Wire to an EXISTING <verb>_<entity> method whose params the
+            # options cover (export_expenses(filename, from_date, to_date,
+            # output)); else synthesize one bound to the option names.
+            cands = [
+                m for m in sigs
+                if m == cname or m.startswith(cname + "_")
+            ]
+            tm = None
+            best = -1
+            for mname in cands:
+                mparams = [
+                    p.get("name")
+                    for p in (sigs[mname].get("params") or [])
+                    if isinstance(p, dict) and p.get("name")
+                ]
+                # Prefer the designed <verb>_<entity> method that OWNS this
+                # entity (export_expenses for expense), then partial option
+                # coverage as a tiebreaker. Do NOT require full coverage: the
+                # LLM's export options may diverge from the designed method's
+                # params (--start-date vs from_date, --file-path vs output),
+                # and wiring the existing method + adding options is better
+                # than synthesizing a duplicate (export_expenses_to_csv)
+                # whose body never fills.
+                tent = next(
+                    (_snake(e) for e in sorted(entities_by_class)
+                     if _snake(e) in mname),
+                    None,
+                )
+                score = 10 if tent == sn else 0
+                for o in opts:
+                    if not isinstance(o, dict) or o.get("type") == "flag":
+                        continue
+                    k = o.get("field") or _optvar(o)
+                    if _match_param(k, mparams) is not None:
+                        score += 1
+                if score > best:
+                    best = score
+                    tm = mname
+            if tm is not None:
+                # Cover required params the options miss (--filename) so the
+                # sanitizer does NOT drop the command for an uncovered param.
+                mparams = [
+                    p.get("name")
+                    for p in (sigs[tm].get("params") or [])
+                    if isinstance(p, dict) and p.get("name")
+                ]
+                treq = [
+                    p.get("name")
+                    for p in (sigs[tm].get("params") or [])
+                    if isinstance(p, dict) and p.get("name")
+                    and not str(p.get("type") or "").startswith("Optional")
+                ]
+                covered = set()
+                for o in opts:
+                    if isinstance(o, dict) and o.get("type") != "flag":
+                        mm = _resolve_option_param(o, mparams)
+                        if mm:
+                            covered.add(mm)
+                for pn in treq:
+                    if pn in covered:
+                        continue
+                    c.setdefault("options", []).append({
+                        "name": "--" + pn.replace("_", "-"),
+                        "required": True,
+                        "type": "str",
+                        "field": pn,
+                    })
+                    covered.add(pn)
+                c["target"] = tm
+                notes.append("%s -> %s (existing %s method)" % (label, tm, cname))
+                continue
+            # No existing <verb>_<entity> method: synthesize one whose params
+            # are the non-flag option names (export_expense(filename, ...)).
+            raw_tgt = str(c.get("target") or "")
+            meth_name = (
+                raw_tgt.split(".")[-1].strip()
+                if "." in raw_tgt else raw_tgt.strip()
+            )
+            if not meth_name or not re.fullmatch(r"[a-z][a-z0-9_]*", meth_name):
+                meth_name = "%s_%s" % (cname, sn)
+            mapped = []
+            seen_o = set()
+            for o in opts:
+                if not isinstance(o, dict) or o.get("type") == "flag":
+                    continue
+                k = o.get("field") or _optvar(o)
+                if not k or k in seen_o:
+                    continue
+                seen_o.add(k)
+                mapped.append((k, "int" if o.get("type") == "int" else "str"))
+            if mapped:
+                meth = synth(meth_name, mapped, "Dict")
+                c["target"] = meth
+                notes.append("%s -> %s (synthesized %s)" % (label, meth, cname))
             continue
 
         # Aggregate / report verb (report, total, summary, aggregate,
@@ -836,7 +1002,7 @@ svc_design, designs):
                     continue
                 if o.get("type") == "flag":
                     continue
-                key = o.get("field") or _optvar(o)
+                key = _option_key(o)
                 fm = _match_param(key, field_names)
                 if fm is None:
                     fm = key
@@ -870,6 +1036,22 @@ svc_design, designs):
                     notes.append("%s -> %s (trusted LLM target)" % (label, meth))
                 continue
     return notes
+
+
+def _option_key(o):
+    """The service-param key an option maps to: its declared field when that
+    field is a plausible identifier, else the option var name.
+
+    The LLM sometimes emits a JSON-literal field (``field: "null"``) for a
+    flag like ``--month``; left as-is it synthesizes ``get_monthly_report(null)``
+    and the fill then rejects with signature drift. Never trust a field that is
+    not a snake identifier or is a JSON literal — fall back to ``_optvar``
+    (``--month`` -> ``month``)."""
+    f = o.get("field")
+    if isinstance(f, str) and re.fullmatch(r"[a-z][a-z0-9_]*", f) \
+            and f not in ("null", "none", "true", "false"):
+        return f
+    return _optvar(o)
 
 
 def _canonical_option_field(o):
@@ -915,7 +1097,7 @@ def _dedupe_cli_options_by_param(data, service_methods):
             if not isinstance(o, dict) or not o.get("name"):
                 continue
             key = _canonical_option_field(o)
-            resolved = _match_param(key, params)
+            resolved = _resolve_option_param(o, params)
             rkey = resolved if resolved is not None else key
             cur = chosen.get(rkey)
             if cur is None:
@@ -930,12 +1112,208 @@ def _dedupe_cli_options_by_param(data, service_methods):
         c["options"] = order
 
 
+def _option_map_schema():
+    """JSON schema for the bounded CLI-option -> service-param mapping."""
+    return {
+        "type": "object",
+        "properties": {
+            "mappings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "option": {"type": "string"},
+                        "param": {"type": ["string", "null"]},
+                    },
+                    "required": ["option", "param"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["mappings"],
+        "additionalProperties": False,
+    }
+
+
+_OPTION_MAP_SYSTEM = (
+    "You map CLI options to service-method parameters or entity fields.\n"
+    "For EACH CLI option, choose the ONE parameter or field it supplies, "
+    "mapping by MEANING not by surface name (--start-date -> from_date, "
+    "--file-path -> output, --amount -> amount_cents, --to-date -> to_date, "
+    "--author -> author_id, --copies -> available_copies). "
+    "Use null when the option does not map to anything. Never invent a "
+    "parameter or field; only use the names given in the method signature or "
+    "entity field list."
+)
+
+
+def _llm_resolve_cli_option_mappings(data, service_methods,
+                                     entities_by_class=None, verbose=False):
+    """Bounded LLM semantic mapping of CLI options -> service params/fields.
+
+    ``_match_param`` maps by NAME only, so a service design that names a
+    param ``from_date`` while the CLI design names the option ``--start-date``
+    (two independent LLM calls) leaves the option unmapped and the command
+    dropped. Resolve ONLY the options that don't map deterministically: one
+    schema-constrained, temperature-0 call maps each to the semantically
+    correct service param (or null). Sets ``o['field']`` so the downstream
+    deterministic reconcile/sanitize (still the authority) can wire the
+    command. Never changes a target or removes/creates an option.
+
+    When ``entities_by_class`` is given, an option may also map to a FIELD of
+    the command's OWNING entity (--author -> author_id, --copies ->
+    available_copies) even when the current target signature lacks that param
+    — the CREATE/LIST branches of ``_propagate_cli_commands`` then wire the
+    field into the synthesized method signature. This is what makes the
+    semantic mapping work for an EXPLICIT-CLI command whose option names a
+    domain concept rather than a raw column, regardless of the service
+    signature's current state. Flags (--available-only) are skipped here:
+    they resolve deterministically to a constant predicate by
+    ``_resolve_flag_field`` in propagation.
+    """
+    sigs = {}
+    for m in service_methods or []:
+        if isinstance(m, dict) and m.get("name"):
+            sigs[m["name"]] = [
+                p.get("name")
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+    unmapped = []  # list of (command_label, target, params, owner_fields, option_dict)
+    seen_opt = set()
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        target = c.get("target")
+        params = sigs.get(target) or []
+        owner_fields = []
+        if entities_by_class:
+            owner = _command_entity(c, entities_by_class)
+            if owner:
+                owner_fields = sorted(_entity_field_names(entities_by_class[owner]))
+        if not params and not owner_fields:
+            continue
+        label = "/".join(
+            [str(g) for g in (c.get("group") or [])] + [str(c.get("name"))]
+        )
+        for o in c.get("options") or []:
+            if not isinstance(o, dict) or not o.get("name"):
+                continue
+            if o.get("type") == "flag":
+                continue
+            key = o.get("field") or _optvar(o)
+            if params and _match_param(key, params) is not None:
+                continue
+            if owner_fields and _match_param(key, owner_fields) is not None:
+                continue
+            if o.get("name") in seen_opt:
+                continue
+            seen_opt.add(o.get("name"))
+            unmapped.append({
+                "label": label,
+                "target": target,
+                "params": params,
+                "owner_fields": owner_fields,
+                "option": o,
+            })
+    if not unmapped:
+        return data
+    context_lines = []
+    for u in unmapped:
+        candidates = list(dict.fromkeys(u["params"] + u["owner_fields"]))
+        target_label = u["target"] or "(not yet synthesized)"
+        context_lines.append(
+            "COMMAND %s -> %s(%s)\n  OPTION %s" % (
+                u["label"], target_label, ", ".join(candidates),
+                u["option"]["name"],
+            )
+        )
+    user = ("Map each CLI option below to a service parameter or entity field.\n\n"
+            + "\n\n".join(context_lines) + "\n\nEmit the JSON now.")
+    messages = [
+        {"role": "system", "content": _OPTION_MAP_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    data_out = None
+    for attempt in range(2):
+        data_out = _json_complete(
+            messages, schema=_option_map_schema(), verbose=verbose,
+            max_tokens=LLM_MAX_TOKENS_LONG,
+            temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
+        )
+        if isinstance(data_out, dict) and isinstance(data_out.get("mappings"), list):
+            break
+        if verbose:
+            print("    [cli-option-map] retrying…")
+    if not isinstance(data_out, dict):
+        return data
+    mapping = {}
+    for m in data_out.get("mappings") or []:
+        if isinstance(m, dict) and m.get("option"):
+            mapping[str(m.get("option"))] = m.get("param")
+    for u in unmapped:
+        p = mapping.get(u["option"]["name"])
+        if isinstance(p, str) and p:
+            u["option"]["field"] = p
+    return data
+
+
+# Bare CRUD-verb service methods (no entity suffix) are LLM flat-tree
+# hallucinations from the scoped split — the CLI wires commands to the proper
+# <verb>_<entity> methods, leaving these as unfillable stubs. Drop any that no
+# command targets.
+_BARE_VERB_METHODS = {
+    "add", "create", "list", "get", "update", "delete", "remove",
+    "search", "report", "export", "import", "calculate", "edit",
+    "view", "show", "set",
+}
+
+
+def _strip_bare_verb_orphans(svc_design, data):
+    """Remove designed service methods that are bare CRUD verbs (no entity
+    suffix) and are NOT a CLI command target.
+
+    The scoped service split emits bare ``add``/``list``/``update``/``delete``
+    for a child entity alongside the proper ``add_<entity>``/``list_<entity>``.
+    The CLI wires commands to the suffixed methods, so the bare ones are
+    orphans that render as unfillable stubs (expense ``still stubbed: list``).
+    Conservative: only drops an exact bare-verb name that no command targets."""
+    if not isinstance(svc_design, dict):
+        return
+    targets = {
+        c.get("target")
+        for c in (data.get("commands") or [])
+        if isinstance(c, dict) and c.get("target")
+    }
+    methods = svc_design.get("methods") or []
+    kept = []
+    for m in methods:
+        if isinstance(m, dict) and (m.get("name") or "") in _BARE_VERB_METHODS \
+                and m.get("name") not in targets:
+            continue
+        kept.append(m)
+    svc_design["methods"] = kept
+
+
 def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
-                          verbose=False):
+verbose=False):
     """Propagation-first reconciliation of one CLI design against the
     designed services/models: try bounded back-propagation on deepcopies,
     commit on clean validation, then sanitize whatever remains unwired.
-    Returns (data_or_None, service_methods)."""
+    Returns (data_or_None, service_methods).
+
+    Logging is POSITIVE-first so every command's lifecycle is visible:
+    the LLM's command count, which commands wired cleanly, what
+    back-propagation synthesized (`propagated:`), and what the sanitizer
+    kept/dropped. The old failure-only logging made a mostly-clean CLI
+    look like a wall of rejections (a cleanly-surviving command logged
+    nothing)."""
+    if verbose:
+        print(
+            "    [design] cli.py reconcile: %d command(s) from LLM design"
+            % (len((data or {}).get("commands") or [])),
+            file=sys.stderr,
+        )
     svc_design = next((d for p, k, d in designs if k == "services"), None)
     if svc_design is None:
         # Propagation synthesizes service methods; give them a home even
@@ -944,6 +1322,22 @@ def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
         svc_design = {"methods": []}
         designs.append(("expense_service.py", "services", svc_design))
     service_methods = (svc_design or {}).get("methods") or []
+
+    # Drop bare-CRUD-verb orphan methods before validation: they are LLM
+    # flat-tree hallucinations that no command targets, and rendering them as
+    # stubs wastes a fill round (expense ``still stubbed: list``).
+    _strip_bare_verb_orphans(svc_design, data)
+    service_methods = (svc_design or {}).get("methods") or []
+
+    # Bounded LLM semantic mapping: the CLI design and the service design are
+    # two independent LLM calls, so an option may be named differently from
+    # the param it supplies (--start-date vs from_date). Map ONLY options that
+    # the deterministic name-based _match_param can't connect; set o['field']
+    # so the reconcile/sanitize below (still the authority) can wire them.
+    if service_methods:
+        data = _llm_resolve_cli_option_mappings(
+            data, service_methods, entities_by_class, verbose
+        )
 
     def _validate(d, methods):
         errs = _v_cli(d)
@@ -967,6 +1361,21 @@ def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
         # mapper picks whichever matches the intent phrase; the deterministic
         # dedupe keeps ONE option per param so the mapper and renderer agree.
         _dedupe_cli_options_by_param(data, service_methods)
+        if verbose:
+            for c in data.get("commands") or []:
+                if not isinstance(c, dict):
+                    continue
+                print(
+                    "    [design] cli.py wired: %s -> %s"
+                    % (
+                        "/".join(
+                            [str(g) for g in (c.get("group") or [])]
+                            + [str(c.get("name") or "")]
+                        ),
+                        c.get("target"),
+                    ),
+                    file=sys.stderr,
+                )
         return data, service_methods
 
     wiring_tokens = (
@@ -1016,6 +1425,26 @@ def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
         for n in snotes:
             print("    [design] cli.py sanitized: %s" % n, file=sys.stderr)
         data = cleaned
+        if verbose and data.get("commands"):
+            print(
+                "    [design] cli.py survive: %d command(s) after sanitize"
+                % len(data.get("commands")),
+                file=sys.stderr,
+            )
+            for c in data.get("commands") or []:
+                if not isinstance(c, dict):
+                    continue
+                print(
+                    "    [design] cli.py kept: %s -> %s"
+                    % (
+                        "/".join(
+                            [str(g) for g in (c.get("group") or [])]
+                            + [str(c.get("name") or "")]
+                        ),
+                        c.get("target"),
+                    ),
+                    file=sys.stderr,
+                )
         if not data.get("commands"):
             return None, service_methods
     # Dedupe options by resolved service param (expense-add --method /

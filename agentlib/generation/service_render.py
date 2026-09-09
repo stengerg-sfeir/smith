@@ -155,7 +155,113 @@ _STATE_TARGETS = {
     "pause": "paused",
     "resume": "resumed",
     "return": "returned",
+    # Non-English synonyms: the state verb is extracted from the designed
+    # service method name (ship_order -> "ship"); a French/US-native method
+    # name (annuler_commande) must map to the same past-participle too.
+    "annuler": "cancelled",
+    "approuver": "approved",
+    "rejeter": "rejected",
+    "terminer": "completed",
+    "fermer": "closed",
+    "ouvrir": "opened",
+    "activer": "activated",
+    "desactiver": "deactivated",
+    "demarrer": "started",
+    "finir": "finished",
+    "payer": "paid",
+    "archiver": "archived",
+    "suspendre": "paused",
+    "reprendre": "resumed",
+    "retourner": "returned",
 }
+
+# Deterministic fill-prompt rule: date/datetime columns are read back from
+# SQLite as ISO-format STRINGS (str), not datetime objects. The LLM keeps
+# calling .isoformat()/.date()/.strftime()/.year on them (get_loan_report
+# rejected attempts), so a hard instruction is injected into every service
+# fill hint to pass the string through. This saves retry tokens.
+_DATE_VALUE_RULE = (
+    "DATE/DATETIME FIELDS  fields read back from the database are "
+    "ISO-format STRINGS (str), NOT datetime objects — never call "
+    ".isoformat(), .date(), .strftime(), .year, .month, or .day on them. "
+    "Pass the string through as-is."
+)
+
+# Deterministic fill-prompt rule: repo getters return MODEL INSTANCES, not
+# dicts. The 4B model keeps doing self.book_repo.get_by_id(...).get(
+# 'available_copies') (borrow_member rejection: "does not return a dict — do
+# not use .get() on it"). A hard instruction mirrors _DATE_VALUE_RULE.
+_REPO_ACCESSOR_RULE = (
+    "REPO ACCESSORS  every repo getter returns a MODEL INSTANCE — the entity "
+    "class, never a dict. Read fields with attribute access (row.field), "
+    "never .get() or ['key'] on the result. "
+    "Read the declared fields straight off the instance."
+)
+
+# Deterministic fill-prompt rule: repo methods are fixed at design time; the
+# 4B model keeps inventing a nicer-sounding name (budget_repo.
+# get_by_category_and_month) that does not exist, then indexing its result as
+# a dict (expense : "does not return a dict — do not index it"). A hard
+# instruction forbids invented names and points to the listed method that
+# already covers the lookup (self.budget_repo.list_budgets(category_id, month)
+# -> List[Dict], so index element [0] then read the dict keys).
+_REPO_METHOD_RULE = (
+    "REPO METHOD NAMES  call ONLY the methods explicitly listed in the "
+    "repository interface — never invent a method name (e.g. a "
+    "get_<x>_and_<y> style lookup that is not listed). Calling a method that "
+    "is not listed is a hard rejection. If you need to look a row up by a "
+    "pair of values, call the listed method that returns a COLLECTION, then "
+    "take element [0] (or iterate) and read its declared fields/keys."
+)
+
+# Deterministic fill-prompt rule: a repo call must be statically verifiable;
+# calling with ** (dict) unpacking hides the argument names/arity, so the
+# validator rejects it ("cannot verify arity" on expense's
+# self.expense_repo.list_expenses(**filters)). Pass named keyword arguments
+# explicitly, one at a time, never **spread.
+_REPO_SPREAD_RULE = (
+    "REPO CALL ARITY  never call a repo method with ** dict-unpacking — the "
+    "argument names and arity cannot be verified statically, so it is a hard "
+    "rejection. Pass each named keyword argument explicitly, one per "
+    "declared parameter of the listed method."
+)
+
+# Validates in the SYSTEM message (primacy slot) so a small model attends to
+# the rules instead of losing them at the bottom of a long user-side
+# instruction. Domain-agnostic prohibitions; the user-side interface listing
+# stays the authoritative repo-method inventory.
+_FILL_SYSTEM_RULES = "\n\n".join([
+    _DATE_VALUE_RULE,
+    _REPO_ACCESSOR_RULE,
+    _REPO_METHOD_RULE,
+    _REPO_SPREAD_RULE,
+])
+
+
+def _required_constructor_fields(entities_by_class):
+    """{cls: sorted non-nullable constructor field names}.
+
+    The fields a caller MUST supply when constructing an instance (excluding
+    ``id`` and auto-now date/datetime columns the deterministic renderer
+    stamps itself). Shown in the fill hint so the model never builds a
+    member/loan/... missing a required field (borrow_member: Loan() missing
+    book_id, due_date, loan_date, member_id, status).
+    """
+    out = {}
+    for cls, ent in entities_by_class.items():
+        req = []
+        for f in ent.get("fields") or []:
+            if not isinstance(f, dict) or not f.get("name"):
+                continue
+            name = f["name"]
+            if name == "id" or f.get("nullable"):
+                continue
+            if f.get("auto") == "now" and f.get("type") in ("date", "datetime"):
+                continue
+            req.append(name)
+        if req:
+            out[cls] = sorted(req)
+    return out
 
 
 def _zero_param_dict_repo_customs(designs, entities_by_class):
@@ -1765,6 +1871,16 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
     # get_category_spending -> int-returning repo aggregate).
     if type_ctx:
         dict_returns = set(type_ctx.get("dict_keys") or {})
+        # A repo method DESIGNED to return a dict is dict-returning even when
+        # its RENDERED body is a stub / returns no literal dict keys (e.g.
+        # get_monthly_spending_summary -> Dict[str, Any]). Without this, a
+        # Dict-annotated aggregate is mis-read as non-dict and a correct
+        # `.get('key')` service body is rejected, so the method falls back to
+        # an empty-ish stub instead of being accepted.
+        _raw_returns = (type_ctx or {}).get("repo_returns_raw") or {}
+        for (_attr, meth), ret in _raw_returns.items():
+            if "dict" in (ret or "").lower():
+                dict_returns.add((_attr, meth))
         ACCESSORS = ("get", "keys", "items", "values")
 
         def _repo_call_key(expr):
@@ -1926,7 +2042,8 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
 
 
 def _service_header_lines(svc_class, entities, entities_by_class,
-exception_names, models_module="models", repo_entities=None):
+exception_names, models_module="models", repo_entities=None,
+model_entities=None):
     """Imports + class shell + repo wiring shared by the deterministic
     service and the stub-only mini-skeleton sent to the LLM fill."""
     exception_names = exception_names or []
@@ -1937,6 +2054,10 @@ exception_names, models_module="models", repo_entities=None):
     # imports of nonexistent modules and a runtime NameError. Defaults to
     # the full entity set for backward compatibility.
     repo_entities = set(entities) if repo_entities is None else set(repo_entities)
+    # Only the model entities a per-method skeleton references are imported,
+    # so the header never scales with the total app size. Defaults to the
+    # full entity set for the deterministic service / batch fill.
+    model_entities = set(entities) if model_entities is None else set(model_entities)
     repo_attrs = [
         (_snake(ent) + "_repo", _camel(ent) + "Repository")
         for ent in entities if ent in repo_entities
@@ -1965,7 +2086,7 @@ exception_names, models_module="models", repo_entities=None):
     lines += [
         "",
         "from database import Database",
-        "from %s import %s" % (models_module, ", ".join(entities)),
+        "from %s import %s" % (models_module, ", ".join(sorted(model_entities))),
     ]
     for rcls in repo_class_names:
         lines.append("from %s import %s" % (_snake(rcls), rcls))
@@ -2023,7 +2144,106 @@ def _missing_repo_calls(filled, repo_interface):
     return [(a, m, sorted(args)) for (a, m), args in missing.items()]
 
 
-def _build_fill_hint(repo_interface, type_ctx):
+def _method_purpose(name, ent):
+    """A one-line deterministic purpose for a method, from its spelling.
+
+    Bounded and prompt-independent: it never reads the raw spec, only the
+    method name + anchor entity, so it costs a fixed ~30 tokens and gives the
+    model the verb-object semantics without threading the whole prompt.
+    """
+    if not name:
+        return "implement the method using the declared repository API."
+    ent_snake = _snake(ent) if ent else ""
+    ent_disp = _plural(ent_snake) if ent_snake else "records"
+    if name.startswith(("add_", "create_", "insert_")):
+        return "create and persist a new %s." % (ent_disp or "record")
+    if name.startswith("get_") and name.endswith("_by_id"):
+        return "fetch a single %s by its id." % (ent_snake or "record")
+    if name.startswith(("list_", "get_")) or "history" in name:
+        return "retrieve %s matching the given filters/arguments." % (ent_disp or "records")
+    if name.startswith("update_"):
+        return "update an existing %s with the given fields." % (ent_snake or "record")
+    if name.startswith("delete_") or name.startswith("remove_"):
+        return "delete an existing %s by its id." % (ent_snake or "record")
+    if name.startswith("search_") or name.startswith("find_"):
+        return "search/find %s by the given term." % (ent_disp or "records")
+    if name.startswith(("report", "total", "summary", "aggregate", "export", "calculate")):
+        return "return an aggregated report/summary over %s." % (ent_disp or "records")
+    if ent_snake and name.endswith("_" + ent_snake):
+        verb = name[: -len("_" + ent_snake)]
+        return "perform the '%s' operation on the given %s." % (verb, ent_snake)
+    return "implement the method using the declared repository API."
+
+
+def _method_requirement_context(m, entities_by_class, designs):
+    """Compact, prompt-independent business context for ONE service method.
+
+    Replaces the always-full ``prompt_text`` in the per-method fill with a
+    bounded block derived ONLY from the design data — the method signature,
+    the CLI command(s) that target it, and a one-line domain purpose — so the
+    fill conversation never scales with the prompt length or total app size.
+    """
+    name = m.get("name") or ""
+    param_str = ", ".join(
+        "%s: %s" % (p.get("name"), p.get("type") or "Any")
+        for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    )
+    returns = m.get("returns") or "None"
+    lines = ["METHOD TO IMPLEMENT — %s(%s) -> %s" % (name, param_str, returns)]
+
+    # Anchor entity (same resolution as _scoped_repo_interface).
+    ent = None
+    best = -1
+    for cls in entities_by_class:
+        snake = _snake(cls)
+        for tok in (snake, _plural(snake)):
+            if tok and tok in name and len(tok) > best:
+                best = len(tok)
+                ent = cls
+    # CLI command(s) targeting this method carry the user-facing behaviour.
+    cli_lines = []
+    for path, kind, data in designs or []:
+        if kind != "cli" or not isinstance(data, dict):
+            continue
+        for c in data.get("commands") or []:
+            if isinstance(c, dict) and c.get("target") == name:
+                grp = "/".join(str(g) for g in (c.get("group") or []))
+                cname = c.get("name") or ""
+                opts = [
+                    str(o.get("name"))
+                    for o in (c.get("options") or [])
+                    if isinstance(o, dict) and o.get("name")
+                ]
+                cli_lines.append(
+                    "CLI: %s%s (options: %s)"
+                    % (grp + " " if grp else "", cname, ", ".join(opts) or "(none)")
+                )
+    if cli_lines:
+        lines.append("COMMAND SURFACE:")
+        lines.extend("  " + x for x in cli_lines[:3])
+    lines.append("PURPOSE: %s" % _method_purpose(name, ent))
+    return "\n".join(lines)
+
+
+def _entities_for_stub(m, scoped_entities, entities):
+    """Entities a per-method skeleton must import: the scoped entity classes
+    plus any entity class/snake appearing in the method's signature, so the
+    typed return/param annotations resolve without importing the whole app."""
+    out = set(scoped_entities)
+    try:
+        sig = _method_stub_code(m, 1)
+    except Exception:
+        sig = ""
+    for cls in entities:
+        s, p = _snake(cls), _plural(_snake(cls))
+        if cls in sig or s in sig or p in sig:
+            out.add(cls)
+    return out
+
+
+def _build_fill_hint(repo_interface, type_ctx, scoped_attrs=None,
+                     entities_by_class=None):
     """Format the repository-API + model-fields + dict-keys hint for a fill.
 
     Used for the per-method scoped hint (Option B). A 4B model loses
@@ -2076,20 +2296,36 @@ def _build_fill_hint(repo_interface, type_ctx):
         )
     else:
         hint_parts.append("  (none)")
+    # Bound the hint to the method's FK closure (the scoped repos/entities),
+    # so it never scales with the total app size or prompt length.
+    scoped_classes = {
+        _camel(a[: -len("_repo")]) for a in (scoped_attrs or set())
+        if a.endswith("_repo")
+    }
+    eff_entity_fields = {
+        cls: flds for cls, flds in type_ctx["entity_fields"].items()
+        if not scoped_classes or cls in scoped_classes
+    }
+    if not eff_entity_fields:
+        eff_entity_fields = type_ctx["entity_fields"]
+    eff_dict_keys = {
+        k: keys for k, keys in type_ctx.get("dict_keys", {}).items()
+        if not scoped_attrs or k[0] in scoped_attrs
+    }
     hint = "\n".join(hint_parts)
     hint += (
         "\n\nMODEL FIELD NAMES — constructor keyword arguments and "
         "attribute access MUST use exactly these:\n"
         + "\n".join(
             "  %s(%s)"
-            % (cls, ", ".join(sorted(type_ctx["entity_fields"][cls])))
-            for cls in sorted(type_ctx["entity_fields"])
+            % (cls, ", ".join(sorted(flds)))
+            for cls, flds in sorted(eff_entity_fields.items())
         )
     )
     dict_key_lines = [
         "  self.%s.%s(...) -> dict with keys: %s"
         % (attr, meth, ", ".join(sorted(keys)))
-        for (attr, meth), keys in sorted(type_ctx.get("dict_keys", {}).items())
+        for (attr, meth), keys in sorted(eff_dict_keys.items())
     ]
     if dict_key_lines:
         hint += (
@@ -2101,6 +2337,18 @@ def _build_fill_hint(repo_interface, type_ctx):
         "INSTANCE, never a plain dict: build one with EntityClass(**data) "
         "and pass that object."
     )
+    if entities_by_class:
+        reqf = _required_constructor_fields(entities_by_class)
+        if reqf:
+            hint += (
+                "\n\nREQUIRED (non-nullable) FIELDS — every one of these "
+                "MUST be supplied when constructing an entity; omitting one "
+                "raises a validation error:\n"
+                + "\n".join(
+                    "  %s(%s)" % (cls, ", ".join(reqf[cls]))
+                    for cls in sorted(reqf)
+                )
+            )
     return hint
 
 
@@ -2258,6 +2506,15 @@ def _scoped_repo_interface(m, repo_interface, entities_by_class):
                             _add(_camel(fk["ref"]))
 
     if not related:
+        # No anchor resolved (a bare CRUD alias like add/update/delete whose
+        # name matches no entity and whose _id params are just `id`, or a
+        # method whose params name no entity): returning {} makes a correct
+        # body IMPOSSIBLE — every repo call is rejected, so expense's flat
+        # `add`/`update`/`delete` aliases stay stubbed forever and retry the
+        # same broken body. Expose the full interface so the body can reach
+        # whichever repo it needs; the per-method validation still rejects a
+        # wrong-repo call. This matches the docstring's "falls back to the
+        # full interface" contract and gives the 4B model a real option.
         return repo_interface
     return {a: iface for a, iface in repo_interface.items() if a in related}
 
@@ -2482,14 +2739,25 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     ]
     if dict_key_lines:
         fill_hint += (
-            "\\n\\nDICT RETURN KEYS  when a call below returns a dict, index "
-            "it ONLY with these keys:\\n" + "\\n".join(dict_key_lines)
+            "\n\nDICT RETURN KEYS  when a call below returns a dict, index "
+            "it ONLY with these keys:\n" + "\n".join(dict_key_lines)
         )
     fill_hint += (
-        "\\n\\nCREATE CONTRACT  self.<entity>_repo.create() takes an ENTITY "
+        "\n\nCREATE CONTRACT  self.<entity>_repo.create() takes an ENTITY "
         "INSTANCE, never a plain dict: build one with EntityClass(**data) "
         "and pass that object."
     )
+    _reqf = _required_constructor_fields(entities_by_class)
+    if _reqf:
+        fill_hint += (
+            "\n\nREQUIRED (non-nullable) FIELDS — every one of these MUST "
+            "be supplied when constructing an entity; omitting one raises a "
+            "validation error:\n"
+            + "\n".join(
+                "  %s(%s)" % (cls, ", ".join(_reqf[cls]))
+                for cls in sorted(_reqf)
+            )
+        )
 
     # Mini-skeleton: header + ONLY the stub methods. The model never sees the
     # deterministic bodies, so it cannot rewrite/degrade them; its output is
@@ -2664,13 +2932,19 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     # skip the batch entirely and fill one method at a time with a repo hint
     # scoped to that method's entity + FK repos, keeping each conversation
     # small enough to stay instruction-faithful.
-    LARGE_STUB_SET = 4
+    # A 4B model loses instruction fidelity past ~3.1k tokens (measured: the
+    # expense 2-stub service packed the FULL repo interface into the batch
+    # hint, producing a 3333-token prompt that triggered the get_monthly_report
+    # reject). Force per-method fills for ANY service with more than one stub
+    # so each conversation stays small and the rules remain in-window.
+    LARGE_STUB_SET = 1
     if len(stubs) <= LARGE_STUB_SET:
         instruction = fill_hint
         for attempt in range(4):
             filled = _llm_fill(
                 "service", instruction, mini, prompt_text, verbose=verbose,
                 temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
+                extra_system=_FILL_SYSTEM_RULES,
             )
             merged = _accept(filled)
             if merged is not None:
@@ -2740,23 +3014,30 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             for a in scoped_iface
             if a.endswith("_repo")
         }
+        one_hint = _build_fill_hint(
+            scoped_iface, type_ctx, scoped_attrs=set(scoped_iface),
+            entities_by_class=entities_by_class,
+        )
+        one_instr = one_hint
+        req_ctx = _method_requirement_context(m, entities_by_class, designs)
+        mk_entities = _entities_for_stub(m, scoped_entities, entities)
         one_mini = (
             "\n".join(
                 _service_header_lines(
                     svc_class, entities, entities_by_class, exception_names,
                     models_module=models_module, repo_entities=scoped_entities,
+                    model_entities=mk_entities,
                 )
                 + [_method_stub_code(m, 1)]
             ).rstrip()
             + "\n"
         )
-        one_hint = _build_fill_hint(scoped_iface, type_ctx)
-        one_instr = one_hint
         ok = False
         for attempt in range(2):
             cand = _llm_fill(
-                "service", one_instr, one_mini, prompt_text, verbose=verbose,
+                "service", one_instr, one_mini, req_ctx, verbose=verbose,
                 temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
+                extra_system=_FILL_SYSTEM_RULES,
             )
             cand = _strip_import_enum_validation(cand)
             # Validate against the SCOPED interface, recomputed after any
@@ -2788,6 +3069,11 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 if merged is not None:
                     salvaged = merged
                     ok = True
+                    if verbose:
+                        print(
+                            "    [fill] service.%s: filled (attempt %d)"
+                            % (name, attempt + 1)
+                        )
                 break
             if verbose:
                 print(

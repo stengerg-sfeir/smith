@@ -11,7 +11,12 @@ import re
 import sys
 from pathlib import Path
 
-from agentlib.design import _generate_manifest, _validate_manifest
+from agentlib.design import (
+    _generate_manifest,
+    _validate_manifest,
+    _strip_infeasible_repo_methods,
+    _strip_repo_method_chains,
+)
 from agentlib.pipeline.design import (
     _design_module,
     _describe_design,
@@ -30,6 +35,7 @@ from agentlib.pipeline.cli_surface import (
     derive_cli_surface,
     _merge_cli_surfaces,
     cli_surface_constraint,
+    repo_surface_constraint,
 )
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.generation.service_render import (
@@ -218,15 +224,18 @@ def _service_is_complex(cli_surface, entities_by_class):
     Projected method count is approximated by CLI commands (one service method
     per command, enforced by ``cli_surface_constraint``) plus the number of
     entities (each drives CRUD + business methods). A CRUD-heavy prompt like
-    expense (22 commands, 3 entities = 25) stays simple and uses the proven
-    monolithic design; a genuinely large cross-entity service such as
-    library_system (31 commands, 4 entities = 35) is complex and routes to the
-    scoped split design. Threshold 28 sits between them: only when the sum
-    exceeds a single design call's safe size does the split engage.
+    expense (22 commands, 3 entities = 25) used to fit the monolithic design,
+    but its single call still produced a ~2075-token prompt + ~2313-token
+    output (total ~4398 tokens, above the ~3.1k window), so the monolithic
+    design is safe only for SMALL services. A genuinely large cross-entity
+    service such as library_system (31 commands, 4 entities = 35) is complex
+    and routes to the scoped split design. Threshold 24 sits so expense (25)
+    also engages the split: only when the sum exceeds a single design call's
+    safe size does the split engage (it degrades to monolithic on failure).
     """
     n_cmds = len((cli_surface or {}).get("commands") or [])
     n_ents = len(entities_by_class)
-    return (n_cmds + n_ents) > 28
+    return (n_cmds + n_ents) > 24
 
 
 def _command_owner_entity(c, entities_by_class):
@@ -305,11 +314,13 @@ def _service_design_groups(cli_surface, entities_by_class, designs):
     return {cls: {"commands": cmds} for cls, cmds in groups.items()}
 
 
-def _scoped_fmt_design_context(ent_cls, designs, entities_by_class):
+def _scoped_fmt_design_context(ent_cls, designs, entities_by_class, compact=False):
     """``_fmt_design_context`` filtered to the entity's model + its repository
     and the FK-referenced entities' repositories, so a scoped service design
     sees only the context it needs. Keeps the design conversation small enough
-    for the 4B model to stay instruction-faithful (no cross-entity repo noise)."""
+    for the 4B model to stay instruction-faithful (no cross-entity repo noise).
+    ``compact`` is threaded to ``_fmt_design_context`` so the scoped repo
+    methods are listed by name only."""
     ent = entities_by_class.get(ent_cls) or {}
     fk_refs = {
         _camel(str(f.get("ref")))
@@ -325,7 +336,10 @@ def _scoped_fmt_design_context(ent_cls, designs, entities_by_class):
             scoped.append((p, k, d))
         elif k == "repositories" and Path(p).stem in keep_repo_stems:
             scoped.append((p, k, d))
-    return _fmt_design_context(scoped) if scoped else _fmt_design_context(designs)
+    return (
+        _fmt_design_context(scoped, compact=compact)
+        if scoped else _fmt_design_context(designs, compact=compact)
+    )
 
 
 def _scoped_cli_constraint(commands):
@@ -580,11 +594,47 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         )
         cli_surface = _merge_cli_surfaces(cli_surface, det_surface)
 
-    # 3. repositories (custom methods only; CRUD is generated)
+    # 3. repositories (custom methods only; CRUD is generated).
+    #
+    # Design-time restriction: the repository design is constrained to the
+    # CLI surface (project need) via repo_surface_constraint — the repo-
+    # level analogue of the service's cli_surface_constraint. This bounds the
+    # 4B model to the methods the CLI-driven service layer actually needs
+    # instead of letting it enumerate every filter combination on a rich FK
+    # graph (library_system's book_repository ~55 methods). The deterministic
+    # pruners below remain as a backstop for when the model over-generates
+    # anyway: schema-infeasible customs + 2+ 'and' permutation chains.
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
     for rp in repo_paths:
-        if _design_into(rp, "repositories", _fmt_design_context(designs)) is None:
+        stem = Path(rp).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        repo_constraint = (
+            repo_surface_constraint(cli_surface, ent_snake) if cli_surface else ""
+        )
+        if _design_into(
+            rp, "repositories", _fmt_design_context(designs, compact=True),
+            extra_context=repo_constraint,
+        ) is None:
             return None, None
+
+    # Backstop for when the model over-generates anyway. Run the deterministic
+    # chain-prune FIRST (it cheaply drops 2+ 'and' permutation chains), so the
+    # LLM infeasibility classifier below sees fewer methods -> a smaller prompt
+    # (kept under the ~3.1k-token conversation budget).
+    #   (#2) permutation CHAINS (a name chaining 2+ 'and' filters, e.g.
+    #        get_books_with_active_loans_and_overdue_loans_and_low_copies).
+    #        A single 'and' join (list_expenses_by_category_and_date_range) is
+    #        a real query and survives; only the chain is dropped.
+    _strip_repo_method_chains(designs, verbose=verbose)
+    #   (#1) LLM semantic infeasibility: replaces the brittle regex verb/field
+    #        token classification (_FEAS_* tables) that false-dropped methods
+    #        on CRUD-verb/'update'/'delete' name tokens and non-English verbs.
+    #        The LLM reads the designed schema + method names semantically
+    #        (temp=0, schema-constrained JSON) and is robust to language; the
+    #        SQL-schema validator during fill is the deterministic backstop.
+    _strip_infeasible_repo_methods(designs, entities_by_class, verbose=verbose)
 
     # 4. services (constrained to the CLI surface, so every method is
     # CLI-drivable — primitive params, one method per command; no whole-object
@@ -622,7 +672,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             failed = False
             for ent_cls, grp in groups.items():
                 scoped_ctx = _scoped_fmt_design_context(
-                    ent_cls, designs, entities_by_class
+                    ent_cls, designs, entities_by_class, compact=True
                 )
                 scoped_cons = _scoped_cli_constraint(grp["commands"])
                 gdata = _design_module(
@@ -642,7 +692,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 # correctness requirement: fall back to the monolithic design.
                 print("    [design] %s: scoped split failed — monolithic fallback" % sp,
                       file=sys.stderr)
-                if _design_into(sp, "services", _fmt_design_context(designs),
+                if _design_into(sp, "services", _fmt_design_context(designs, compact=True),
                                 extra_context=svc_constraint) is None:
                     return None, None
             else:
@@ -660,7 +710,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                     print("      - %s [services] %s"
                           % (sp, _describe_design("services", merged)))
         else:
-            if _design_into(sp, "services", _fmt_design_context(designs),
+            if _design_into(sp, "services", _fmt_design_context(designs, compact=True),
                             extra_context=svc_constraint) is None:
                 return None, None
 
@@ -682,6 +732,14 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         (i.get("cli_command") or "").strip() for i in intentions
     )
     for cp in cli_paths:
+        # POINT 2 (reverted): the deterministic surface is NOT a drop-in
+        # substitute for the LLM CLI design — explicit commands carry an empty
+        # target, and the reconcile/sanitize drops domain-verb commands
+        # (overdue, history) and CRUD list commands whose options the
+        # deterministic surface doesn't fully wire. A prompt that only vaguely
+        # mentions a CLI ("use click") also needs the LLM to invent the tree.
+        # Keep the open-ended _design_cli (then merge with the deterministic
+        # surface); the LLM's proper targets survive the sanitizer.
         if explicit_cli or cli_surface is None:
             if _service_is_complex(cli_surface, entities_by_class) and cli_surface is not None:
                 # Split the CLI design by command group so no single design
@@ -694,7 +752,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 cli_split_failed = False
                 for ent_cls, grp in groups.items():
                     scoped_ctx = _scoped_fmt_design_context(
-                        ent_cls, designs, entities_by_class
+                        ent_cls, designs, entities_by_class, compact=True
                     )
                     grp_methods = [
                         m for m in service_methods
@@ -703,6 +761,8 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                     gdata = _design_cli(
                         prompt_text, scoped_ctx, grp_methods,
                         verbose, allow_new_targets=True,
+                        entities_by_class=entities_by_class,
+                        repair_methods=service_methods,
                     )
                     if gdata is None:
                         cli_split_failed = True
@@ -714,15 +774,19 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                     print("    [design] %s: scoped CLI split failed — monolithic fallback" % cp,
                           file=sys.stderr)
                     data = _design_cli(
-                        prompt_text, _fmt_design_context(designs), service_methods,
+                        prompt_text, _fmt_design_context(designs, compact=True), service_methods,
                         verbose, allow_new_targets=True,
+                        entities_by_class=entities_by_class,
+                        repair_methods=service_methods,
                     )
                 else:
                     data = merged_cli
             else:
                 data = _design_cli(
-                    prompt_text, _fmt_design_context(designs), service_methods,
+                    prompt_text, _fmt_design_context(designs, compact=True), service_methods,
                     verbose, allow_new_targets=True,
+                    entities_by_class=entities_by_class,
+                    repair_methods=service_methods,
                 )
             # Merge with the deterministic intent-derived surface so domain/
             # state commands the LLM missed (overdue, bulk-update, get-by-id)

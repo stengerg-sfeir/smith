@@ -823,9 +823,137 @@ def _repo_method_feasibility_errors(m, ent_snake, entities_by_class):
     return errs
 
 
+# A designed repository method names a filter-combination CHAIN when it
+# joins 2+ 'and' filters (get_books_with_active_loans_and_overdue_loans_
+# and_low_copies_...). A single 'and' join (list_expenses_by_category_and_
+# date_range) is a genuine query; only the chain is a permutation the
+# project never needs.
+_REPO_AND_CHAIN_RE = re.compile(r"_and_")
+
+
+def _repo_and_chain_count(name):
+    """Number of 'and' filter joins in a repository method name."""
+    return len(_REPO_AND_CHAIN_RE.findall(name or ""))
+
+
+def _feas_llm_schema():
+    """Schema for the LLM repository-feasibility classifier."""
+    return {
+        "type": "object",
+        "properties": {
+            "checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "method": {"type": "string"},
+                        "feasible": {"type": "boolean"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["method", "feasible", "reason"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["checks"],
+        "additionalProperties": False,
+    }
+
+
+_FEAS_LLM_SYSTEM = (
+    "You are a Python repository feasibility checker. Decide whether each "
+    "proposed repository CUSTOM method can be implemented as a SQL query "
+    "against the designed data schema. A method is INFEASIBLE only when it "
+    "references a column, param, or name-token that does NOT exist in the "
+    "schema or its related entities. Method names are a free-form VERB + "
+    "entity/filter (add_book, find_by_author, update_loan_status, "
+    "get_loans_by_author_and_year) — NEVER treat the leading verb or any "
+    "operation word as a field. Recognize operation verbs in ANY language "
+    "(add, create, inserer, ajouter, update, modifier, supprimer, ...). Be "
+    "permissive: when unsure whether a method is implementable, mark "
+    "feasible=true — the downstream SQL validator catches genuinely bad "
+    "columns."
+)
+
+
+def _llm_classify_repo_feasibility(methods, ent_snake, entities_by_class,
+                                   verbose=False):
+    """LLM-semantically classify repo custom methods as implementable or not.
+
+    Replaces the brittle regex token classification (_FEAS_VERB_TOKENS,
+    _FEAS_AGGREGATE_TOKENS, ...) that mis-dropped methods whose name led with
+    a CRUD verb ('update_author' -> 'update' matched no field), a non-English
+    verb, or a vague token ('info'). The LLM reads the schema + method names
+    semantically (temp=0, schema-constrained JSON) so it is robust to language
+    and to verbs-as-field false positives. Returns {method: reason} for the
+    infeasible ones; {} when nothing is infeasible or the call fails (the
+    permissive default keeps a designed method rather than false-dropping it).
+    """
+    ent_cls = _camel(ent_snake)
+    ent = entities_by_class.get(ent_cls, {})
+    field_lines = ", ".join(
+        "%s:%s" % (f.get("name"), f.get("type"))
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    ) or "(none)"
+    related = []
+    for cls, e in entities_by_class.items():
+        if cls == ent_cls:
+            continue
+        e_fields = ", ".join(
+            "%s:%s" % (f.get("name"), f.get("type"))
+            for f in (e.get("fields") or [])
+            if isinstance(f, dict) and f.get("name")
+        )
+        related.append("- %s: %s" % (cls, e_fields or "(none)"))
+    method_lines = "\n".join(
+        "- %s(%s) -> %s" % (
+            m.get("name"),
+            ", ".join(
+                "%s:%s" % (p.get("name"), p.get("type"))
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ),
+            m.get("returns"),
+        )
+        for m in methods
+        if isinstance(m, dict) and m.get("name")
+    )
+    user = (
+        "SCHEMA ENTITY: %s\nFIELDS: %s\nRELATED ENTITIES:\n%s\n"
+        "METHODS TO CHECK:\n%s\n"
+        "For EACH method, output feasible=true/false and a short reason. "
+        "Emit the decision JSON now."
+        % (ent_cls, field_lines, "\n".join(related) or "(none)", method_lines)
+    )
+    messages = [
+        {"role": "system", "content": _FEAS_LLM_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    data = _json_complete(
+        messages, schema=_feas_llm_schema(), verbose=verbose, max_tokens=1024,
+    )
+    if not isinstance(data, dict):
+        return {}
+    infeasible = {}
+    for chk in data.get("checks") or []:
+        if not isinstance(chk, dict):
+            continue
+        if chk.get("feasible") is False and chk.get("method"):
+            infeasible[str(chk.get("method"))] = str(chk.get("reason") or "")
+    return infeasible
+
+
 def _strip_infeasible_repo_methods(designs, entities_by_class, verbose=False):
-    """(#1) Drop designed repository customs whose implied data dependencies
-    cannot exist in the DESIGNED schema. Mutates designs in place."""
+    """(#1) Drop designed repository customs the LLM semantics judge infeasible
+    against the DESIGNED schema (references a non-existent column/param/entity).
+
+    Uses an LLM semantic classifier (temp=0, schema-constrained JSON, small
+    prompt) rather than the brittle regex verb/field token tables, so it is
+    robust to CRUD-verb name tokens, non-English verbs, and vague-but-plausible
+    names. The downstream SQL-schema validator remains the deterministic
+    backstop. Mutates designs in place. Returns the number dropped.
+    """
     dropped = 0
     for idx, (path, kind, data) in enumerate(designs):
         if kind != "repositories" or not isinstance(data, dict):
@@ -835,6 +963,51 @@ def _strip_infeasible_repo_methods(designs, entities_by_class, verbose=False):
             stem[: -len("_repository")] if stem.endswith("_repository") else stem
         )
         methods = data.get("methods")
+        if not isinstance(methods, list) or not methods:
+            continue
+        infeasible = _llm_classify_repo_feasibility(
+            methods, ent_snake, entities_by_class, verbose=verbose
+        )
+        if not infeasible:
+            continue
+        kept = []
+        for m in methods:
+            if not isinstance(m, dict) or not m.get("name"):
+                kept.append(m)
+                continue
+            reason = infeasible.get(m["name"])
+            if reason is None:
+                kept.append(m)
+                continue
+            dropped += 1
+            if verbose:
+                print(
+                    "    [design] %s: dropped infeasible custom %s "
+                    "(llm: %s)" % (path, m.get("name"), reason)
+                )
+            continue
+        data["methods"] = kept
+        designs[idx] = (path, kind, data)
+    return dropped
+
+
+def _strip_repo_method_chains(designs, verbose=False):
+    """(#2) Drop designed repository customs whose name chains 2+ 'and'
+    filters — a permutation enumeration a project never needs.
+
+    Bounded to project NEED, not a method-count cap: a single 'and' join
+    (list_expenses_by_category_and_date_range) is a genuine filtered query
+    and survives; only the 2+ chain is dropped. Without this, the 4B model
+    enumerates every field combination on a rich FK graph (library_system's
+    book_repository ~55 methods, ~40 of them get_X_with_a_and_b_and_c...),
+    which bloats the fill output past the max_tokens cap. Mutates designs in
+    place. Returns the number of methods dropped.
+    """
+    dropped = 0
+    for idx, (path, kind, data) in enumerate(designs):
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        methods = data.get("methods")
         if not isinstance(methods, list):
             continue
         kept = []
@@ -842,15 +1015,12 @@ def _strip_infeasible_repo_methods(designs, entities_by_class, verbose=False):
             if not isinstance(m, dict) or not m.get("name"):
                 kept.append(m)
                 continue
-            errs = _repo_method_feasibility_errors(
-                m, ent_snake, entities_by_class
-            )
-            if errs:
+            if _repo_and_chain_count(m.get("name")) > 1:
                 dropped += 1
                 if verbose:
                     print(
-                        "    [design] %s: dropped infeasible custom %s "
-                        "(inter-file: %s)" % (path, m.get("name"), errs[0])
+                        "    [design] %s: dropped combinatorial chain %s"
+                        % (path, m.get("name"))
                     )
                 continue
             kept.append(m)
@@ -895,8 +1065,14 @@ _DESIGN_SYSTEMS = {
         'Output JSON with a "methods" array of the project-specific methods '
         "the spec needs (filters, totals, reports). Each method: "
         '{"name", "params": [{"name", "type"}], "returns"}. Use "" for no '
-        "params or returns. When a method is a pure filtered listing whose "
-        "params all map to this entity's declared list_filters, add "
+        "params or returns. A \"returns\" type must be a primitive "
+        "(int/float/str/bool/date/datetime), a container of them "
+        '("Optional[...]", "List[...]", "Dict[...]"), a designed model or '
+        "exception class, or \"Any\" — never invent an undefined class. A "
+        "domain status/state value (on_track/warning/exceeded, ...) should "
+        "be a str (or a bool for a yes/no result), never an invented class. "
+        "When a method is a pure filtered listing whose params all map to "
+        "this entity's declared list_filters, add "
         '{"impl": {"kind": "list_filtered"}} so its body is generated '
         "deterministically."
     ),
@@ -904,7 +1080,13 @@ _DESIGN_SYSTEMS = {
         "You are an expert Python architect. Design a service module that "
         "holds the BUSINESS LOGIC of the project. Output JSON with a "
         '"methods" array. Each method: {"name", "params": [{"name", "type"}], '
-        '"returns"}. Use "Optional[T]"/"List[T]"/"Dict" for shapes. Use the '
+        '"returns"}. Use "Optional[T]"/"List[T]"/"Dict" for shapes. A '
+        '"returns" type must be a primitive (int/float/str/bool/date/datetime), '
+        'a container of them ("Optional[...]", "List[...]", "Dict[...]"), a '
+        'designed model/exception class, or "Any" — never invent an undefined '
+        'class. A domain status/state value (on_track/warning/exceeded, ...) '
+        "should be a str (or a bool for a yes/no result), never an invented "
+        'class. Use the '
         "exact field names and exceptions from the spec. One method per use "
         'case the spec describes. Use "" for no params or returns. '
         "When a use case matches one of these mechanical shapes, add an "
