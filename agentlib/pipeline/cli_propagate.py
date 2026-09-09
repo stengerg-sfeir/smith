@@ -1035,6 +1035,39 @@ svc_design, designs):
                     c["target"] = meth
                     notes.append("%s -> %s (trusted LLM target)" % (label, meth))
                 continue
+
+    # Merge commands that wire to the same service method under the same verb
+    # (member/borrow, borrow/borrow, library/borrow -> borrow_member). The
+    # flatten+dedupe by (group, name) cannot collapse these because their
+    # group tokens differ (member vs borrow vs library); leaving them separate
+    # makes the sanitizer drop the one whose options don't cover the (now
+    # reshaped) signature — the "dropped (no designed service method serves
+    # its surface)" marker. Union options by name and keep a single command
+    # per (name, target) so every variant's options survive and no duplicate
+    # is dropped.
+    _merged_by_key = {}
+    _merged_order = []
+    for _c in data.get("commands") or []:
+        if not isinstance(_c, dict):
+            continue
+        _key = (str(_c.get("name") or ""), str(_c.get("target") or ""))
+        _prev = _merged_by_key.get(_key)
+        if _prev is None:
+            _merged_by_key[_key] = _c
+            _merged_order.append(_c)
+            continue
+        _have = {
+            o.get("name") for o in (_prev.get("options") or [])
+            if isinstance(o, dict) and o.get("name")
+        }
+        for o in _c.get("options") or []:
+            if not isinstance(o, dict) or not o.get("name"):
+                continue
+            if o.get("name") in _have:
+                continue
+            _prev.setdefault("options", []).append(o)
+            _have.add(o.get("name"))
+    data["commands"] = _merged_order
     return notes
 
 

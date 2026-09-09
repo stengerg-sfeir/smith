@@ -944,6 +944,52 @@ def _llm_classify_repo_feasibility(methods, ent_snake, entities_by_class,
     return infeasible
 
 
+def _is_join_display_overdesign(m, ent_snake, entities_by_class):
+    """True when a designed repo custom is a JOIN-for-display over-design.
+
+    A method like ``list_books_with_author_info`` returns List[Dict]/Dict
+    with no params and its name JOINs a related entity for a DISPLAY column
+    (``with_<entity>_info`` / ``<entity>_info`` / ``<entity>_name``). The
+    owner model has no such column (author_name is an Author field, not a
+    Book field), so the LLM fill either constructs Model(...) with an
+    unknown kwarg (TypeError) or is reverted by the schema validator. The
+    CLI/service surface serves the listing through the deterministic list()
+    filter instead, so this method is unnecessary over-design. Drop it
+    deterministically at design time so the renderer never reaches the
+    ``reverted`` path.
+
+    Conservative: only fires on ZERO-param, dict-returning methods whose name
+    contains ``_with_`` (a JOIN marker) AND references a related designed
+    entity. A param-bearing filtered listing (get_books_by_author) stays.
+    """
+    if not isinstance(m, dict) or not m.get("name"):
+        return False
+    name = m.get("name") or ""
+    ret = (m.get("returns") or "").lower()
+    if "dict" not in ret:
+        return False
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+    if params:
+        return False
+    if "_with_" not in name:
+        return False
+    ent_cls = _camel(ent_snake)
+    related_snakes = {
+        _snake(c) for c in entities_by_class if c != ent_cls
+    }
+    toks = set(re.split(r"_+", name))
+
+    def _names_related(t):
+        if t in related_snakes:
+            return True
+        return t.endswith("s") and t[:-1] in related_snakes
+
+    return any(_names_related(t) for t in toks)
+
+
 def _strip_infeasible_repo_methods(designs, entities_by_class, verbose=False):
     """(#1) Drop designed repository customs the LLM semantics judge infeasible
     against the DESIGNED schema (references a non-existent column/param/entity).
@@ -964,6 +1010,29 @@ def _strip_infeasible_repo_methods(designs, entities_by_class, verbose=False):
         )
         methods = data.get("methods")
         if not isinstance(methods, list) or not methods:
+            continue
+        # Deterministic pre-filter: drop JOIN-for-display over-design customs
+        # BEFORE the LLM classifier so it never judges them and the renderer
+        # never reaches the "reverted" path (list_books_with_author_info).
+        kept_pre = []
+        for m in methods:
+            if _is_join_display_overdesign(m, ent_snake, entities_by_class):
+                dropped += 1
+                if verbose:
+                    print(
+                        "    [design] %s: pruned join-display over-design "
+                        "custom %s" % (path, m.get("name"))
+                    )
+                continue
+            kept_pre.append(m)
+        methods = kept_pre
+        # Persist the pruned set: `methods` is a local rebind of
+        # data["methods"], so assigning `methods = kept_pre` alone never
+        # updated the design — the renderer/fill would then still see the
+        # pruned method and the reverted marker returned. Write the actual
+        # design slot.
+        data["methods"] = methods
+        if not methods:
             continue
         infeasible = _llm_classify_repo_feasibility(
             methods, ent_snake, entities_by_class, verbose=verbose

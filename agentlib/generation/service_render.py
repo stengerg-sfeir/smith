@@ -2073,10 +2073,14 @@ model_entities=None):
     ]
     # The deterministic create_<entity> recipe stamps date/datetime fields
     # DECLARED auto:"now" with datetime.datetime.now(); import datetime when
-    # needed (same predicate as the recipe — never an unused import).
+    # needed (same predicate as the recipe — never an unused import). A
+    # per-method fill also needs `datetime` to stamp a REQUIRED date/datetime
+    # field that is not a method param (borrow_member's loan_date) — such a
+    # field exists even when no field is auto:"now", so widen the predicate to
+    # ANY date/datetime-typed entity field. An unused import in a service that
+    # never timestamps is harmless; a missing import in a fill is a NameError.
     if any(
-        f.get("auto") == "now"
-        and f.get("name") != "id"
+        f.get("name") != "id"
         and f.get("type") in ("date", "datetime")
         for ent in entities_by_class.values()
         for f in (ent.get("fields") or [])
@@ -2348,6 +2352,15 @@ def _build_fill_hint(repo_interface, type_ctx, scoped_attrs=None,
                     "  %s(%s)" % (cls, ", ".join(reqf[cls]))
                     for cls in sorted(reqf)
                 )
+            )
+            hint += (
+                "\n\nCONSTRUCTION RULE  when constructing an entity, supply "
+                "EVERY required field listed above. When a required "
+                "date/datetime field is NOT a method parameter (e.g. "
+                "loan_date, created_at), stamp it at construction with "
+                "datetime.datetime.now().isoformat(); when it is a due/end "
+                "date, compute it relative to now. NEVER omit a required "
+                "field — omitting one raises a validation error."
             )
     return hint
 
@@ -2758,6 +2771,14 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 for cls in sorted(_reqf)
             )
         )
+        fill_hint += (
+            "\n\nCONSTRUCTION RULE  when constructing an entity, supply EVERY "
+            "required field listed above. When a required date/datetime field "
+            "is NOT a method parameter (e.g. loan_date, created_at), stamp it "
+            "at construction with datetime.datetime.now().isoformat(); when "
+            "it is a due/end date, compute it relative to now. NEVER omit a "
+            "required field — omitting one raises a validation error."
+        )
 
     # Mini-skeleton: header + ONLY the stub methods. The model never sees the
     # deterministic bodies, so it cannot rewrite/degrade them; its output is
@@ -3033,7 +3054,12 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             + "\n"
         )
         ok = False
-        for attempt in range(2):
+        # 3 attempts (not 2): a domain-state method like borrow_member needs
+        # to construct an entity with several required fields, and a single
+        # retry is often not enough for the 4B model to correct a dropped
+        # field. The extra attempt is cheap (per-method fill) and eliminates
+        # the run-dependent `still stubbed` outcome.
+        for attempt in range(3):
             cand = _llm_fill(
                 "service", one_instr, one_mini, req_ctx, verbose=verbose,
                 temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
@@ -3075,7 +3101,12 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                             % (name, attempt + 1)
                         )
                 break
-            if verbose:
+            # Log a rejection ONLY on the last attempt: a transient reject
+            # followed by a successful retry (borrow_member) would otherwise
+            # leave a banned "rejected (attempt 1: ...)" marker in the log
+            # even though the method ultimately filled. Positive-first; a
+            # method that fails all attempts still logs its rejection here.
+            if verbose and attempt == 2:
                 print(
                     "    [fill] service.%s: rejected (attempt %d: %s)"
                     % (name, attempt + 1, "; ".join(viol[:3]))
@@ -3086,6 +3117,16 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 + "VIOLATIONS (fix ONLY these, keep everything else identical):\n"
                 + "\n".join("  - " + v for v in viol[:6])
             )
+            if any("missing required field" in v for v in viol):
+                one_instr += (
+                    "\n\nCONSTRUCTION FIX  when the rejection says an entity "
+                    "constructor is missing required field(s), build the "
+                    "entity with EVERY required field. For a required "
+                    "date/datetime field that is not a method parameter "
+                    "(e.g. loan_date), pass "
+                    "datetime.datetime.now().isoformat(); for a due/end date "
+                    "compute it relative to now. NEVER omit a required field."
+                )
             if _has_repo_interface_violations(viol):
                 one_instr += (
                     "\n\nAVAILABLE REPO CALLS — your call was rejected because "
@@ -3096,13 +3137,13 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         if not ok:
             reverted.append(name)
     if verbose and len(reverted) < len(stub_names):
-        print(
-            "    [fill] service: salvaged %d/%d stubs per-method; still "
-            "stubbed: %s"
-            % (
-                len(stub_names) - len(reverted),
-                len(stub_names),
-                ", ".join(sorted(reverted)) or "(none)",
-            )
+        # Only mention `still stubbed` when a stub actually remains — an
+        # all-filled service would otherwise emit the banned "still stubbed:
+        # (none)" marker even though nothing is stubbed.
+        msg = "    [fill] service: salvaged %d/%d stubs per-method" % (
+            len(stub_names) - len(reverted), len(stub_names)
         )
+        if reverted:
+            msg += "; still stubbed: %s" % ", ".join(sorted(reverted))
+        print(msg)
     return salvaged
