@@ -31,6 +31,7 @@ def _render_models_file(design):
     blocks = []
     unique_map = {}
     table_map = {}
+    needs_datetime = False
     for ent in design.get("entities") or []:
         name = ent["name"]
         # Declared table name kept ONLY when it differs from the
@@ -39,16 +40,39 @@ def _render_models_file(design):
         if tn and tn != _pluralize_table_name(name):
             table_map[name] = tn
         fields = ent.get("fields") or []
-        req, opt = [], []
+        req, opt, auto_now = [], [], []
         for f in fields:
-            if f.get("name") == "id" or f.get("nullable"):
-                opt.append((f["name"], f.get("type", "int")))
+            fname = f.get("name")
+            if fname == "id" or f.get("nullable"):
+                opt.append((fname, f.get("type", "int")))
+            elif (
+                f.get("auto") == "now"
+                and f.get("type") in ("date", "datetime")
+            ):
+                # A non-nullable auto:"now" timestamp is stamped by the
+                # dataclass itself, so omitting it is safe. This keeps the
+                # dataclass CONSISTENT with _required_constructor_fields,
+                # which already excludes such fields from the required list:
+                # otherwise the fill hint hides a field the constructor
+                # demands -> a guaranteed reject + retry (the borrow_member
+                # loan_date class of defect).
+                opt.append((fname, "datetime"))
+                auto_now.append(fname)
+                needs_datetime = True
             else:
-                req.append((f["name"], f.get("type", "str")))
+                req.append((fname, f.get("type", "str")))
         parts = ["    %s: %s" % (fname, ftype) for fname, ftype in req]
         parts += ["    %s: Optional[%s] = None" % (fname, _bare(ftype))
                   for fname, ftype in opt]
         body = "\n".join(parts)
+        if auto_now:
+            body += "\n\n    def __post_init__(self):\n"
+            for af in auto_now:
+                body += "        if self.%s is None:\n" % af
+                body += (
+                    "            self.%s = "
+                    "datetime.datetime.now().isoformat()\n" % af
+                )
         blocks.append("@dataclass\nclass %s:\n%s" % (name, body))
         pairs = [
             [str(c) for c in pair]
@@ -97,7 +121,8 @@ def _render_models_file(design):
         '"""Domain models."""\n'
         "from __future__ import annotations\n\n"
         "from dataclasses import dataclass\n"
-        "from typing import Dict, List, Optional\n"
+        + ("import datetime\n" if needs_datetime else "")
+        + "from typing import Dict, List, Optional\n"
     )
     return header + "\n\n\n".join(blocks) + "\n"
 

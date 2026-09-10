@@ -115,3 +115,90 @@ def _service_kwargs(m, ent):
         p.get("name") for p in (m.get("params") or [])
         if isinstance(p, dict) and p.get("name") in declared
     ]
+
+
+# Range-role prefixes: a designed param named ``from_date``/``to_date`` is a
+# paraphrase of the entity's own ``start_<x>``/``end_<x>`` declared filters.
+# Pairing is by ROLE (lower vs upper bound), never by spelling, so a service
+# ``list_expenses(from_date, to_date)`` binds to the declared gte/lte filters
+# instead of silently dropping the range.
+_RANGE_ROLE_PREFIXES = (
+    ("start_", "gte"),
+    ("from_", "gte"),
+    ("after_", "gte"),
+    ("since_", "gte"),
+    ("end_", "lte"),
+    ("to_", "lte"),
+    ("until_", "lte"),
+    ("before_", "lte"),
+)
+
+
+def _range_role(param):
+    """'gte'/'lte' when a param name denotes a date-range bound, else None."""
+    for prefix, op in _RANGE_ROLE_PREFIXES:
+        if param.startswith(prefix):
+            return op
+    return None
+
+
+def _resolve_filter_args(m, ent):
+    """Pair each designed method param with one declared ``list()`` filter.
+
+    Returns ``([(filter_param, method_param)], [unresolved_param])``.
+
+    Exact name equality pairs first. A param the declared names cannot serve
+    is then paired by ROLE: a ``from_``/``start_``-style name binds a ``gte``
+    filter, a ``to_``/``end_``-style name an ``lte`` one, preferring a filter
+    over a date-typed column. Anything still unpaired is reported so a caller
+    can DECLINE rather than emit a partial call that silently drops a filter.
+    """
+    declared = _declared_filters(ent)
+    declared_names = {fp for fp, _, _ in declared}
+    field_types = {
+        f.get("name"): f.get("type")
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+    params = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+
+    resolved = []
+    unresolved = []
+    used_filters = set()
+    done_params = set()
+
+    for param in params:
+        if param in declared_names:
+            resolved.append((param, param))
+            used_filters.add(param)
+            done_params.add(param)
+
+    for param in params:
+        if param in done_params:
+            continue
+        role = _range_role(param)
+        pick = None
+        if role:
+            cands = [
+                (fp, col) for fp, col, op in declared
+                if op == role and fp not in used_filters
+            ]
+            dated = [
+                fp for fp, col in cands
+                if field_types.get(col) in ("date", "datetime")
+            ]
+            pick = dated[0] if dated else (cands[0][0] if cands else None)
+        if pick is None:
+            unresolved.append(param)
+        else:
+            resolved.append((pick, param))
+            used_filters.add(pick)
+
+    # Follow the declared filter order so the emitted call reads in the
+    # repository's own argument order.
+    order = {fp: i for i, (fp, _, _) in enumerate(declared)}
+    resolved.sort(key=lambda pair: order.get(pair[0], len(order)))
+    return resolved, unresolved

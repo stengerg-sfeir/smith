@@ -25,6 +25,43 @@ from agentlib.naming import _snake, _camel, _plural
 from agentlib.generation.cli_render import _optvar, _match_param, _resolve_option_param
 
 
+def _merge_cli_commands_by_key(data, key_fn):
+    """Merge duplicate CLI commands by ``key_fn(cmd)``, unioning options.
+
+    Used to collapse commands that share a canonical key BEFORE propagation
+    (so the same service method is not reshaped/extended multiple times by
+    duplicates, e.g. ``return_book`` being extended to ``(id, loan_id)`` then
+    reshaped back to ``(loan_id)``) and AFTER propagation (the post-wiring
+    merge). The first command's options survive; the second's extra options
+    are unioned in, and a non-empty target is preferred. In-place: reassigns
+    ``data["commands"]``."""
+    merged = {}
+    order = []
+    for c in data.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        key = key_fn(c)
+        prev = merged.get(key)
+        if prev is None:
+            merged[key] = c
+            order.append(c)
+            continue
+        have = {
+            o.get("name") for o in (prev.get("options") or [])
+            if isinstance(o, dict) and o.get("name")
+        }
+        for o in c.get("options") or []:
+            if not isinstance(o, dict) or not o.get("name"):
+                continue
+            if o.get("name") in have:
+                continue
+            prev.setdefault("options", []).append(o)
+            have.add(o.get("name"))
+        if not prev.get("target") and c.get("target"):
+            prev["target"] = c["target"]
+    data["commands"] = order
+
+
 def _propagate_cli_commands(data, prompt_text, entities_by_class,
 svc_design, designs):
     """Bounded back-propagation of CLI wiring conflicts into the designs.
@@ -121,6 +158,17 @@ svc_design, designs):
         if not prev.get("target") and c.get("target"):
             prev["target"] = c["target"]
     data["commands"] = _unique_cmds
+    # Pre-propagation merge by (name, target): two commands that already wire
+    # to the same service method under the same verb (library/return and
+    # library/return/return -> return_book) would otherwise EACH run the
+    # signature surgery — extending return_book(id) to (id, loan_id) then
+    # reshaping it back to (loan_id) — a non-idempotent thrash on the same
+    # method. Union their options first so ONE command processes the method;
+    # the post-wiring merge at the end stays as the backstop for commands
+    # whose targets only converge AFTER propagation assigns them.
+    _merge_cli_commands_by_key(
+        data, lambda c: (str(c.get("name") or ""), str(c.get("target") or ""))
+    )
 
     def required_missing(cls, covered):
         fields = [

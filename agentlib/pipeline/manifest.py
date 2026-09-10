@@ -768,6 +768,23 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                         cli_split_failed = True
                         break
                     for c in gdata.get("commands") or []:
+                        # A scoped CLI call is CONSTRAINED to its group's
+                        # commands, but with allow_new_targets=True the model
+                        # can still re-emit a command owned by ANOTHER entity
+                        # (library: the Member group re-emits
+                        # library/borrow/borrow, the Book group re-emits
+                        # book/return). Appending those cross-entity
+                        # re-emissions unions into a heavily duplicated tree
+                        # (library: 4 groups -> 60 commands for a 30-command
+                        # surface) that the deterministic collapse then has to
+                        # rewire — the source of the return_book double-reshape
+                        # thrash and the 60-command reconcile. Drop any command
+                        # whose owner entity is a DIFFERENT group: it is
+                        # designed by its own group, and re-added by
+                        # _merge_cli_surfaces if the model missed it.
+                        owner = _command_owner_entity(c, entities_by_class)
+                        if owner and owner != ent_cls:
+                            continue
                         merged_cli.setdefault("commands", []).append(c)
                 if cli_split_failed:
                     # Best-effort split: fall back to the monolithic design.

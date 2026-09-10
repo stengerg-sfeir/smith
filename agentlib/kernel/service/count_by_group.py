@@ -8,7 +8,7 @@ literal ``1`` per row, never a field value.
 """
 from ...naming import _snake
 from ..recipe_types import Recipe
-from .common import _filter_params
+from .common import _resolve_filter_args
 
 
 def _h_count_by_group(m, impl, ent, entities_by_class):
@@ -17,13 +17,11 @@ def _h_count_by_group(m, impl, ent, entities_by_class):
     fields; each row contributes ``+1`` (a count, never a date/numeric field)."""
     var = _snake(impl["entity"])
     gb = list(impl["group_by"])
-    declared = set(_filter_params(ent))
-    params = [
-        p.get("name") for p in (m.get("params") or [])
-        if isinstance(p, dict)
-    ]
-    kwargs = [p for p in params if p in declared]
-    args = ", ".join("%s=%s" % (p, p) for p in kwargs)
+    # Resolve each designed param to a declared list() filter — by name, or
+    # by date-range ROLE (from_date/to_date -> start_date/end_date gte/lte),
+    # so a paraphrased window still scopes the grouped count.
+    resolved, _unresolved = _resolve_filter_args(m, ent)
+    args = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
     key_tuple = ", ".join("row.%s" % g for g in gb)
     entries = []
     for i, g in enumerate(gb):

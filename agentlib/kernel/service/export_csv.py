@@ -4,7 +4,7 @@ Registered as a discoverable `RECIPES` list under the kernel service package.
 """
 from ...naming import _snake
 from ..recipe_types import Recipe
-from .common import _csv_chunk, _filter_params
+from .common import _csv_chunk, _resolve_filter_args
 
 
 def _h_export_csv(m, impl, ent, entities_by_class):
@@ -16,16 +16,15 @@ def _h_export_csv(m, impl, ent, entities_by_class):
         for f in (ent.get("fields") or [])
         if isinstance(f, dict) and f.get("name")
     ]
-    declared = set(_filter_params(ent))
-    params = [
-        p.get("name") for p in (m.get("params") or [])
-        if isinstance(p, dict)
-    ]
-    kwargs = [p for p in params if p in declared and p != fp]
-    args = ", ".join("%s=%s" % (p, p) for p in kwargs)
-    suffix = ", " if args else ""
+    # Resolve each designed param to a declared list() filter — by name, or
+    # by date-range ROLE (the design's from_date/to_date IS the entity's
+    # start_date/end_date gte/lte pair). Without this the export wrote the
+    # UNFILTERED table whenever the design paraphrased the range names.
+    resolved, _unresolved = _resolve_filter_args(m, ent)
+    kwargs = [(f, mp) for f, mp in resolved if mp != fp]
+    args = ", ".join("%s=%s" % (f, mp) for f, mp in kwargs)
     lines = [
-        "        rows = self.%s_repo.list(%s%s)" % (var, args, suffix),
+        "        rows = self.%s_repo.list(%s)" % (var, args),
         '        with open(%s, "w", newline="", encoding="utf-8") as f:' % fp,
         "            writer = csv.writer(f)",
         "            writer.writerow([",

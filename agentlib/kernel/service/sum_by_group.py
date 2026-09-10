@@ -4,7 +4,7 @@ Registered as a discoverable `RECIPES` list under the kernel service package.
 """
 from ...naming import _snake
 from ..recipe_types import Recipe
-from .common import _filter_params
+from .common import _resolve_filter_args
 
 
 def _h_sum_by_group(m, impl, ent, entities_by_class):
@@ -12,13 +12,12 @@ def _h_sum_by_group(m, impl, ent, entities_by_class):
     var = _snake(impl["entity"])
     vf = impl["value_field"]
     gb = list(impl["group_by"])
-    declared = set(_filter_params(ent))
-    params = [
-        p.get("name") for p in (m.get("params") or [])
-        if isinstance(p, dict)
-    ]
-    kwargs = [p for p in params if p in declared]
-    args = ", ".join("%s=%s" % (p, p) for p in kwargs)
+    # Resolve each designed param to a declared list() filter — by name, or
+    # by date-range ROLE (from_date/to_date -> the start_date/end_date
+    # gte/lte pair). Exact-name-only matching silently dropped a paraphrased
+    # range, grouping over the whole table instead of the requested window.
+    resolved, _unresolved = _resolve_filter_args(m, ent)
+    args = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
     call = "self.%s_repo.list(%s)" % (var, args)
     lines = ["        results = {}"]
     if len(gb) == 1:

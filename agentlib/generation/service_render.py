@@ -7,6 +7,8 @@ accepted fill is spliced back per-method. No behaviour change.
 """
 import ast
 import builtins
+import difflib
+import os
 import re
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from ..config import LLM_RETRY_TEMPERATURE
 from ..naming import _camel, _entity_table_name, _plural, _snake
 from ..llm.fill import _llm_fill
 from ..kernel.service import dispatch_impl_body
-from ..kernel.service.common import _filter_params
+from ..kernel.service.common import _filter_params, _resolve_filter_args
 from ..kernel.repo.finder import _render_simple_finder, _simple_finder_spec
 from ..kernel.repo.variant import _existing_variant_alias, _render_variant_alias
 from .helpers import _method_stub_code
@@ -226,6 +228,20 @@ _REPO_SPREAD_RULE = (
     "declared parameter of the listed method."
 )
 
+# Deterministic fill-prompt rule: the model wraps a required business rule in
+# `try: ... except Exception: pass`, which swallows the very exception the
+# rule raises — add_expense raised BudgetExceededException inside a guarded
+# try, so the check became a no-op. It also called a designed lookup with a
+# hardcoded None id.
+_NO_SWALLOW_RULE = (
+    "EXCEPTION HANDLING  never wrap a designed business rule in "
+    "`try: ... except Exception: pass` — it silently swallows the exception "
+    "the rule raises. Call the check and raise the designed exception "
+    "DIRECTLY and unguarded; catch only a SPECIFIC type you intend to "
+    "translate. Never call a repository method with a hardcoded None for a "
+    "required id."
+)
+
 # Validates in the SYSTEM message (primacy slot) so a small model attends to
 # the rules instead of losing them at the bottom of a long user-side
 # instruction. Domain-agnostic prohibitions; the user-side interface listing
@@ -235,7 +251,77 @@ _FILL_SYSTEM_RULES = "\n\n".join([
     _REPO_ACCESSOR_RULE,
     _REPO_METHOD_RULE,
     _REPO_SPREAD_RULE,
+    _NO_SWALLOW_RULE,
 ])
+
+
+def _fill_debug_root():
+    """Directory for fill-retry dumps, or "" when debugging is disabled.
+
+    Set ``NEUROSYM_FILL_DEBUG=<dir>`` to capture every REJECTED fill body,
+    the ACCEPTED retry, and a unified diff between them. This is how a
+    transient fill retry (e.g. library_system's borrow_member attempt 1 ->
+    attempt 2) can be inspected AFTER the run: the run log only carries the
+    final attempt's rejection, so without this the rejected body is lost.
+    Off by default — zero effect unless the env var is set.
+    """
+    return os.environ.get("NEUROSYM_FILL_DEBUG", "").strip()
+
+
+def _write_debug_text(path, text):
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text if text is not None else "")
+        return True
+    except OSError:
+        return False
+
+
+def _dump_fill_retry(root, service, method, rejected, accepted):
+    """Persist a fill retry so it can be diffed after the fact.
+
+    ``rejected``: [(attempt_no, body, violations)] in attempt order;
+    ``accepted``: (attempt_no, body) or None. Writes, per method:
+      <svc>.<method>.a<N>.rejected.py     (each rejected body)
+      <svc>.<method>.a<N>.violations.txt  (that attempt's violations)
+      <svc>.<method>.a<M>.accepted.py     (the body that passed)
+      <svc>.<method>.diff.txt             (last rejected vs accepted)
+    No-op when ``root`` is empty or nothing was rejected (a first-attempt
+    success has nothing to compare).
+    """
+    if not root or not rejected:
+        return
+    try:
+        os.makedirs(root, exist_ok=True)
+    except OSError:
+        return
+    stem = "%s.%s" % (service, method)
+    for attempt_no, body, violations in rejected:
+        _write_debug_text(
+            os.path.join(root, "%s.a%d.rejected.py" % (stem, attempt_no)),
+            body,
+        )
+        _write_debug_text(
+            os.path.join(root, "%s.a%d.violations.txt" % (stem, attempt_no)),
+            "\n".join(violations or []),
+        )
+    if accepted is None:
+        return
+    attempt_no, body = accepted
+    _write_debug_text(
+        os.path.join(root, "%s.a%d.accepted.py" % (stem, attempt_no)), body
+    )
+    old_no, old_body, _ = rejected[-1]
+    diff = "\n".join(
+        difflib.unified_diff(
+            (old_body or "").splitlines(),
+            (body or "").splitlines(),
+            fromfile="a%d.rejected" % old_no,
+            tofile="a%d.accepted" % attempt_no,
+            lineterm="",
+        )
+    )
+    _write_debug_text(os.path.join(root, stem + ".diff.txt"), diff + "\n")
 
 
 def _required_constructor_fields(entities_by_class):
@@ -292,7 +378,44 @@ def _zero_param_dict_repo_customs(designs, entities_by_class):
     return out
 
 
-def _service_method_body(m, entities_by_class, exception_names, repo_customs=None, repo_bulk_updates=None, repo_search_targets=None):
+def _repo_custom_signatures(designs, entities_by_class):
+    """{method_name: [(entity_snake, [param_names])]} for every DESIGNED
+    repository custom method.
+
+    Feeds same-name repo delegation for a service method that is neither a
+    CRUD verb (so ``_generic_service_delegation`` declines it) nor a
+    zero-param aggregate (so ``_zero_param_dict_repo_customs`` declines it):
+    a designed ``get_yearly_summary(year)`` on the service side delegates to
+    the repo's own ``get_yearly_summary(year)`` when the parameter names
+    match EXACTLY. Same-name + same-params is a shape match, never a name
+    heuristic on the method spelling — a mismatch leaves the method a stub
+    for the LLM fill as before. Parameter names must match exactly so a
+    service ``get_report(year)`` never wires against a repo
+    ``get_report(year, month)``.
+    """
+    known = {_snake(c) for c in entities_by_class}
+    out = {}
+    for path, kind, data in designs or []:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        if ent_snake not in known:
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            pnames = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            out.setdefault(m["name"], []).append((ent_snake, pnames))
+    return out
+
+
+def _service_method_body(m, entities_by_class, exception_names, repo_customs=None, repo_bulk_updates=None, repo_search_targets=None, repo_signatures=None):
     """Deterministic body lines for a service method, or None (=> stub).
 
     Fully declarative: a designed method may carry an `impl` object naming
@@ -315,8 +438,21 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
     for _ent_name in entities_by_class:
         if name == "check_" + _snake(_ent_name) and len(m.get("params") or []) == 1:
             return _generic_service_delegation(
-                m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets
+                m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets,
+                repo_signatures
             )
+    # A zero-param service method sharing its name with a zero-param DESIGNED
+    # repository custom is a thin pass-through: the design put the real work
+    # on the repository (expense's detect_recurring does the detection and
+    # marking), and any aggregate `impl` stamped on the service method is a
+    # MIS-SHAPE — expenses' detect_recurring carried a group-and-sum impl that
+    # returned a dict where List[Dict[str, Any]] is declared. Delegate first;
+    # the name AND zero arity must both match, so this never fires for a
+    # parameterized method or a different name.
+    if not (m.get("params") or []):
+        for _rep_ent, _rparams in (repo_signatures or {}).get(name, []):
+            if not _rparams:
+                return ["        return self.%s_repo.%s()" % (_rep_ent, name)]
     impl = m.get("impl")
     if isinstance(impl, dict):
         lines = dispatch_impl_body(m, impl, None, entities_by_class)
@@ -335,12 +471,115 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
     ):
         ent_snake, meth = repo_customs[0]
         return ["        return self.%s_repo.%s()" % (ent_snake, meth)]
-    return _generic_service_delegation(
-        m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets
+    lines = _generic_service_delegation(
+        m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets,
+        repo_signatures
     )
+    if lines is not None:
+        return lines
+    # Same-name repo delegation: a designed repository custom method carrying
+    # the EXACT same name and parameter names as this service method is a
+    # thin pass-through (expense's get_yearly_summary(year) over the
+    # repository's own get_yearly_summary(year)). Shape-matched on name AND
+    # parameter names — never a spelling heuristic — so a mismatch still
+    # degrades to a stub for the LLM fill. This is the load-bearing route for
+    # a method that is BOTH a get_/CRUD-prefixed verb (so _apply_impl_floors
+    # skips it) AND parameterized (so _zero_param_dict_repo_customs skips it).
+    pnames = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+    for ent_snake, rparams in (repo_signatures or {}).get(name, []):
+        if rparams == pnames:
+            return [
+                "        return self.%s_repo.%s(%s)"
+                % (ent_snake, name, ", ".join(pnames))
+            ]
+    return None
 
 
-def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None, repo_search_targets=None):
+def _same_name_repo_call(m, var, repo_signatures):
+    """Delegate a service method to a designed repository custom.
+
+    Only for the ``list_<entity>`` route, and only when the declared
+    ``list()`` filters cannot serve every designed param: the design then
+    carries a richer query on the repository itself (library's
+    ``book_repo.list_book(author, available_only)`` vs the generic
+    ``book_repo.list()``, which has no such columns). The candidate is
+    matched by NAME — the service method's own name, else its pluralised
+    ``list_<plural>`` form — on the SAME entity, and must take the same
+    number of params so the call is positional and unambiguous. Returns the
+    body lines, or None to let the caller decline into the LLM fill.
+    """
+    name = m.get("name") or ""
+    pnames = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+    for cand in (name, "list_" + _plural(var)):
+        for ent_snake, rparams in (repo_signatures or {}).get(cand, []):
+            if ent_snake == var and len(rparams) == len(pnames):
+                return [
+                    "        return self.%s_repo.%s(%s)"
+                    % (var, cand, ", ".join(pnames))
+                ]
+    return None
+
+
+# Limit-shaped exception names: an exception whose name carries one of these
+# AND names a designed entity is the design's own signal that "adding" the
+# related entity is meant to consult that entity's numeric limit.
+_LIMIT_EXC_MARKERS = (
+    "Exceeded", "Exceeds", "Limit", "Quota", "Overflow", "OverBudget",
+)
+
+
+def _declines_for_unraised_limit(ent, ent_name, entities_by_class, exception_names):
+    """True when a generic create must NOT be emitted deterministically.
+
+    Design-only signal, no prompt text: some OTHER designed entity shares a
+    foreign-key column with the entity being created (Budget.category_id and
+    Expense.category_id are the same FK), that entity carries a numeric limit
+    column, and the design declares a limit-shaped exception naming it
+    (BudgetExceededException). Creating the entity is then expected to consult
+    that limit — logic the generic create body cannot express. Returning None
+    hands the method to the LLM fill, which sees the prompt, instead of
+    shipping a body that silently omits the requirement.
+    """
+    fk_fields = {
+        f.get("name")
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and (f.get("name") or "").endswith("_id")
+        and f.get("name") != "id"
+    }
+    if not fk_fields:
+        return False
+    for cls, other in (entities_by_class or {}).items():
+        if cls == ent_name or not isinstance(other, dict):
+            continue
+        other_fks = {
+            f.get("name")
+            for f in (other.get("fields") or [])
+            if isinstance(f, dict) and (f.get("name") or "").endswith("_id")
+            and f.get("name") != "id"
+        }
+        if not (fk_fields & other_fks):
+            continue
+        has_limit = any(
+            isinstance(f, dict) and f.get("type") in ("int", "float")
+            and (f.get("name") or "") != "id"
+            and not (f.get("name") or "").endswith("_id")
+            for f in (other.get("fields") or [])
+        )
+        if not has_limit:
+            continue
+        for exc in exception_names or []:
+            if cls in exc and any(m in exc for m in _LIMIT_EXC_MARKERS):
+                return True
+    return False
+
+
+def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None, repo_search_targets=None, repo_signatures=None):
     """Tier-2 deterministic CRUD delegation for any entity.
 
     Handles add_<entity>, list_<entity> / get_<entity>_by_id /
@@ -363,6 +602,16 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
         filters = _filter_params(ent)
 
         if name in ("add_" + var, "create_" + var):
+            # A create whose design declares a limit-shaped exception for a
+            # shared-FK entity means the prompt wants the limit consulted after
+            # insertion (expense's BudgetExceededException / Budget.category_id
+            # vs Expense.category_id). The generic create cannot express that,
+            # so DECLINE: a body that silently omits the requirement is worse
+            # than handing the method to the LLM fill, which sees the prompt.
+            if _declines_for_unraised_limit(
+                ent, ent_name, entities_by_class, exception_names
+            ):
+                return None
             kwargs = ["%s=%s" % (p, p) for p in param_names if p in fields]
             if not kwargs:
                 # Data-dict add (add_<entity>(data: Dict[str, Any])): build
@@ -459,8 +708,19 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             lines.append("        return self.%s_repo.create(%s)" % (var, var))
             return lines
         if name in ("list_" + var, "list_" + _plural(var)):
-            kw = [p for p in param_names if p in filters]
-            call = ", ".join("%s=%s" % (p, p) for p in kw)
+            # Pair the designed params with the declared list() filters. A
+            # param the declared names cannot serve is paired by ROLE
+            # (from_/to_ -> the gte/lte filter over the date column). Only
+            # when a param stays unmapped does the filter-mapped list()
+            # become lossy: then prefer the design's own richer repository
+            # custom (book_repo.list_book(author, available_only)), and
+            # failing that DECLINE so the LLM fill handles it — never emit a
+            # partial call that silently drops a filter (the expense
+            # from_date/to_date loss, library's dropped author/active_only).
+            resolved, unresolved = _resolve_filter_args(m, ent)
+            if unresolved:
+                return _same_name_repo_call(m, var, repo_signatures)
+            call = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
             return ["        return self.%s_repo.list(%s)" % (var, call)]
         if name == "get_%s_by_id" % var:
             idp = param_names[0] if param_names else "id"
@@ -1246,7 +1506,14 @@ def _service_type_context(entities_by_class, designs):
                 # created_at/updated_at). auto:"now" fields are still required
                 # args — the deterministic add_<entity> stamps them, but a bare
                 # Task(...) without them crashes.
-                if not f.get("nullable") and f.get("name") != "id":
+                if (
+                    not f.get("nullable")
+                    and f.get("name") != "id"
+                    and not (
+                        f.get("auto") == "now"
+                        and f.get("type") in ("date", "datetime")
+                    )
+                ):
                     req.add(f["name"])
         entity_fields[cls] = fields
         required_fields[cls] = req
@@ -2614,6 +2881,163 @@ def _strip_import_enum_validation(text):
         return text
 
 
+def _stamp_missing_required_datetimes(cand, entities_by_class, type_ctx):
+    """Stamp omitted required DATE/DATETIME constructor fields with now().
+
+    A fill that builds ``Loan(...)`` but omits a required date field is
+    rejected and costs a full retry (library_system borrow_member:
+    ``Loan() missing loan_date`` -> attempt 2). The deterministic
+    ``add_<entity>`` renderer already stamps such fields and the fill hint's
+    CONSTRUCTION RULE tells the model to do the same, so mirroring it here
+    turns a guaranteed-recoverable retry into a deterministic repair.
+
+    Bounded: only a direct ``Entity(...)`` on a DESIGNED class without ``**``
+    unpacking is touched, and EVERY still-missing required field must be
+    date/datetime-typed (a missing non-date field still fails the gate).
+    """
+    if not cand:
+        return cand
+    required = (type_ctx or {}).get("required_fields") or {}
+    field_types = (type_ctx or {}).get("field_types") or {}
+    if not required:
+        return cand
+    try:
+        tree = ast.parse(cand)
+    except SyntaxError:
+        return cand
+    changed = False
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in entities_by_class
+        ):
+            continue
+        ftypes = field_types.get(node.func.id) or {}
+        req = required.get(node.func.id)
+        if not req or any(kw.arg is None for kw in node.keywords):
+            continue
+        provided = {kw.arg for kw in node.keywords if kw.arg}
+        provided.update(list(ftypes)[: len(node.args)])
+        missing = [f for f in sorted(req) if f not in provided]
+        if not missing or not all(
+            ftypes.get(f) in ("date", "datetime") for f in missing
+        ):
+            continue
+        for fname in missing:
+            node.keywords.append(ast.keyword(
+                arg=fname,
+                value=ast.parse(
+                    "datetime.datetime.now().isoformat()"
+                ).body[0].value,
+            ))
+        changed = True
+    if not changed:
+        return cand
+    try:
+        return ast.unparse(tree) + "\n"
+    except Exception:
+        return cand
+
+
+def _is_docstring_stmt(stmt):
+    """True for a bare string-literal expression statement."""
+    return (
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+    )
+
+
+def _broad_swallow_handler(handler):
+    """True for a handler that silently discards everything it catches.
+
+    Only the unambiguous shape qualifies: a bare ``except:`` / ``except
+    Exception:`` / ``except BaseException:`` whose ENTIRE body is ``pass``
+    (an optional leading docstring is ignored). A handler that logs, assigns
+    a fallback, or re-raises is NOT touched.
+    """
+    htype = handler.type
+    broad = htype is None or (
+        isinstance(htype, ast.Name)
+        and htype.id in ("Exception", "BaseException")
+    )
+    if not broad:
+        return False
+    body = [s for s in handler.body if not _is_docstring_stmt(s)]
+    return len(body) == 1 and isinstance(body[0], ast.Pass)
+
+
+def _try_body_raises(stmts):
+    """True when a statement list contains a ``raise``."""
+    for stmt in stmts:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Raise):
+                return True
+    return False
+
+
+def _unwrap_stmt_list(stmts, changed):
+    """Inline every broad-swallow ``try`` in a statement list, recursively.
+
+    Returns the (possibly rewritten) statement list; ``changed`` is a list
+    used as a boolean box so the caller knows whether anything was dropped.
+    A ``try`` whose every handler is a no-op swallow and whose body raises
+    is replaced by its body INLINE, so the raise propagates; other nodes are
+    recursed into unchanged.
+    """
+    out = []
+    for st in stmts:
+        for field, value in ast.iter_fields(st):
+            if (
+                isinstance(value, list)
+                and value
+                and isinstance(value[0], ast.stmt)
+            ):
+                setattr(st, field, _unwrap_stmt_list(value, changed))
+        for handler in getattr(st, "handlers", ()) or ():
+            handler.body = _unwrap_stmt_list(handler.body, changed)
+        if isinstance(st, ast.Try) and not st.orelse and not st.finalbody:
+            kept = [h for h in st.handlers if not _broad_swallow_handler(h)]
+            if len(kept) != len(st.handlers) and _try_body_raises(st.body):
+                changed.append(True)
+                if kept:
+                    st.handlers = kept
+                    out.append(st)
+                else:
+                    out.extend(st.body)
+                continue
+        out.append(st)
+    return out
+
+
+def _unwrap_swallowed_raises(cand):
+    """Delete a broad ``except Exception: pass`` that swallows a raise.
+
+    The 4B model habit is to wrap a designed business-rule check in ``try:
+    ... raise DesignedError(...) ... except Exception: pass`` — the handler
+    does nothing, so the exception the rule exists to raise is silently
+    discarded (expenses ``add_expense``'s budget check shipped dead this
+    way). Removing a no-op swallow handler changes nothing except that the
+    exception now propagates; the ``try`` body is inlined verbatim so the
+    generated code carries no leftover ``try``/``if True`` scaffolding.
+    """
+    if not cand:
+        return cand
+    try:
+        tree = ast.parse(cand)
+    except SyntaxError:
+        return cand
+    changed = []
+    tree.body = _unwrap_stmt_list(tree.body, changed)
+    if not changed:
+        return cand
+    try:
+        return ast.unparse(tree) + "\n"
+    except Exception:
+        return cand
+
+
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                          prompt_text, exception_names=None, verbose=False,
                          repo_sources=None, models_module="models"):
@@ -2648,6 +3072,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     )
 
     repo_customs = _zero_param_dict_repo_customs(designs, entities_by_class)
+    repo_signatures = _repo_custom_signatures(designs, entities_by_class)
     repo_bulk_updates = _bulk_update_repo_targets(designs, entities_by_class)
     repo_search_targets = _search_repo_targets(designs, entities_by_class)
     for m in svc_design.get("methods") or []:
@@ -2655,7 +3080,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             continue
         body = _service_method_body(
             m, entities_by_class, exception_names, repo_customs,
-            repo_bulk_updates, repo_search_targets
+            repo_bulk_updates, repo_search_targets, repo_signatures
         )
         if body is not None:
             def_line = _method_stub_code(m, 1).split("\n")[0]
@@ -2679,7 +3104,7 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         if isinstance(m, dict) and m.get("name")
         and _service_method_body(
             m, entities_by_class, exception_names, repo_customs,
-            repo_bulk_updates, repo_search_targets
+            repo_bulk_updates, repo_search_targets, repo_signatures
         ) is None
     ]
     if not prompt_text or not stubs:
@@ -2961,14 +3386,23 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     LARGE_STUB_SET = 1
     if len(stubs) <= LARGE_STUB_SET:
         instruction = fill_hint
+        batch_rejected = []
         for attempt in range(4):
             filled = _llm_fill(
                 "service", instruction, mini, prompt_text, verbose=verbose,
                 temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
                 extra_system=_FILL_SYSTEM_RULES,
             )
+            filled = _stamp_missing_required_datetimes(
+                filled, entities_by_class, type_ctx
+            )
+            filled = _unwrap_swallowed_raises(filled)
             merged = _accept(filled)
             if merged is not None:
+                _dump_fill_retry(
+                    _fill_debug_root(), svc_class, "<batch>",
+                    batch_rejected, (attempt + 1, filled),
+                )
                 return merged
             violations = (
                 _service_fill_violations(
@@ -2985,7 +3419,13 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 if not violations:
                     merged = _merge_stub_bodies(deterministic, filled, stub_names)
                     if merged is not None:
+                        _dump_fill_retry(
+                            _fill_debug_root(), svc_class, "<batch>",
+                            batch_rejected, (attempt + 1, filled),
+                        )
                         return merged
+            if filled:
+                batch_rejected.append((attempt + 1, filled, violations))
             if filled and verbose:
                 print(
                     "    [fill] service: rejected (attempt %d: %s)"
@@ -3054,6 +3494,8 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
             + "\n"
         )
         ok = False
+        rejected_fills = []
+        accepted_fill = None
         # 3 attempts (not 2): a domain-state method like borrow_member needs
         # to construct an entity with several required fields, and a single
         # retry is often not enough for the 4B model to correct a dropped
@@ -3066,6 +3508,16 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 extra_system=_FILL_SYSTEM_RULES,
             )
             cand = _strip_import_enum_validation(cand)
+            cand = _unwrap_swallowed_raises(cand)
+            repaired_cand = _stamp_missing_required_datetimes(
+                cand, entities_by_class, type_ctx
+            )
+            if repaired_cand != cand and verbose:
+                print(
+                    "    [fill] service.%s: stamped missing required "
+                    "date field(s) deterministically" % name
+                )
+            cand = repaired_cand
             # Validate against the SCOPED interface, recomputed after any
             # bounded repair grew repo_interface, so a correct in-scope call
             # is accepted and a wrong-repo call (self.author_repo from
@@ -3095,12 +3547,17 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 if merged is not None:
                     salvaged = merged
                     ok = True
+                    accepted_fill = (attempt + 1, cand)
                     if verbose:
                         print(
                             "    [fill] service.%s: filled (attempt %d)"
                             % (name, attempt + 1)
                         )
                 break
+            # Record EVERY rejected body (debug dump) BEFORE the log line:
+            # the log fires only on the last attempt, so a retry that
+            # succeeds would otherwise lose its rejected predecessor.
+            rejected_fills.append((attempt + 1, cand, viol))
             # Log a rejection ONLY on the last attempt: a transient reject
             # followed by a successful retry (borrow_member) would otherwise
             # leave a banned "rejected (attempt 1: ...)" marker in the log
@@ -3134,6 +3591,9 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                     "scoped interface. Use ONLY these exact forms:\n"
                     + _positive_repo_targets(cur_iface, type_ctx)
                 )
+        _dump_fill_retry(
+            _fill_debug_root(), svc_class, name, rejected_fills, accepted_fill
+        )
         if not ok:
             reverted.append(name)
     if verbose and len(reverted) < len(stub_names):

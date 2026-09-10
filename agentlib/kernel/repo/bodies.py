@@ -18,6 +18,7 @@ from ...design import (
 from ...naming import _camel, _entity_table_name
 from ..recipe_types import Recipe
 from ..service.common import _filter_params
+from .aggregates import _repo_extra_body
 
 
 def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
@@ -735,6 +736,19 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             "                return False",
             "        return True",
         ]
+
+    # ---- 8.11b flag list / dict aggregates (extra tier) --------------------
+    # Bounded extra recipes (see .aggregates): a bool-flag List[<This>] gets a
+    # real WHERE instead of the honest-empty [] further down, and a
+    # Dict-returning custom gets a real SUM aggregate instead of the
+    # cross-entity JOIN's raw-row list (expense's get_category_spending is
+    # annotated Dict[str, int] yet 8.12b answered with [Expense(...)]).
+    extra = _repo_extra_body(
+        m, ent, model, name, params, ret_l, fields, table, lfmap,
+        num_cols, date_cols, is_list_model, _where, _tup,
+    )
+    if extra is not None:
+        return extra
 
     # ---- 8.12 cross-entity routing (child / owner-ref JOIN / m2m JOIN) ------
     # Repo customs that operate on ANOTHER designed entity (not the owner):
