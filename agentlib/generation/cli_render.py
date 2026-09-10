@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from ..naming import _camel, _snake
+from .model_render import _coerce_field_default
 
 
 def _render_cli_file(design, svc_class, entities_by_class, service_methods,
@@ -22,6 +23,26 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
     commands = design.get("commands") or []
     svc_snake = _snake(svc_class)
     seen_flat = set()
+    # Field names carrying a spec-declared default are OPTIONAL on the CLI:
+    # an omitted option yields None and the deterministic add_ body
+    # substitutes the declared default (is_active default True,
+    # available_copies default 1). Forcing them required would make the
+    # caller supply a value the spec already defaults.
+    default_fields = set()
+    for _ent in (entities_by_class or {}).values():
+        for _f in (_ent.get("fields") or []):
+            if not isinstance(_f, dict) or not _f.get("name"):
+                continue
+            # Same STRICT coercion the model renderer uses, so a field only
+            # becomes CLI-optional when it ALSO got a real dataclass default.
+            # A raw (uncoerced) check here made a bogus LLM default mark the
+            # option optional while models.py rejected it and stayed
+            # required — the caller then omitted it and the fill crashed on
+            # None (expense_date -> fromisoformat(None)).
+            if _coerce_field_default(
+                _f.get("type", "str"), _f.get("default")
+            ) is not None:
+                default_fields.add(_f["name"])
 
     lines = [
         "import click",
@@ -72,7 +93,12 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
             if not oname:
                 continue
             otype = o.get("type") or "str"
-            req = "required=True" if o.get("required") else ""
+            opt_key = o.get("field") or _optvar(o)
+            req = (
+                "required=True"
+                if o.get("required") and opt_key not in default_fields
+                else ""
+            )
             if otype == "int":
                 lines.append("@click.option(%r, type=int%s)"
                              % (oname, (", " + req) if req else ""))

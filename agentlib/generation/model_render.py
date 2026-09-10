@@ -6,6 +6,44 @@ original monolithic generator emitted — no behaviour change.
 """
 from ..naming import _bare, _camel, _plural, _pluralize_table_name
 
+_BOOL_TRUE = ("true", "1", "yes", "y")
+_BOOL_FALSE = ("false", "0", "no", "n")
+
+
+def _coerce_field_default(ftype, dflt):
+    """Coerce a designed field default to the field's declared Python type.
+
+    STRICT: a default whose JSON shape does not match the field type is
+    REJECTED (returns None), so the field stays required exactly as before
+    this feature. The small model has been caught emitting a dict
+    (``{"value": "cash", "type": "str"}``) as a ``str`` default, which
+    rendered ``payment_method: str = {...}`` — an invalid mutable dataclass
+    default that broke the ENTIRE models import. Only a scalar of the right
+    shape is accepted; strings may spell booleans/ints ("true"/"1").
+    """
+    if dflt is None or isinstance(dflt, (dict, list, tuple, set)):
+        return None
+    try:
+        if ftype in ("bool", "boolean"):
+            if isinstance(dflt, bool):
+                return dflt
+            if isinstance(dflt, str):
+                low = dflt.strip().lower()
+                if low in _BOOL_TRUE:
+                    return True
+                if low in _BOOL_FALSE:
+                    return False
+            return None
+        if ftype == "int" and not isinstance(dflt, bool):
+            return int(dflt) if isinstance(dflt, (int, float, str)) else None
+        if ftype == "float" and not isinstance(dflt, bool):
+            return float(dflt) if isinstance(dflt, (int, float, str)) else None
+        if ftype in ("str", "date", "datetime"):
+            return dflt if isinstance(dflt, str) else None
+    except (TypeError, ValueError):
+        return None
+    return None
+
 
 def _render_exceptions_file(design):
     names = design.get("exceptions") or []
@@ -40,11 +78,19 @@ def _render_models_file(design):
         if tn and tn != _pluralize_table_name(name):
             table_map[name] = tn
         fields = ent.get("fields") or []
-        req, opt, auto_now = [], [], []
+        req, opt, defaulted, auto_now = [], [], [], []
         for f in fields:
             fname = f.get("name")
+            ftype = f.get("type", "str")
+            dflt = _coerce_field_default(ftype, f.get("default"))
             if fname == "id" or f.get("nullable"):
                 opt.append((fname, f.get("type", "int")))
+            elif dflt is not None:
+                # A spec-declared default (e.g. available_copies default 1,
+                # is_active default True) becomes a real dataclass default so
+                # constructing the entity without it yields the spec value
+                # instead of None.
+                defaulted.append((fname, ftype, dflt))
             elif (
                 f.get("auto") == "now"
                 and f.get("type") in ("date", "datetime")
@@ -62,6 +108,8 @@ def _render_models_file(design):
             else:
                 req.append((fname, f.get("type", "str")))
         parts = ["    %s: %s" % (fname, ftype) for fname, ftype in req]
+        parts += ["    %s: %s = %r" % (fname, ftype, dflt)
+                  for fname, ftype, dflt in defaulted]
         parts += ["    %s: Optional[%s] = None" % (fname, _bare(ftype))
                   for fname, ftype in opt]
         body = "\n".join(parts)

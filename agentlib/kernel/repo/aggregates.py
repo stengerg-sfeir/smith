@@ -19,6 +19,7 @@ prompts:
 
 ``ent`` may be falsy; every recipe then declines.
 """
+import re
 
 
 def _param_type(m, pname):
@@ -126,6 +127,51 @@ def _filtered_aggregate_body(
     ]
 
 
+def _detect_and_mark_body(
+    model, table, fields, num_cols, params, name, is_list_model
+):
+    """``List[<This>]`` zero-param ``detect_/mark_/flag_<x>`` -> set the flag.
+
+    A repo method named ``detect_``/``mark_``/``flag_``<something> that takes
+    no params and returns the entity list is a "find duplicates and mark
+    them" operation: the intent says detect recurring expenses AND mark them
+    as recurring, but the LLM fill emitted a SELECT that only read rows
+    ALREADY flagged (``WHERE <flag> = 1 AND EXISTS(...)``) and never set the
+    flag — detect_recurring was a no-op on a fresh table.
+
+    Deterministic and shape-gated: exactly ONE bool column (the flag) and
+    exactly ONE numeric column (the "same value" discriminator) plus at
+    least one FK column (the "same category" discriminator). Rows sharing
+    both are flagged, then the flagged rows are returned. Anything else
+    declines, so the method stays a stub for the LLM fill as before.
+    """
+    if not is_list_model or params:
+        return None
+    if not re.match(r"^(detect|mark|flag)_", name or ""):
+        return None
+    bool_cols = [
+        c for c in fields if fields[c].get("type") in ("bool", "boolean")
+    ]
+    fk_cols = sorted(c for c in fields if c.endswith("_id") and c != "id")
+    if len(bool_cols) != 1 or len(num_cols) != 1 or not fk_cols:
+        return None
+    flag, num, fk = bool_cols[0], num_cols[0], fk_cols[0]
+    return [
+        "        with self.db.connect() as conn:",
+        "            conn.execute(",
+        '                "UPDATE %s SET %s = 1 WHERE id IN ("' % (table, flag),
+        '                "    SELECT a.id FROM %s a JOIN %s b"' % (table, table),
+        '                "      ON a.id != b.id AND a.%s = b.%s'
+        ' AND a.%s = b.%s)"' % (num, num, fk, fk),
+        "            )",
+        "            conn.commit()",
+        "            rows = conn.execute(",
+        '                "SELECT * FROM %s WHERE %s = 1"' % (table, flag),
+        "            ).fetchall()",
+        '            return [%s(**dict(r)) for r in rows]' % model,
+    ]
+
+
 def _repo_extra_body(
     m,
     ent,
@@ -146,6 +192,12 @@ def _repo_extra_body(
     if not ent:
         return None
     field_names = list(fields)
+
+    body = _detect_and_mark_body(
+        model, table, fields, num_cols, params, name, is_list_model
+    )
+    if body is not None:
+        return body
 
     if is_list_model and "list" in ret_l:
         ptype = _param_type(m, params[0]) if len(params) == 1 else None

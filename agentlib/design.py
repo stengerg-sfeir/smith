@@ -211,6 +211,7 @@ def _entities_schema():
                                     },
                                     "unique": {"type": "boolean"},
                                     "nullable": {"type": "boolean"},
+                                    "default": {},
                                     "auto": {"type": "string", "enum": ["now"]},
                                     "on_delete": {
                                         "type": "string", "enum": ["cascade"]},
@@ -1122,7 +1123,12 @@ _DESIGN_SYSTEMS = {
         'filters the listing/filtering features in the spec imply; omit '
         '"list_filters" when none apply. Per field, set "auto": "now" when '
         'the spec implies the system stamps that field at creation time '
-        '(e.g. a created_at timestamp); omit "auto" otherwise. Set '
+        '(e.g. a created_at timestamp); omit "auto" otherwise. Per field, '
+        'set "default": <value> WHEN THE SPEC DECLARES A DEFAULT for that '
+        'field (e.g. "available_copies (default 1)" -> "default": 1, '
+        '"is_active (default True)" -> "default": true), using the same '
+        'primitive type as the field; omit "default" when the spec names '
+        'none. Set '
         '"table_name" on an entity ONLY when its natural plural is '
         'irregular (e.g. Person -> people, Child -> children); omit it for '
         'regular plurals. Do not invent fields the spec does not imply.'

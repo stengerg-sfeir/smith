@@ -20,6 +20,7 @@ from ..kernel.service.common import _filter_params, _resolve_filter_args
 from ..kernel.repo.finder import _render_simple_finder, _simple_finder_spec
 from ..kernel.repo.variant import _existing_variant_alias, _render_variant_alias
 from .helpers import _method_stub_code
+from .model_render import _coerce_field_default
 from .repo_render import _repo_dict_keys
 from .splice import _fn_has_stub_raise, _merge_stub_bodies
 
@@ -242,6 +243,24 @@ _NO_SWALLOW_RULE = (
     "required id."
 )
 
+# Deterministic fill-prompt rule: a repo getter that returns ONE row
+# (get_by_id / get_by_<x> / get_<x>_by_<y>) returns None when no such row
+# exists. The 4B model reads an attribute straight off the call —
+# self.budget_repo.get_by_category_and_month(category_id, month).id — which
+# raises AttributeError when the budget is missing (expense add_expense
+# crash). A hard instruction: assign the row to a local and guard every use.
+_OPTIONAL_GETTER_RULE = (
+    "OPTIONAL SINGLE-ROW GETTERS  a repository getter that returns ONE row "
+    "(get_by_id(...), get_by_<x>(...), get_<x>_by_<y>(...)) returns None "
+    "when no matching row exists. NEVER read an attribute or call a method "
+    "directly off the call — `self.<repo>.get_...( ... ).id` raises "
+    "AttributeError when the row is missing. Assign the result to a local "
+    "variable, guard with `if <local> is not None:` (or `if <local>:`), and "
+    "use <local>.field only inside that guard. NEVER look the same row up a "
+    "SECOND time — reuse the local you already bound. Consult an OPTIONAL "
+    "row (e.g. a category's budget) only when its row exists."
+)
+
 # Validates in the SYSTEM message (primacy slot) so a small model attends to
 # the rules instead of losing them at the bottom of a long user-side
 # instruction. Domain-agnostic prohibitions; the user-side interface listing
@@ -252,6 +271,7 @@ _FILL_SYSTEM_RULES = "\n\n".join([
     _REPO_METHOD_RULE,
     _REPO_SPREAD_RULE,
     _NO_SWALLOW_RULE,
+    _OPTIONAL_GETTER_RULE,
 ])
 
 
@@ -341,6 +361,11 @@ def _required_constructor_fields(entities_by_class):
                 continue
             name = f["name"]
             if name == "id" or f.get("nullable"):
+                continue
+            if f.get("default") is not None:
+                # A spec-declared default is supplied by the dataclass itself
+                # when the caller omits the field, so it is not a required
+                # constructor argument.
                 continue
             if f.get("auto") == "now" and f.get("type") in ("date", "datetime"):
                 continue
@@ -612,7 +637,25 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 ent, ent_name, entities_by_class, exception_names
             ):
                 return None
-            kwargs = ["%s=%s" % (p, p) for p in param_names if p in fields]
+            field_defaults = {}
+            for f in (ent.get("fields") or []):
+                if not isinstance(f, dict) or not f.get("name"):
+                    continue
+                coerced = _coerce_field_default(
+                    f.get("type", "str"), f.get("default")
+                )
+                if coerced is not None:
+                    field_defaults[f["name"]] = coerced
+            kwargs = [
+                (
+                    "%s=(%s if %s is not None else %r)"
+                    % (p, p, p, field_defaults[p])
+                    if p in field_defaults
+                    else "%s=%s" % (p, p)
+                )
+                for p in param_names
+                if p in fields
+            ]
             if not kwargs:
                 # Data-dict add (add_<entity>(data: Dict[str, Any])): build
                 # the entity from a single dict parameter, validating FK keys
@@ -670,6 +713,7 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             required = {
                 f.get("name") for f in (ent.get("fields") or [])
                 if not f.get("nullable") and f.get("name") != "id"
+                and f.get("default") is None
             }
             missing = required - covered
             if missing - auto_now:
@@ -2131,6 +2175,35 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
                     "the entity instance first"
                     % (value.attr, ast.unparse(bad[0])[:60])
                 )
+    # None-safety contract: a single-row repo getter (get_by_id / get_by_<x>
+    # / get_<x>_by_<y>) returns None when no row matches, so reading an
+    # attribute straight off the call (self.budget_repo.
+    # get_by_category_and_month(...).id) is a guaranteed AttributeError on the
+    # missing-row path (expense add_expense crashed when no budget existed).
+    # Force the fill to bind the row to a local and guard it.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute) or not isinstance(
+            node.value, ast.Call
+        ):
+            continue
+        f = node.value.func
+        if not (
+            isinstance(f, ast.Attribute)
+            and isinstance(f.value, ast.Attribute)
+            and isinstance(f.value.value, ast.Name)
+            and f.value.value.id == "self"
+        ):
+            continue
+        sig = repo_interface.get(f.value.attr)
+        if sig is None or f.attr not in sig:
+            continue
+        if f.attr.startswith("get_"):
+            violations.append(
+                "reads .%s directly off self.%s.%s(...) — a single-row "
+                "getter returns None when no row matches; assign it to a "
+                "local and guard with `if <local> is not None:` before "
+                "using it" % (node.attr, f.value.attr, f.attr)
+            )
     # Return-type contract: dict-style accessors (.get/.keys/.items/.values)
     # may only be applied to results of repo methods DECLARED to return
     # dicts (type_ctx["dict_keys"]). Calling .get() on an int/bool/List
