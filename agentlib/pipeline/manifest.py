@@ -38,6 +38,11 @@ from agentlib.pipeline.cli_surface import (
     repo_surface_constraint,
 )
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
+from agentlib.pipeline.service_contract import (
+    extract_service_contract,
+    service_contract_constraint,
+    check_service_contract,
+)
 from agentlib.generation.service_render import (
     _apply_filter_floors,
     _apply_impl_floors,
@@ -652,7 +657,20 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # the two LLM design passes (service + CLI) may still disagree on NEW
     # commands, and that divergence is reconciled deterministically here.
     svc_paths = [s["file"] for s in manifest if s["kind"] == "service"]
-    svc_constraint = cli_surface_constraint(cli_surface) if cli_surface else ""
+    # INTERNAL CONTRACT anchor: extract the service methods the SPEC explicitly
+    # declares (evidence-closed) and make them a design requirement — the
+    # mirror of cli_surface_constraint, but anchored to the spec instead of the
+    # CLI. Without it a spec method with no CLI command (renew_membership) is
+    # dropped, and a wrong name (borrow_member) can replace a real one
+    # (borrow_book). Underspecified prompts yield few/no required methods.
+    service_contract = extract_service_contract(prompt_text, verbose=verbose)
+    _contract_block = service_contract_constraint(service_contract)
+    svc_constraint = "\n\n".join(
+        x for x in (
+            cli_surface_constraint(cli_surface) if cli_surface else "",
+            _contract_block,
+        ) if x
+    )
     for sp in svc_paths:
         if _service_is_complex(cli_surface, entities_by_class):
             if verbose:
@@ -674,7 +692,14 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 scoped_ctx = _scoped_fmt_design_context(
                     ent_cls, designs, entities_by_class, compact=True
                 )
-                scoped_cons = _scoped_cli_constraint(grp["commands"])
+                # Every scoped service call sees the FULL spec contract so a
+                # required method is never dropped by group scoping.
+                scoped_cons = "\n\n".join(
+                    x for x in (
+                        _scoped_cli_constraint(grp["commands"]),
+                        _contract_block,
+                    ) if x
+                )
                 gdata = _design_module(
                     sp, "services", prompt_text, scoped_ctx, verbose,
                     extra_context=scoped_cons,
@@ -840,6 +865,14 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     _synthesize_cli_repos(designs, entities_by_class, manifest)
     # Recompute repo_paths to include any repository file synthesized above.
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
+
+    # Service-contract coverage: every spec-declared internal method must be
+    # present in the FINAL (post-reconcile/floor) service design. A missing
+    # method is a real specification gap and is reported loudly — the anchor
+    # that stops a spec method with no CLI command from silently vanishing.
+    _svc_final = next((d for p, k, d in designs if k == "services"), None)
+    for _cv in check_service_contract(service_contract, _svc_final):
+        print("    [contract] VIOLATION: %s" % _cv, file=sys.stderr)
 
     # Deterministic floor for list_filters: cover the parameters the
     # designed service/repository signatures actually use. Declarations

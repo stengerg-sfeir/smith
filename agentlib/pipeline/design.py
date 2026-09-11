@@ -521,7 +521,18 @@ def _sanitize_cli_design(data, service_methods):
         )
         sig = sigs.get(c.get("target"))
         if sig is None:
-            notes.append("%s -> dropped (unknown target)" % label)
+            notes.append(
+                "%s -> dropped (unknown target %r, options=%s)"
+                % (
+                    label,
+                    c.get("target"),
+                    ",".join(
+                        str(o.get("name"))
+                        for o in (c.get("options") or [])
+                        if isinstance(o, dict)
+                    ),
+                )
+            )
             continue
         params = [n for n, _ in sig]
         opts = [o for o in (c.get("options") or []) if isinstance(o, dict)]

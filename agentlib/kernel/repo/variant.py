@@ -26,6 +26,29 @@ def _method_name_variant(a, b):
     return na.startswith(nb + "_") or nb.startswith(na + "_")
 
 
+# Verb DIRECTION, kept separate from the name-variant spelling test. A read
+# lookup must never be satisfied by a method that MUTATES its entity: the
+# alias body forwards positionally (``*args``), so a write whose parameter
+# list merely contains the call's arg NAMES is still a wrong, side-effecting
+# target. library_system's ``get_loan_by_member_and_book(member_id, book_id)``
+# was aliased onto ``update_loan(loan_id, book_id, member_id, due_date,
+# return_date, status)`` on arg-name coverage alone, so the fill call failed
+# on arity and ``borrow_book`` shipped as a dead ``return False`` stub.
+_READ_VERBS = ("get_", "find_", "list_", "fetch_", "count_", "read_", "load_")
+_WRITE_VERBS = (
+    "update_", "add_", "create_", "insert_", "upsert_", "delete_",
+    "remove_", "cancel_", "save_", "set_", "put_", "patch_", "mark_",
+)
+
+
+def _is_read_call(name):
+    return (name or "").startswith(_READ_VERBS)
+
+
+def _is_write_method(name):
+    return (name or "").startswith(_WRITE_VERBS)
+
+
 def _existing_variant_alias(attr, meth, repo_interface, call_args=None):
     """Return an EXISTING repo method name that `meth` is a name-variant of,
     or None. Used to synthesize a delegating alias instead of a stub.
@@ -61,7 +84,13 @@ def _existing_variant_alias(attr, meth, repo_interface, call_args=None):
         variant = 1 if _method_name_variant(m, meth) else 0
         return (matched, variant, -len(pv))
 
-    best = max(sig, key=_score)
+    # Never satisfy a READ lookup with a WRITE method — see the verb sets
+    # above. The candidate pool is filtered, not scored, so a mutator cannot
+    # win on arg-name coverage when no read alternative exists.
+    pool = [m for m in sig if not (_is_read_call(meth) and _is_write_method(m))]
+    if not pool:
+        return None
+    best = max(pool, key=_score)
     # Only alias on real signal: a strict name-variant, or at least one call
     # arg the candidate's param set covers. Prevents random aliasing.
     if _score(best)[0] == 0 and not _method_name_variant(best, meth):

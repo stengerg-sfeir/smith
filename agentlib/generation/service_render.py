@@ -2419,13 +2419,25 @@ model_entities=None):
     # field exists even when no field is auto:"now", so widen the predicate to
     # ANY date/datetime-typed entity field. An unused import in a service that
     # never timestamps is harmless; a missing import in a fill is a NameError.
-    if any(
-        f.get("name") != "id"
-        and f.get("type") in ("date", "datetime")
-        for ent in entities_by_class.values()
-        for f in (ent.get("fields") or [])
-        if isinstance(f, dict)
-    ):
+    has_date = False
+    has_temporal = False
+    for ent in entities_by_class.values():
+        for f in (ent.get("fields") or []):
+            if not isinstance(f, dict) or f.get("name") == "id":
+                continue
+            if f.get("type") == "date":
+                has_date = True
+                has_temporal = True
+            elif f.get("type") == "datetime":
+                has_temporal = True
+    # `date` is used as a bare annotation name in the rendered signatures
+    # (e.g. `start_date: Optional[date]`); it must be imported or the
+    # annotation is unbound. `datetime` stays the MODULE because the default
+    # recipes and fills stamp `datetime.datetime.now()` -- importing the
+    # class would shadow it (same rule as the model renderer).
+    if has_date:
+        lines.append("from datetime import date")
+    if has_temporal:
         lines.append("import datetime")
     lines += [
         "",

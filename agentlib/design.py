@@ -481,6 +481,39 @@ def _v_impl(m, label):
                 "must be a YYYY-MM str or a year int"
                 % (label, m.get("name"), pp)
             )
+    # Bounded SEMANTIC guard on the aggregate recipes (a shape-valid impl can
+    # still be nonsense): a sum/total must sum a NUMERIC value, never a
+    # date/time/id/text column (the design attached sum_by_group with
+    # value_field=due_date to a report -> the rendered body did `int + str`);
+    # duplicate_groups must be a duplicate/recurring-shaped method, never a
+    # search/history (the design attached it to search_book). A rejected impl
+    # is DROPPED (the method falls back to deterministic generic/fill), which
+    # is strictly safer than rendering the nonsense body.
+    _mname = (m.get("name") or "").lower()
+    if kind in ("sum_by_group", "total_in_period", "total_filtered"):
+        vf = str(impl.get("value_field") or "").lower()
+        if vf and (
+            vf in ("date", "time", "datetime", "timestamp")
+            or vf.endswith(("_date", "_at", "_time", "_timestamp"))
+            or vf.endswith(("_id", "_name", "_title", "_isbn", "_email"))
+        ):
+            errs.append(
+                "%s.%s: impl.%s sums %r, which is not a numeric value field"
+                % (label, m.get("name"), kind, vf)
+            )
+    if kind == "duplicate_groups":
+        _dup_tokens = (
+            "duplicate", "duplicates", "dupes", "recurring", "recur",
+            "repeat", "repeated", "detect", "mark", "flag", "group",
+        )
+        _gb = [str(g).lower() for g in (impl.get("group_by") or [])]
+        _flagged = any("recurring" in g or "duplicate" in g for g in _gb)
+        if not any(tok in _mname for tok in _dup_tokens) and not _flagged:
+            errs.append(
+                "%s.%s: impl.duplicate_groups on %r — not a duplicate/"
+                "recurring detector"
+                % (label, m.get("name"), m.get("name"))
+            )
     return errs
 
 

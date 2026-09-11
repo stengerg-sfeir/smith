@@ -22,7 +22,8 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
     """
     commands = design.get("commands") or []
     svc_snake = _snake(svc_class)
-    seen_flat = set()
+    used_cmds = set()
+    used_idents = set()
     # Field names carrying a spec-declared default are OPTIONAL on the CLI:
     # an omitted option yields None and the deterministic add_ body
     # substitutes the declared default (is_active default True,
@@ -57,6 +58,36 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         "",
     ]
 
+    # Preserve the DESIGNED command TREE: group=["expense","category"],
+    # name="add" is the real nested command `expense category add`. The old
+    # renderer flattened it to a root-level @cli.command('category-add'),
+    # discarding the group structure every spec asks for. Ancestor groups are
+    # emitted on first use, root-first, so a decorator always sees its parent.
+    group_idents = {}
+    used_group_idents = {"cli"}
+
+    def _ensure_groups(path):
+        parent_ident = None
+        for _i in range(1, len(path) + 1):
+            sub = path[:_i]
+            if sub not in group_idents:
+                gident = _cli_ident(sub)
+                _k = 2
+                while gident in used_group_idents:
+                    gident = "%s_%d" % (_cli_ident(sub), _k)
+                    _k += 1
+                used_group_idents.add(gident)
+                if parent_ident:
+                    lines.append("@%s.group(%r)" % (parent_ident, sub[-1]))
+                else:
+                    lines.append("@cli.group(%r)" % sub[-1])
+                lines.append("def %s():" % gident)
+                lines.append('    """%s commands."""' % " ".join(sub))
+                lines.append("")
+                group_idents[sub] = gident
+            parent_ident = group_idents[sub]
+        return parent_ident
+
     for c in commands:
         if not isinstance(c, dict):
             continue
@@ -71,23 +102,30 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         # path so the flat command is "expense-add", never "add-add"; any
         # residual collision gets a numeric suffix instead of being silently
         # overwritten by a later @cli.command registration.
+        # A doubled verb (["expense","add"] + "add") collapses to its parent.
         while group and group[-1] == name:
             group = group[:-1]
-        leaf = group[-1] if group else ""
-        flat_hyphen = "-".join([leaf, name]) if leaf else name
-        if flat_hyphen in seen_flat and len(group) >= 2:
-            flat_hyphen = "-".join(group + [name])
-        base = flat_hyphen
+        owner = _ensure_groups(tuple(group))
+        cmd_name = name
         k = 2
-        while flat_hyphen in seen_flat:
-            flat_hyphen = "%s-%d" % (base, k)
+        while (owner, cmd_name) in used_cmds:
+            cmd_name = "%s-%d" % (name, k)
             k += 1
-        seen_flat.add(flat_hyphen)
-        flat_ident = flat_hyphen.replace("-", "_")
+        used_cmds.add((owner, cmd_name))
+        base_ident = _cli_ident(tuple(group) + (name,))
+        flat_ident = base_ident
+        k = 2
+        while flat_ident in used_idents:
+            flat_ident = "%s_%d" % (base_ident, k)
+            k += 1
+        used_idents.add(flat_ident)
         opts = c.get("options") or []
         target = c.get("target") or name or ""
 
-        lines.append("@cli.command(%r)" % flat_hyphen)
+        if owner:
+            lines.append("@%s.command(%r)" % (owner, cmd_name))
+        else:
+            lines.append("@cli.command(%r)" % cmd_name)
         for o in opts:
             oname = o.get("name")
             if not oname:
@@ -114,12 +152,25 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         # The service __init__ takes a Database object, not a path string.
         lines.append("    svc = %s(Database(DB_PATH))" % svc_class)
         lines.append("    " + call)
+        # A read command must PRINT its result for the CLI to be usable (and
+        # for a stdout expectation to be satisfiable). A None-returning
+        # mutation stays silent.
+        lines.append("    if result is not None:")
+        lines.append("        click.echo(result)")
         lines.append("")
 
     lines.append("")
     lines.append('if __name__ == "__main__":')
     lines.append("    cli()")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _cli_ident(path):
+    """Identifier-safe Python function name for a command/group path."""
+    return (
+        re.sub(r"[^0-9a-zA-Z_]", "_", "_".join(str(p) for p in path))
+        or "cmd"
+    )
 
 
 def _optvar(o):

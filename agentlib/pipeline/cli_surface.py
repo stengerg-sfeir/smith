@@ -443,6 +443,11 @@ def derive_cli_from_intents(classified, entities_by_class, verbose=False,
 
 # --- explicit command parsing -----------------------------------------------
 
+_GENERIC_REPORT_VERBS = frozenset(
+    ("report", "summary", "aggregate", "total", "calculate")
+)
+
+
 def _parse_explicit_command(s):
     """Parse a verbatim command string into {group, name, options, target}.
 
@@ -498,6 +503,31 @@ def _parse_explicit_command(s):
         return None
     verb_raw = raw[verb_idx][0].lower()
     verb = _normalize_verb(verb_raw) or verb_raw
+    # A generic report verb followed by a QUALIFIER token ("expense report
+    # monthly --month", "expense report yearly --year") names the QUALIFIER
+    # as the command. Collapsing both to one "report" command unions their
+    # options (--month, --year) into a surface neither report can serve, and
+    # the spec's own report commands disappear. Folding the qualifier in
+    # yields "expense monthly"/"expense yearly", which the designed
+    # get_monthly_report/get_yearly_summary already serve.
+    if (
+        (verb in _GENERIC_REPORT_VERBS or verb_raw in _GENERIC_REPORT_VERBS)
+        and verb_idx + 1 < len(raw)
+    ):
+        _nxt = raw[verb_idx + 1][0]
+        if not _nxt.startswith("-"):
+            # Normalize the qualifier to a snake_case identifier — a raw
+            # hyphenated token ("low-stock") fails the CLI command-name
+            # validation, and a shape error DISABLES the whole
+            # reconcile-propagation repair (every unwired command is then
+            # sanitized away instead of being synthesized).
+            verb = re.sub(
+                r"[\s-]+", "_", _normalize_verb(_nxt) or _nxt.lower()
+            )
+            # Do NOT advance verb_idx: the qualifier REPLACES the generic verb
+            # in the NAME only. The group must stay raw[:verb_idx] (without
+            # "report"), and the qualifier token is skipped by the option loop
+            # because it does not start with "--".
     group = [t.lower() for t, _ in raw[:verb_idx] if not t.startswith("-")]
     options = []
     seen = set()

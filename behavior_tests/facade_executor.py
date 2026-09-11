@@ -185,7 +185,9 @@ def _rebuild_invocation(plan: dict) -> None:
     if plan.get("entry"):
         parts.append(plan["entry"])
     if plan.get("kind") == "click_group" and plan.get("command"):
-        parts.append(plan["command"])
+        # A nested click command path ("expense category add") must become
+        # separate argv tokens, not one quoted token.
+        parts.extend(str(plan["command"]).split())
     parts.extend(plan.get("positional_args", []))
     for pair in plan.get("option_args", []):
         parts.extend(pair)
@@ -414,23 +416,29 @@ def execute_prompt(plans: list[dict], project_dir: Path,
             continue
         seen_invocations.add(inv)
         res = execute_plan(plan, project_dir)
-        # Reactive retry for state-conflict mutations (prompt 32): a non-create
-        # plan whose refs target its OWN entity (an order-confirm/ship/cancel
-        # state transition, or an update/delete on a previously-mutated row) may
-        # reuse a row a PRIOR plan already advanced into an incompatible state
-        # (order-confirm -> order-ship -> order-cancel on the same seeded id, so
-        # cancel correctly raises OrderAlreadyShippedError). When it fails, seed
-        # a FRESH row for the target entity and retry once. If the retry also
-        # fails, the original failure was a real bug (the fresh row couldn't make
-        # it pass either).
+        # Reactive retry for state / shared-parent conflicts. A non-create plan
+        # can fail because a row it REFERENCES is in an incompatible state:
+        #   - a "target" ref (order-cancel after order-ship on the same seeded
+        #     id) — the generated guard correctly rejects the transition; or
+        #   - an "fk" ref whose parent is SHARED with a seeded CHILD row
+        #     (library's borrow's --member-id/--book-id resolve to the same
+        #     member/book the I7 loan seed already links, so the now-working
+        #     borrow_book correctly raises "already borrowed by this member").
+        # When it fails, replace EVERY referenced row with a fresh one, then
+        # retry ONCE. If the retry also fails, the original failure was real.
         if res["status"] == "fail" and not plan.get("seed") and design:
+            ref_entities: list[tuple[str, str]] = []
             for ref in plan.get("refs", []):
-                if not isinstance(ref, dict) or ref.get("kind") != "target":
+                if not isinstance(ref, dict):
                     continue
                 ent = ref.get("entity")
                 flag = ref.get("flag")
                 if not ent or not flag:
                     continue
+                if (ent, flag) not in ref_entities:
+                    ref_entities.append((ent, flag))
+            reseeded = False
+            for ent, flag in ref_entities:
                 val = None
                 for pair in plan.get("option_args", []):
                     if pair and pair[0] == flag and len(pair) > 1:
@@ -447,10 +455,10 @@ def execute_prompt(plans: list[dict], project_dir: Path,
                 entity_counts[ent] = real_id
                 entity_provided[(ent, None)] = real_id
                 entity_provided[(ent, val)] = real_id
+                reseeded = True
+            if reseeded:
                 _substitute_refs(plan, entity_provided)
-                inv = plan.get("invocation", "")
                 res = execute_plan(plan, project_dir)
-                break
         created = _entity_provides(plan)
         if created and res["status"] == "pass":
             entity_counts[created] = entity_counts.get(created, 0) + 1

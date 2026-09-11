@@ -70,6 +70,7 @@ def _render_models_file(design):
     unique_map = {}
     table_map = {}
     needs_datetime = False
+    needs_date = False
     for ent in design.get("entities") or []:
         name = ent["name"]
         # Declared table name kept ONLY when it differs from the
@@ -82,6 +83,12 @@ def _render_models_file(design):
         for f in fields:
             fname = f.get("name")
             ftype = f.get("type", "str")
+            # A date/datetime annotation is emitted VERBATIM below, so the
+            # matching name must be imported or the annotation is unbound.
+            if ftype == "date":
+                needs_date = True
+            elif ftype == "datetime":
+                needs_datetime = True
             dflt = _coerce_field_default(ftype, f.get("default"))
             if fname == "id" or f.get("nullable"):
                 opt.append((fname, f.get("type", "int")))
@@ -169,6 +176,7 @@ def _render_models_file(design):
         '"""Domain models."""\n'
         "from __future__ import annotations\n\n"
         "from dataclasses import dataclass\n"
+        + ("from datetime import date\n" if needs_date else "")
         + ("import datetime\n" if needs_datetime else "")
         + "from typing import Dict, List, Optional\n"
     )

@@ -198,27 +198,87 @@ def _is_click_command(node: ast.FunctionDef) -> bool:
     return False
 
 
+def _decorator_target(dec: ast.expr):
+    """(kind, parent_ident, explicit_name) for a click group/command decorator.
+
+    ``@cli.group('expense')`` -> ("group", "cli", "expense");
+    ``@expense_category.command('add')`` -> ("command", "expense_category", "add");
+    ``@click.group()`` -> ("group", "click", None)  (the click module = root).
+    Returns None for any other decorator.
+    """
+    if not isinstance(dec, ast.Call):
+        return None
+    fn = dec.func
+    if not (isinstance(fn, ast.Attribute) and fn.attr in ("group", "command")):
+        return None
+    parent = fn.value.id if isinstance(fn.value, ast.Name) else None
+    name = _normalize_option_arg(dec.args[0]) if dec.args else None
+    return fn.attr, parent, name
+
+
 def _parse_click_file(path: Path) -> dict | None:
-    """Parse a click-based file into facade commands. Returns None if no click."""
+    """Parse a click file into facade commands, PRESERVING the group tree.
+
+    A nested command ``@expense_category.command('add')`` under
+    ``@cli.group('expense')`` / ``@expense.group('category')`` is reported
+    with name ``"expense category add"`` — the exact invocation path. The
+    earlier version skipped every group and only saw root-level
+    ``@cli.command`` definitions, so a nested CLI discovered ZERO commands.
+    """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (SyntaxError, OSError):
         return None
 
-    commands = []
-    has_click = False
+    info: dict[str, dict] = {}
+    root_idents: list[str] = []
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
-        if _is_click_group(node):
-            has_click = True
-            continue  # the group body holds commands only via decorators on siblings
-        if _is_click_command(node):
-            has_click = True
-            parsed = _parse_click_command(node)
-            if parsed:
-                commands.append(parsed)
-    if not has_click:
+        for dec in node.decorator_list:
+            t = _decorator_target(dec)
+            if not t:
+                continue
+            kind, parent, name = t
+            info[node.name] = {
+                "kind": kind, "parent": parent, "name": name, "node": node,
+            }
+            if kind == "group" and parent in (None, "click"):
+                root_idents.append(node.name)
+            break
+    if not info:
+        return None
+    root_ident = root_idents[0] if root_idents else None
+
+    def _seg(ident: str) -> str:
+        d = info.get(ident) or {}
+        return d.get("name") or ident.replace("_", "-")
+
+    def _group_path_of(ident: str, seen=frozenset()) -> list[str]:
+        """CLI path of the GROUP that function ``ident`` is registered under."""
+        if ident in seen:
+            return []
+        seen = seen | {ident}
+        d = info.get(ident)
+        if not d:
+            return []
+        parent = d["parent"]
+        if parent in (None, "click", root_ident) or parent not in info:
+            return []
+        return _group_path_of(parent, seen) + [_seg(parent)]
+
+    commands = []
+    for ident, d in info.items():
+        if d["kind"] != "command":
+            continue
+        parsed = _parse_click_command(d["node"])
+        if not parsed:
+            continue
+        cmd_path = _group_path_of(ident) + [_seg(ident)]
+        parsed["name"] = " ".join(cmd_path)
+        parsed["path"] = cmd_path
+        commands.append(parsed)
+    if not commands and not root_idents:
         return None
     return {"entry": path.name, "kind": "click", "commands": commands}
 

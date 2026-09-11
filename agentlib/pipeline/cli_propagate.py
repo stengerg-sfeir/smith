@@ -6,6 +6,7 @@ completion + CRUD/history synthesis) so it never becomes a hallucination
 channel; deterministic sanitization is the backstop.
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -242,6 +243,18 @@ svc_design, designs):
 
     def synth(name, params, returns, defaults=None, flag_filters=None,
               replace=False):
+        # Invariant: a rendered signature can never repeat a param name —
+        # a duplicate argument is a SyntaxError that breaks the whole module
+        # import (every CLI command then exits non-zero). Two CLI options can
+        # resolve onto the SAME entity field (--budget and --monthly-budget
+        # both -> monthly_budget), so dedupe by name, first occurrence wins.
+        _uniq_params, _seen_param_names = [], set()
+        for _pn, _pt in params:
+            if not _pn or _pn in _seen_param_names:
+                continue
+            _seen_param_names.add(_pn)
+            _uniq_params.append((_pn, _pt))
+        params = _uniq_params
         if name in sigs:
             # Signature-coherence repair (option diffusion fix). A CLI command
             # that targets an EXISTING service method may expose options for
@@ -339,6 +352,25 @@ svc_design, designs):
         )
         cls = _command_entity(c, entities_by_class)
         tgt = c.get("target")
+        if os.environ.get("NEUROSYM_CLI_DEBUG"):
+            print(
+                "    [cli-debug] %s cls=%s target=%r opts=%s"
+                % (
+                    label,
+                    cls,
+                    tgt,
+                    ";".join(
+                        "%s%s"
+                        % (
+                            o.get("name"),
+                            ("->" + str(o.get("field"))) if o.get("field") else "",
+                        )
+                        for o in (c.get("options") or [])
+                        if isinstance(o, dict)
+                    ),
+                ),
+                file=sys.stderr,
+            )
         if tgt in sigs:
             # Known target: skip only when FULLY wired (every option maps,
             # every required param covered). An existing-but-wrong target
@@ -556,6 +588,12 @@ svc_design, designs):
                     dead.append(o.get("name"))
                     continue
                 covered.add(match)
+                if match in {p for p, _ in params}:
+                    # A second option resolving onto the same field is
+                    # redundant: keep it as a CLI alias (the renderer dedupes
+                    # options by resolved param) but never declare the param
+                    # twice.
+                    continue
                 params.append(
                     (match, "int" if o.get("type") == "int" else "str")
                 )
@@ -731,7 +769,14 @@ svc_design, designs):
                 notes.append("%s -> %s" % (label, meth))
                 continue
             if len(keys) != 2:
-                continue
+                # A redundant id option merged from a parallel design
+                # (budget delete --category-id --month carries no --id) must
+                # not break the unique-pair shape: when the non-id keys cover
+                # exactly one declared pair, delete on that pair and let the
+                # sanitizer strip the now-dead --id.
+                keys = [k for k in keys if k not in ("id", sn + "_id")]
+                if len(keys) != 2:
+                    continue
             hit = next(
                 (
                     [str(x) for x in p]
@@ -779,6 +824,7 @@ svc_design, designs):
                 if isinstance(p, list) and len(p) == 2
             ]
             id_seen, mapped, ok = False, [], True
+            dead = []
             for o in opts:
                 if o.get("type") == "flag":
                     ok = False
@@ -786,23 +832,68 @@ svc_design, designs):
                 key = o.get("field") or _optvar(o)
                 if key == "id" or key == sn + "_id":
                     if id_seen:
-                        ok = False
-                        break
+                        # A second id option (merged from a parallel design)
+                        # is redundant, not fatal.
+                        dead.append(o.get("name"))
+                        continue
                     id_seen = True
                     continue
                 fm = _match_param(key, sorted(n for n in fields if n != "id"))
-                if fm is None or fm in mapped:
+                if fm is None:
                     ok = False
                     break
+                if fm in mapped:
+                    # A second option resolving onto the SAME field (the LLM
+                    # design and the explicit surface disagree on the flag
+                    # name: --budget vs --monthly-budget) is redundant — strip
+                    # it instead of dropping the whole command.
+                    dead.append(o.get("name"))
+                    continue
                 mapped.append(fm)
             if not ok:
                 continue
+            if dead:
+                c["options"] = [
+                    o for o in c["options"]
+                    if not (isinstance(o, dict) and o.get("name") in dead)
+                ]
 
             def _ptype(n):
                 if n.endswith("_id"):
                     return "int"
                 return str(fields.get(n) or "str")
 
+            # Pair-based takes precedence when the mapped fields cover a
+            # declared unique_together pair plus >= 1 other field: the spec's
+            # command (budget update --category-id --month [--amount]) keys on
+            # the PAIR, and a redundant --id merged from a parallel design
+            # must not force an id shape the command surface cannot serve.
+            if pairs and len(mapped) >= 3:
+                _pair = next(
+                    (
+                        p for p in pairs
+                        if {p[0], p[1]} <= set(mapped)
+                        and len([m for m in mapped if m not in p]) >= 1
+                    ),
+                    None,
+                )
+                if _pair is not None:
+                    _extra = [m for m in mapped if m not in _pair]
+                    meth = synth(
+                        "update_" + sn,
+                        [
+                            (_pair[0], _ptype(_pair[0])),
+                            (_pair[1], _ptype(_pair[1])),
+                        ]
+                        + [(m, _ptype(m)) for m in _extra],
+                        "bool",
+                        replace=True,
+                    )
+                    c["target"] = meth
+                    notes.append(
+                        "%s -> %s (unique-pair)" % (label, meth)
+                    )
+                    continue
             if id_seen and mapped:
                 meth = synth(
                     "update_" + sn,
@@ -1026,6 +1117,51 @@ svc_design, designs):
             c["target"] = meth
             notes.append("%s -> %s" % (label, meth))
             continue
+
+        # Verb-named, option-less command (e.g. ``expense detect``, whose
+        # explicit command line carries no options and so no target): wire it
+        # to an existing parameterless service method whose name starts with
+        # the verb (detect -> detect_recurring). Bounded: no options, a
+        # non-CRUD verb, an unusable target, and a parameterless candidate
+        # only — it cannot reshape or invent anything, it only reuses a method
+        # the spec already implies.
+        if (
+            not opts
+            and cname
+            and cname not in (
+                "add", "create", "list", "show", "get", "delete", "remove",
+                "update", "edit", "report", "export", "import", "search",
+            )
+            and not (
+                isinstance(tgt, str) and tgt
+                and re.fullmatch(r"[a-z][a-z0-9_]*", tgt)
+            )
+        ):
+            _vhit = next(
+                (
+                    m for m in sigs
+                    if (m == cname or m.startswith(cname + "_"))
+                    and not [
+                        p for p in (sigs[m].get("params") or [])
+                        if isinstance(p, dict) and p.get("name")
+                    ]
+                ),
+                None,
+            ) or next(
+                (
+                    m for m in sigs
+                    if cname in m.split("_")
+                    and not [
+                        p for p in (sigs[m].get("params") or [])
+                        if isinstance(p, dict) and p.get("name")
+                    ]
+                ),
+                None,
+            )
+            if _vhit is not None:
+                c["target"] = _vhit
+                notes.append("%s -> %s (verb match)" % (label, _vhit))
+                continue
 
         # Fallback (Option 2, allow_new_targets): the LLM named an explicit,
         # well-formed target for a capability the deterministic verb branches

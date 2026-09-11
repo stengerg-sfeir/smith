@@ -27,7 +27,7 @@ from pathlib import Path
 
 from agentlib.config import LLM_MAX_TOKENS_LONG
 from agentlib.llm.client import _json_complete
-from agentlib.naming import _snake
+from agentlib.naming import _camel, _snake
 
 from behavior_tests.fixtures import fixture_listing
 
@@ -363,6 +363,7 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
 
     fk_by_param: dict[str, str] = {}
     pk_by_entity: dict[str, list[str]] = {}
+    _entity_names = {ent["name"] for ent in design.get("entities", [])}
     for ent in design.get("entities", []):
         pk_by_entity[ent["name"]] = [f["name"] for f in ent.get("fields", [])
                                      if f.get("primary_key")]
@@ -395,6 +396,21 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
             # (e.g. --customer-id -> Customer). One parent serves many children.
             refs.append({"flag": flag, "entity": ref_ent, "kind": "fk"})
             continue
+        # An option named `<entity>_id` that resolves to a DESIGNED entity is a
+        # reference to that entity's row: seed it and substitute the real id.
+        # The METHOD name is not reliable here — `return_book(loan_id)` names
+        # "book" but targets a LOAN, so the method-name heuristic misses it and
+        # nothing creates the Loan (borrow_book may itself be an unfilled stub),
+        # leaving `return_book` to raise NotFoundError. The option name is the
+        # reliable signal.
+        if resolved.endswith("_id") and resolved != "id":
+            ref_cls = _camel(resolved[: -len("_id")])
+            if ref_cls in _entity_names and ref_cls != creates:
+                refs.append({
+                    "flag": flag, "entity": ref_cls,
+                    "kind": "fk" if create_style else "target",
+                })
+                continue
         # Targeted-PK reference: update/delete/get, or a state transition
         # (confirm/ship/cancel/approve) of an already-seeded row. A non-create
         # command that targets an entity via any id-like option (--id,
@@ -472,7 +488,9 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
         parts.append("-m")
     parts.append(entry)
     if kind == "click_group":
-        parts.append(cmd_name)
+        # A nested click command is a SPACE-JOINED path ("expense category
+        # add"); emit it as separate argv tokens, not one quoted token.
+        parts.extend(str(cmd_name).split())
     parts.extend(positional_values)
     for pair in option_pairs:
         parts.extend(pair)
@@ -506,12 +524,37 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
 # Seed-plan synthesis (order-of-operations fix)
 # ---------------------------------------------------------------------------
 
+def _seed_temporal(col: str) -> str:
+    """An ISO value for a SEED column that is a date/datetime.
+
+    Generated service bodies parse these columns with
+    ``datetime.fromisoformat(...)``; a placeholder like ``seed-loan`` is a
+    guaranteed ValueError. A due/expiry column seeds in the FUTURE so the
+    seeded row is VALID (an active, not-overdue loan) and the operation under
+    test can actually run; every other temporal column seeds to a fixed date.
+    """
+    name = (col or "").lower()
+    future = any(
+        k in name for k in ("due", "expiry", "expires", "deadline", "renew")
+    )
+    if name.endswith("_at") or "timestamp" in name or "datetime" in name:
+        return "2999-12-31T00:00:00" if future else "2000-01-01T00:00:00"
+    return "2999-12-31" if future else "2000-01-01"
+
+
 def _find_create_cmd(facade: dict, entity: str, design: dict | None) -> dict | None:
     """Find a facade command that creates ``entity`` (e.g. ``customer-add``)."""
     ent_snake = _snake(entity)
-    want = f"{ent_snake}-add"
+    # The command name is the full invocation path: a FLAT `customer-add` for a
+    # root-level command, or a NESTED `customer add` / `expense category add`
+    # for a group tree. Match all three shapes.
     for cmd in facade.get("commands", []):
-        if cmd.get("name") == want:
+        name = cmd.get("name") or ""
+        toks = name.replace("-", " ").split()
+        if (name == f"{ent_snake}-add"
+                or name == f"{ent_snake} add"
+                or name.endswith(f" {ent_snake} add")
+                or ("add" in toks and ent_snake in toks)):
             return cmd
     if design:
         for cmd in facade.get("commands", []):
@@ -569,6 +612,10 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
             dest = (opt.get("dest") or "").lower()
             if dest in ("status", "state"):
                 val = "active"
+            elif ("date" in dest or "time" in dest):
+                # A temporal column: a placeholder string crashes
+                # datetime.fromisoformat(...) in the generated body.
+                val = _seed_temporal(dest)
             else:
                 val = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
         args.append({"flag": flag, "value": val})
@@ -632,6 +679,12 @@ def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | 
         cols.append(col)
         if f.get("type") in ("int", "float"):
             vals.append(("1", True))
+        elif f.get("type") in ("date", "datetime") or (
+            col.endswith("_date") or col.endswith("_at")
+        ):
+            # ISO temporal value; a placeholder crashes the generated
+            # body's datetime.fromisoformat(...) (library I7 return).
+            vals.append((_seed_temporal(col), False))
         else:
             v = f"seed-{_snake(entity)}" + (f"-{suffix}" if suffix else "")
             vals.append((v, False))
@@ -810,11 +863,16 @@ def _delete_fallback(intent: dict, facade: dict,
         return None
     for cmd in facade.get("commands", []):
         name = cmd.get("name", "")
-        if not isinstance(name, str) or not name.endswith("-delete"):
+        if not isinstance(name, str):
             continue
-        ent_token = name[: -len("-delete")].replace("-", "_")
+        # Flat `customer-delete` or nested `customer delete` /
+        # `expense category delete`.
+        raw = name.replace("-", " ").split()
+        if not raw or raw[-1] != "delete":
+            continue
+        ent_token = raw[-2].replace("-", "_") if len(raw) >= 2 else ""
         ent_variants = {ent_token, ent_token + "s", ent_token.rstrip("s")}
-        if not any(v in text for v in ent_variants):
+        if not any(v and v in text for v in ent_variants):
             continue
         id_opt = next(
             (o for o in cmd.get("options", [])
@@ -919,7 +977,7 @@ def _rebuild_plan_invocation(plan: dict) -> None:
     if plan.get("entry"):
         parts.append(plan["entry"])
     if plan.get("kind") == "click_group" and plan.get("command"):
-        parts.append(plan["command"])
+        parts.extend(str(plan["command"]).split())
     parts.extend(plan.get("positional_args", []))
     for pair in plan.get("option_args", []):
         parts.extend(pair)
