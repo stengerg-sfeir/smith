@@ -1043,6 +1043,27 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 if p in fields and p not in _nullable_or_defaulted
                 and _field_types.get(p) in ("date", "datetime")
             )
+            # The SAME failure mode as the date above, one step down the call
+            # chain: a NON-NULLABLE bool field whose CLI option is optional.
+            # click renders `[--recurring]` as an is_flag, which always passes
+            # a bool — so the CLI path hides it — but the SERVICE method's own
+            # signature declares the argument optional (`is_recurring:
+            # Optional[bool] = None`), so a direct caller that omits it sends
+            # None into a NOT NULL column ("NOT NULL constraint failed:
+            # expenses.is_recurring"). An omitted flag means False. Bounded to
+            # bool-typed, non-nullable, default-less fields, so a required
+            # str/int column is never silently invented.
+            # `_is_bool_param_type` rather than a literal spelling test: the
+            # design may write the type as "boolean", "Optional[bool]" or
+            # with a trailing default, and a strict tuple membership silently
+            # produced an EMPTY fallback for exactly those spellings (expenses'
+            # `is_recurring` shipped with no fallback while its date sibling
+            # got one).
+            bool_fallback = sorted(
+                p for p in param_names
+                if p in fields and p not in _nullable_or_defaulted
+                and _is_bool_param_type(_field_types.get(p))
+            )
             if not kwargs:
                 if limit_spec is not None:
                     # The limit check needs the field params; a data-dict
@@ -1127,6 +1148,11 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 )
                 lines.append("        if %s is None:" % _dp)
                 lines.append("            %s = %s" % (_dp, _stamp))
+            # Resolve an omitted optional bool the same way, before the
+            # constructor reads it (see bool_fallback above).
+            for _bp in bool_fallback:
+                lines.append("        if %s is None:" % _bp)
+                lines.append("            %s = False" % _bp)
             # Generic FK validation: for any designed param that is a
             # foreign-key column of this entity (<x>_id), when the referenced
             # entity <X> exists AND a <X>NotFoundError was designed, emit a

@@ -12,7 +12,7 @@ from .model_render import _coerce_field_default
 
 
 def _render_cli_file(design, svc_class, entities_by_class, service_methods,
-                     verbose=False, db_path="app.db"):
+                     verbose=False, db_path="app.db", money=False):
     """Deterministic click CLI: one flat top-level command per command.
 
     A designed command `group=["item"], name="add"` becomes
@@ -45,9 +45,14 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
             ) is not None:
                 default_fields.add(_f["name"])
 
-    lines = [
-        "import click",
-        "from database import Database",
+    lines = ["import click", "from database import Database"]
+    if money:
+        # The specification's money convention is two-sided: integer cents in
+        # storage, decimal amounts for DISPLAY. Import the conversion helpers
+        # only for a project that asked for them, so every other CLI's output
+        # stays byte-identical.
+        lines.append("from money import format_result, from_decimal")
+    lines += [
         "from %s import %s" % (svc_snake, svc_class),
         "",
         'DB_PATH = "%s"' % db_path,
@@ -145,8 +150,26 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
                 else ""
             )
             if otype == "int":
-                lines.append("@click.option(%r, type=int%s)"
-                             % (oname, (", " + req) if req else ""))
+                # A cents-valued option is entered by the user as a DECIMAL
+                # AMOUNT ("12.50") and converted at the call boundary by
+                # ``from_decimal`` (see _build_service_call). Typing it ``int``
+                # rejected the very form the specification asks for:
+                # ``expense add --amount 12.50`` died in click with "invalid
+                # literal for int() with base 10: '12.50'" before the
+                # conversion could run. Bounded to the ``*_cents`` params the
+                # money convention covers, so every other int option (an id, a
+                # cent-count field with no conversion) stays an int.
+                _money_opt = bool(
+                    money and resolved and resolved.endswith("_cents")
+                )
+                lines.append(
+                    "@click.option(%r, type=%s%s)"
+                    % (
+                        oname,
+                        "float" if _money_opt else "int",
+                        (", " + req) if req else "",
+                    )
+                )
             elif otype == "flag" or _is_bool_type(declared):
                 # A boolean parameter must be a FLAG, whatever the design
                 # declared: `--is-active` was designed as a plain string
@@ -173,7 +196,9 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         pvars = ", ".join(_optvar(o) for o in opts if o.get("name"))
         lines.append("def %s(%s):" % (flat_ident, pvars))
         lines.append('    """%s"""' % "/".join(group + [name]))
-        call = _build_service_call(target, opts, service_methods)
+        call = _build_service_call(
+            target, opts, service_methods, money=money
+        )
         # The service __init__ takes a Database object, not a path string.
         lines.append("    svc = %s(Database(DB_PATH))" % svc_class)
         lines.append("    " + call)
@@ -181,7 +206,13 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         # for a stdout expectation to be satisfiable). A None-returning
         # mutation stays silent.
         lines.append("    if result is not None:")
-        lines.append("        click.echo(result)")
+        if money:
+            # Display through the cents->decimal helper: the value stays an
+            # integer cent count in the database, and only its PRINTED form
+            # is a decimal amount.
+            lines.append("        click.echo(format_result(result))")
+        else:
+            lines.append("        click.echo(result)")
         lines.append("")
 
     lines.append("")
@@ -292,9 +323,21 @@ def _resolve_option_param(o, params):
     return None
 
 
-def _build_service_call(target, opts, service_methods):
+def _build_service_call(target, opts, service_methods, money=False):
     """Wire click options to a service method call, passing ONLY options
-    that map to real parameters of the target's designed signature."""
+    that map to real parameters of the target's designed signature.
+
+    When the project declares the cents/decimal money convention
+    (``money``), every option bound to a ``*_cents`` parameter passes
+    through ``from_decimal``: that is the boundary reading a user-supplied
+    amount as integer cents. The helper returns an ``int`` UNCHANGED, so a
+    cents input is never rescaled and a decimal amount is converted.
+    """
+    def _money_arg(param, var):
+        if money and isinstance(param, str) and param.endswith("_cents"):
+            return "from_decimal(%s)" % var
+        return var
+
     sig = {}
     for m in service_methods or []:
         if isinstance(m, dict) and m.get("name"):
@@ -318,7 +361,7 @@ def _build_service_call(target, opts, service_methods):
             for o in opts:
                 if (o.get("name")
                         and _resolve_option_param(o, params) == p):
-                    parts.append("%s=%s" % (p, _optvar(o)))
+                    parts.append("%s=%s" % (p, _money_arg(p, _optvar(o))))
                     used.add(o.get("field") or _optvar(o))
                     break
         for o in opts:
@@ -338,7 +381,7 @@ def _build_service_call(target, opts, service_methods):
                 # is_recurring to 0 on a row that was marked recurring.
                 packed.append("'%s': (%s if %s else None)" % (k, var, var))
             else:
-                packed.append("'%s': %s" % (k, var))
+                packed.append("'%s': %s" % (k, _money_arg(k, var)))
         if packed:
             # A PARTIAL update must not write the options the user did not
             # supply: click hands the callback None for an absent option, and
@@ -364,7 +407,9 @@ def _build_service_call(target, opts, service_methods):
         if match is None:
             continue  # option does not map to the target signature
         used.add(key)
-        kwargs.append("%s=%s" % (match, _optvar(o)))
+        kwargs.append(
+            "%s=%s" % (match, _money_arg(match, _optvar(o)))
+        )
     return "result = svc.%s(%s)" % (target, ", ".join(kwargs))
 
 

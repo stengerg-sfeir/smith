@@ -206,6 +206,52 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
     if threshold_lines is not None:
         return threshold_lines
 
+    # ---- 0.6 a COLLECTION of ANOTHER designed entity -----------------------
+    # ``AuthorRepository.find_books_by_author(author_id) -> List[Book]``: the
+    # repository's own model is the OWNER (Author), the return annotation
+    # names the CHILD (Book). Every recipe below keys on the OWNER model (and
+    # ``is_list_model`` is False whenever the returned entity differs from
+    # it), so this shape reached none of them, stayed a stub, and the fill
+    # answered with
+    #     SELECT b.id, ..., a.name, a.birth_year FROM books b JOIN authors a ...
+    # then ``Book(**dict(r))`` — a guaranteed TypeError, because a sqlite3
+    # Row's keys are the PROJECTED column names, so ``name`` and
+    # ``birth_year`` arrive as unexpected keyword arguments. The capability is
+    # named by the specification ("AuthorRepository — CRUD + find books by
+    # author") and was simply dead.
+    #
+    # Bounded to the unambiguous shape: the return names exactly ONE other
+    # designed entity, that entity carries the FK back to this owner, and the
+    # method's ONLY parameter IS that FK. Anything else declines and keeps
+    # its previous route.
+    if entities_by_class:
+        child_cls = next(
+            (
+                c for c in sorted(entities_by_class)
+                if c != model and re.search(r"\b%s\b" % re.escape(c), ret)
+            ),
+            None,
+        )
+        if child_cls and ("list" in ret_l or "List[" in ret):
+            child = entities_by_class[child_cls]
+            child_fields = {
+                f.get("name") for f in (child.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            child_fk = ent_snake + "_id"
+            if child_fk in child_fields and params == [child_fk]:
+                child_table = _entity_table_name(child)
+                return [
+                    "        with self.db.connect() as conn:",
+                    "            rows = conn.execute(",
+                    '                "SELECT * FROM %s WHERE %s = ?",'
+                    % (child_table, child_fk),
+                    "                %s" % _tup([child_fk]),
+                    "            ).fetchall()",
+                    "            return [%s(**dict(r)) for r in rows]"
+                    % child_cls,
+                ]
+
     # ---- 1. declared impl: list_filtered -----------------------------------
     # Delegate when the method's params map onto declared filters; when they
     # do NOT, fall through to the shape recipes below instead of bailing —
@@ -217,15 +263,24 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         # ``check_budget_exceeded -> str`` shipped ``return self.list(...)``
         # — a List[Budget] under a str annotation, so the capability the
         # specification requires returned no verdict at all.
-        if ret_l and "list" not in ret_l and model not in ret:
-            return None
-        valid = _filter_params(ent)
-        args = [p for p in params if p in valid]
-        if args and len(args) == len(params):
-            lines = ["        return self.list("]
-            lines += ["            %s=%s," % (p, p) for p in args]
-            lines += ["        )"]
-            return lines
+        #
+        # FALL THROUGH, do not bail: a ``list_filtered`` stamp on a method
+        # whose annotation is NOT a list (expenses' repo
+        # ``get_monthly_report(month) -> Dict[str, Any]``) cannot describe the
+        # body, but the stamp is a stale design artefact — the dict-aggregate
+        # recipes further down DO describe it. ``return None`` here skipped
+        # every later tier, so the method stayed a stub and the LLM filled it
+        # with a raw row LIST under a Dict annotation; its twin
+        # ``get_yearly_summary(year)`` (no impl) took the aggregate recipe and
+        # was correct, which is exactly the asymmetry observed.
+        if not (ret_l and "list" not in ret_l and model not in ret):
+            valid = _filter_params(ent)
+            args = [p for p in params if p in valid]
+            if args and len(args) == len(params):
+                lines = ["        return self.list("]
+                lines += ["            %s=%s," % (p, p) for p in args]
+                lines += ["        )"]
+                return lines
 
     esnake = re.escape(ent_snake)
 
@@ -959,6 +1014,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
     extra = _repo_extra_body(
         m, ent, model, name, params, ret_l, fields, table, lfmap,
         num_cols, date_cols, is_list_model, _where, _tup,
+        is_row_list=is_row_list,
         entities_by_class=entities_by_class,
     )
     if extra is not None:

@@ -733,6 +733,27 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
                         alias = m.group(1)
                         if alias not in model_fields[cls]:
                             bad_cols.add(alias)
+                    # The alias scan above misses a projection that lists
+                    # columns WITHOUT aliasing them. `SELECT b.id, b.title,
+                    # a.name, a.birth_year` then `Book(**dict(r))` is the same
+                    # guaranteed TypeError: a sqlite3 Row is keyed by the
+                    # projected column NAMES, so `name`/`birth_year` arrive as
+                    # unexpected constructor kwargs. Reject any bare column in
+                    # the projection that is not a field of the constructed
+                    # model — `*` and `<alias>.*` are the correct spellings,
+                    # and a function call (COUNT(*), substr(...)) never matches
+                    # a bare identifier, so aggregates pass untouched.
+                    proj = re.search(r"\bselect\b(.*?)\bfrom\b", low, re.S)
+                    if proj:
+                        for term in proj.group(1).split(","):
+                            term = re.split(
+                                r"\s+as\s+", term.strip()
+                            )[0].strip()
+                            col = term.rsplit(".", 1)[-1].strip()
+                            if not re.fullmatch(r"[a-z_][a-z0-9_]*", col):
+                                continue
+                            if col not in model_fields[cls]:
+                                bad_cols.add(col)
                 if bad_cols:
                     violations.append(
                         "%s(...) constructed with SQL column(s) not on the "

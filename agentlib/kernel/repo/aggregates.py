@@ -51,9 +51,9 @@ def _flag_list_body(
 ):
     """``List[<This>](<flag: bool>)`` -> WHERE <the one bool column> = ?.
 
-    Fires only when the single param names no declared filter AND the entity
-    declares exactly one bool column, so which column the flag selects is
-    unambiguous. Returns body lines, or None.
+    Fires only when the single param names no APPLIABLE declared filter (see
+    ``_repo_extra_body``) AND the entity declares exactly one bool column, so
+    which column the flag selects is unambiguous. Returns body lines, or None.
     """
     if len(params) != 1:
         return None
@@ -108,6 +108,11 @@ def _period_aggregate_body(
     ``substr(<date>, 1, 7)``. Requires exactly one numeric and one date column
     so both the summed column and the bucket column are unambiguous.
     Returns body lines, or None.
+
+    ``lfmap`` must hold only the APPLIABLE declared filters (see
+    ``_repo_extra_body``): an entry naming no designed column, or one whose op
+    the WHERE builder cannot render, is dropped from the rendered ``list()``
+    anyway and must not shadow the aggregate.
     """
     if len(params) != 1 or len(num_cols) != 1 or len(date_cols) != 1:
         return None
@@ -215,7 +220,7 @@ def _budget_status_body(
         ]
         onums = [
             n for n, f in ofields.items()
-            if f.get("type") in ("int", "float")
+            if isinstance(n, str) and f.get("type") in ("int", "float")
             and n != "id" and not n.endswith("_id")
         ]
         if len(odates) == 1 and len(onums) == 1:
@@ -272,9 +277,13 @@ def _detect_and_mark_body(
     if not re.match(r"^(detect|mark|flag)_", name or ""):
         return None
     bool_cols = [
-        c for c in fields if fields[c].get("type") in ("bool", "boolean")
+        c for c in fields
+        if isinstance(c, str) and fields[c].get("type") in ("bool", "boolean")
     ]
-    fk_cols = sorted(c for c in fields if c.endswith("_id") and c != "id")
+    fk_cols = sorted(
+        c for c in fields
+        if isinstance(c, str) and c.endswith("_id") and c != "id"
+    )
     if len(bool_cols) != 1 or len(num_cols) != 1 or not fk_cols:
         return None
     flag, num, fk = bool_cols[0], num_cols[0], fk_cols[0]
@@ -309,12 +318,31 @@ def _repo_extra_body(
     is_list_model,
     where,
     tup,
+    is_row_list=False,
     entities_by_class=None,
 ):
     """Dispatch the extra recipes; None => let the existing tiers decide."""
     if not ent:
         return None
     field_names = list(fields)
+
+    # A declared filter may shadow a recipe ONLY when it is APPLIABLE: its
+    # column must resolve to a designed field AND its op must be one the
+    # WHERE builder can render. A stale or hallucinated entry — a "month"
+    # filter whose op ``_where`` cannot render, or whose column names no
+    # designed field — is already dropped from the rendered ``list()``
+    # signature, so it must not block a recipe either. It did:
+    # expenses' ``get_monthly_report(month)`` declined the period aggregate
+    # (mere membership in ``list_filters``) while its twin
+    # ``get_yearly_summary(year)`` — no phantom entry — took it, and the
+    # monthly report was LLM-filled with a raw row LIST under a Dict
+    # annotation.
+    filter_lfmap = {
+        k: v for k, v in lfmap.items()
+        if isinstance(v, dict)
+        and v.get("column") in fields
+        and where([k])[0] is not None
+    }
 
     body = _budget_status_body(
         model, fields, params, ret_l, entities_by_class, num_cols, tup,
@@ -323,8 +351,15 @@ def _repo_extra_body(
     if body is not None:
         return body
 
+    # ``is_row_list`` too: the design annotates these repo methods
+    # ``List[Dict[str, Any]]`` as often as ``List[<This>]``, and the recipe
+    # used to require the ENTITY spelling — so expenses' repo
+    # ``detect_recurring()`` missed it and the fill emitted an UNSATISFIABLE
+    # WHERE (``substr(...) = substr(...) AND substr(...) > substr(...)``,
+    # equal AND greater, so it could only ever return []).
     body = _detect_and_mark_body(
-        model, table, fields, num_cols, params, name, is_list_model
+        model, table, fields, num_cols, params, name,
+        is_list_model or is_row_list,
     )
     if body is not None:
         return body
@@ -332,7 +367,7 @@ def _repo_extra_body(
     if is_list_model and "list" in ret_l:
         ptype = _param_type(m, params[0]) if len(params) == 1 else None
         body = _flag_list_body(
-            model, table, fields, lfmap, params, ptype, field_names
+            model, table, fields, filter_lfmap, params, ptype, field_names
         )
         if body is not None:
             return body
@@ -344,10 +379,33 @@ def _repo_extra_body(
         return None
     ptype = _param_type(m, params[0]) if len(params) == 1 else None
     body = _period_aggregate_body(
-        table, fields, lfmap, params, ptype, num_cols, date_cols, tup
+        table, fields, filter_lfmap, params, ptype, num_cols, date_cols, tup
     )
     if body is not None:
         return body
+    # A design may type its period column as a plain ``str`` (the prompt's
+    # own ``expense_date (str, ISO date)`` spells the storage type, not a
+    # date object), which keeps it out of ``date_cols`` and left
+    # ``get_monthly_report``/``get_yearly_summary`` to the LLM — which
+    # answered with a raw row LIST where the annotation promises a dict, and
+    # no aggregation at all. When NO column is declared date-typed, widen to
+    # the single date-ISH NAMED column; the summed column is still required
+    # to be unique, so what is aggregated stays unambiguous.
+    if not date_cols:
+        date_ish = [
+            n for n in fields
+            if isinstance(n, str) and (
+                n.endswith("_date") or n.endswith("_at")
+                or n in ("date", "month", "year")
+            )
+        ]
+        if len(date_ish) == 1:
+            body = _period_aggregate_body(
+                table, fields, filter_lfmap, params, ptype, num_cols,
+                date_ish, tup
+            )
+            if body is not None:
+                return body
     return _filtered_aggregate_body(
         table, fields, lfmap, params, num_cols, where, tup
     )

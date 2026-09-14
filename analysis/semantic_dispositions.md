@@ -326,3 +326,86 @@ the method renders `return self.<entity>_repo.list(...)`.
   `date`/`datetime` field exposed as an OPTIONAL CLI OPTION (the
   `--expense-date` shape); `membership_date` is not exposed on the CLI at all,
   so the rule that would stamp it does not fire.
+## Renderer defects found by whole-surface evaluation (added after the CLI-conformity gate)
+
+The dispositions above were found by reading generated projects. The three
+below were found only by *executing every path the specification enumerates*
+on a fresh regeneration, with the prompt-surface checker and the per-command
+smoke tests as the source of truth. Each is a defect of the **generator**,
+fixed in the generator, never by editing a generated file.
+
+**(i) A TYPED design `default` must be flattened before anything reads it.** —
+`agentlib/pipeline/manifest.py::_normalise_design_defaults`. The design model
+writes a declared default either as a scalar (`"default": "cash"`) or as a
+typed wrapper (`"default": {"value": False, "type": "bool"}`). Every consumer
+downstream reads `default` as a scalar: the model renderer writes `= <default>`
+on the dataclass, and `_generic_service_delegation` builds both
+`<field>=(<field> if <field> is not None else <default>)` and the
+`_nullable_or_defaulted` set (which treats "has a default" as "an omitted value
+is safe to pass through"). An un-normalised wrapper therefore made a real
+default invisible on BOTH sides at once:
+
+* `models.py` rendered `is_recurring: bool` with **no** `= False`;
+* `add_expense` passed the caller's `None` straight through, because the field
+  looked "defaulted" and was excluded from the boolean fallback;
+
+so the path the specification marks optional —
+`expense add --amount 1.00 --description x --category 1`, with no
+`--expense-date` — died on `sqlite3.IntegrityError: NOT NULL constraint failed:
+expenses.expense_date` (it was first reproduced on the over-generated
+`--amount-cents/--category-id` surface, and would have died on `is_recurring`
+next). Normalised once, in place, where the entities are collected, so every
+reader sees the scalar.
+
+**(j) A stale `list_filtered` stamp must not shadow the shape recipes.** —
+`agentlib/kernel/repo/bodies.py::_repo_method_body`, tier 1. The dispatcher's
+first tier handles a designed `impl {"kind": "list_filtered"}` by delegating to
+`self.list(...)`. A guard already recognised that `self.list()` yields ROWS and
+so must not answer a scalar/status annotation — but it expressed that as
+`return None`, which **exits the whole dispatcher**, skipping every later tier
+including the dict-aggregate recipes. `expenses`' repository
+`get_monthly_report(month) -> Dict[str, Any]` carried exactly that stamp, so it
+stayed a stub, the LLM filled it with a raw row LIST under a `Dict` annotation,
+and `expense report monthly` answered `monthly_report: None` (the service read
+`.get('total')` off a list). Its twin `get_yearly_summary(year) -> Dict[str, Any]`
+carried **no** stamp, reached the aggregate recipe, and was correct — the
+asymmetry that exposed the bug. Fixed by falling *through* instead of bailing,
+so a stamp that cannot describe the body no longer prevents a later recipe from
+describing it.
+
+**(k) A cents-typed CLI option must be entered as a DECIMAL.** —
+`agentlib/generation/cli_render.py::_render_cli_file`. The money convention is
+two-sided: integer cents in storage, decimal amounts for display *and* for
+input. `_build_service_call` already routed every option bound to a `*_cents`
+parameter through `money.from_decimal`, but the option itself was emitted
+`type=int`, so `expense add --amount 12.50` died inside click
+(`invalid literal for int() with base 10: '12.50'`) before the conversion could
+run — the specification's `--amount` option could only be given a cent count.
+Now a `*_cents` parameter renders `type=float` and is converted at the call
+boundary; every other int option (an id, a cents field with no conversion such
+as `--budget`) stays an int, and `from_decimal` still returns an `int`
+UNCHANGED, so a cent-count input is never rescaled.
+
+## The CLI surface is taken from the PROMPT, and this is now enforced
+
+`agentlib/pipeline/cli_spec.py::build_prompt_cli_surface` parses the
+specification's own enumerated command list and the surface is shipped
+verbatim; `_reconcile_cli_design(..., preserve_surface=True)` may back-propagate
+a missing service method but can never remove a command, and a removal is
+reported as `[conformity] MISSING command: <path>` rather than shipped.
+`run_cli_conformity.py` + `behavior_tests/conformity.py` are the executable
+check: for every command the prompt lists they assert the group chain, the
+sub-command and every option exist, and that **no command the prompt never
+asked for is exposed**. Measured on a fresh regeneration:
+
+| project | prompt commands | generated | violations |
+|---|---|---|---|
+| `library_system` | 9 | 9 | 0 |
+| `expenses` | 14 | 14 | 0 |
+| `inventory` | 11 | 11 | 0 |
+
+This is what removed the over-generated surface (library's `loan add`,
+`loan cancel`, `member borrow`, `book update/delete`, `author *`; expenses'
+`expense report --id`, `expense update/delete/get/detect`, `budget check`,
+`category detect/check`) — including `member borrow --id N`, a dead command
+that always raised `ValidationError: Book not specified for borrowing` (S14).

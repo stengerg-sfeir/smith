@@ -7,6 +7,8 @@ deterministic render phase, then the LLM fill phase. It never lets the
 inside locked skeletons.
 """
 
+import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -61,6 +63,11 @@ from agentlib.generation.model_render import (
     _render_models_file,
 )
 from agentlib.generation.cli_render import _render_cli_file, _render_main_file
+from agentlib.generation.money_render import (
+    MONEY_MODULE,
+    money_display_enabled,
+    render_money_module,
+)
 from agentlib.generation.repo_render import _render_repository_file
 from agentlib.pipeline.method_contract import extract_method_contracts
 from agentlib.pipeline.model_defaults import (
@@ -233,6 +240,33 @@ def _merge_duplicate_entity(existing, additional):
                 existing["fks"].append(fk)
                 seen_fks.add(t)
     return existing
+
+
+def _normalise_design_defaults(entities_by_class):
+    """Flatten a TYPED design ``default`` wrapper to its scalar value.
+
+    The design model emits a declared default either as a plain scalar
+    (``"default": "cash"``) or as a typed wrapper
+    (``"default": {"value": False, "type": "bool"}``). Every consumer
+    downstream reads ``default`` as a scalar: the model renderer writes
+    ``= <default>`` on the dataclass, the create recipe builds
+    ``<field>=(<field> if <field> is not None else <default>)``, and
+    ``_nullable_or_defaulted`` treats "has a default" as "an omitted value is
+    safe". An un-normalised wrapper therefore makes a real default invisible:
+    expenses' ``is_recurring`` (``{"value": False, "type": "bool"}``) rendered
+    with NO ``= False`` and the create path passed the caller's ``None``
+    straight into a NOT NULL column. Normalised once, in place, where the
+    entities are collected.
+    """
+    for ent in (entities_by_class or {}).values():
+        if not isinstance(ent, dict):
+            continue
+        for f in ent.get("fields") or []:
+            if not isinstance(f, dict):
+                continue
+            default = f.get("default")
+            if isinstance(default, dict) and "value" in default:
+                f["default"] = default.get("value")
 
 
 def _service_is_complex(cli_surface, entities_by_class):
@@ -492,6 +526,10 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 merged = entities_by_class.get(ent["name"])
                 if merged is not None and merged is not ent:
                     ents[i] = merged
+
+    # A typed ``default`` wrapper is flattened to its scalar value BEFORE any
+    # renderer or create-recipe reads it (see _normalise_design_defaults).
+    _normalise_design_defaults(entities_by_class)
 
     # 2.4 Spec-declared field defaults, transcribed from the PROMPT alone.
     # The design LLM is asked to stamp ``"default"`` when the spec declares
@@ -980,6 +1018,31 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # shapes (Dict-returning methods over a single date+numeric entity).
     _apply_impl_floors(entities_by_class, designs)
 
+    # Diagnostic dump: the FINAL (post-floor) designs, i.e. exactly what the
+    # renderers see. Set NEUROSYM_DUMP_DESIGNS=<dir> to capture them so a
+    # rendering defect can be reproduced offline from the real design instead
+    # of a reconstruction. Off by default — zero effect unless set.
+    _dump_dir = os.environ.get("NEUROSYM_DUMP_DESIGNS")
+    if _dump_dir:
+        try:
+            os.makedirs(_dump_dir, exist_ok=True)
+            with open(
+                os.path.join(_dump_dir, "designs.json"), "w", encoding="utf-8"
+            ) as _fh:
+                json.dump(
+                    {
+                        "designs": [
+                            [p, k, d] for p, k, d in designs
+                        ],
+                        "entities_by_class": entities_by_class,
+                        "exception_names": exception_names,
+                    },
+                    _fh,
+                    indent=1,
+                )
+        except OSError:
+            pass
+
     # Exception names come ONLY from the schema-constrained exceptions
     # design (collected in step 1) — there is no spec-text floor anymore.
 
@@ -1044,6 +1107,12 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         if stem.endswith("_service"):
             stem = stem[: -len("_service")]
         svc_class = _camel(stem) + "Service"
+    # The specification's money convention is two-sided — integer cents in
+    # storage, decimal amounts for DISPLAY — so the project needs ONE
+    # importable conversion helper. Emitted only when the specification asks
+    # for the conversion AND the design actually carries a ``*_cents`` field,
+    # so every other project keeps a byte-identical CLI.
+    money_display = money_display_enabled(prompt_text, entities_by_class)
     for path, kind, data in designs:
         if kind == "exceptions":
             files[path] = _render_exceptions_file(data)
@@ -1052,8 +1121,10 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         elif kind == "cli":
             files[path] = _render_cli_file(
                 data, svc_class, entities_by_class, service_methods,
-                verbose, db_path=db_file,
+                verbose, db_path=db_file, money=money_display,
             )
+    if money_display:
+        files[MONEY_MODULE] = render_money_module()
 
     # ---- Fill phase (LLM, locked skeletons; deterministic contract bodies) ----
     if verbose:
