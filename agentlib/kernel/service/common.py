@@ -103,6 +103,48 @@ def _impl_bindings_ok(impl, m, entities_by_class):
             if target != "self" and target not in anchor_fields:
                 return None, None
         return _camel(impl["entity"]), anchor
+    if kind == "create_child_row":
+        # A prompt-derived INSERT workflow (see
+        # agentlib.pipeline.method_contract): an anchor row loaded and
+        # counter-moved, plus a CHILD row inserted. Validated here so the
+        # renderer can never reference an entity, a column or a method
+        # parameter the design does not have.
+        anchor = entities_by_class.get(_camel(impl.get("entity") or ""))
+        child = entities_by_class.get(_camel(impl.get("child") or ""))
+        if not isinstance(anchor, dict) or not isinstance(child, dict):
+            return None, None
+        pnames = {
+            p.get("name") for p in (m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        }
+        if (impl.get("id_param") or "") not in pnames:
+            return None, None
+        anchor_fields = {
+            f.get("name") for f in (anchor.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        for eff in impl.get("effects") or []:
+            ref = entities_by_class.get(_camel(eff.get("cls") or ""))
+            if not isinstance(ref, dict):
+                return None, None
+            if eff.get("field") not in {
+                f.get("name") for f in (ref.get("fields") or [])
+                if isinstance(f, dict)
+            }:
+                return None, None
+            target = eff.get("target")
+            if target != "self" and target not in anchor_fields:
+                return None, None
+        child_fields = {
+            f.get("name") for f in (child.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        for spec in impl.get("child_fields") or []:
+            if not isinstance(spec, dict) or spec.get("name") not in child_fields:
+                return None, None
+            if spec.get("param") and spec["param"] not in pnames:
+                return None, None
+        return _camel(impl["entity"]), anchor
     if kind == "report_parts":
         # A prompt-derived report render (see
         # agentlib.pipeline.method_contract): a COMPOUND report whose parts the
@@ -296,3 +338,119 @@ def _resolve_filter_args(m, ent):
     order = {fp: i for i, (fp, _, _) in enumerate(declared)}
     resolved.sort(key=lambda pair: order.get(pair[0], len(order)))
     return resolved, unresolved
+
+
+# ---------------------------------------------------------------------------
+# Missing-row reporting
+# ---------------------------------------------------------------------------
+
+def not_found_exception(entity_cls, exception_names):
+    """The DESIGNED exception to raise when an ``<entity_cls>`` row is missing.
+
+    A method that loads a row and finds nothing must SAY so. The
+    specification's own error contract is a list of custom exception classes
+    ("Implement proper error handling with custom exception classes:
+    CategoryNotFoundError, ExpenseNotFoundError, BudgetExceededException"), and
+    a lookup miss returned a bare ``False`` instead — exit 0, no message, so a
+    user could not tell "nothing to do" from "no such row": ``return loan
+    --loan-id 999`` printed ``False`` and ``budget update --category-id 999``
+    printed ``False``, both exiting 0.
+
+    Resolution is by NAME against the classes the DESIGN declared, never
+    against a hard-coded list and never against the prompt text:
+
+    1. ``<Entity>NotFoundError`` (the canonical name);
+    2. ``Invalid<Entity>IdError`` / ``<Entity>IdError`` — the shape a design
+       uses for an id that names no row (library's ``InvalidLoanIdError``);
+    3. a project-wide ``NotFoundError``.
+
+    Returns "" when the design declared no exception for this entity; the
+    caller then keeps its ``return False`` rather than INVENTING a class name
+    the project does not define (a NameError at runtime would be a worse bug
+    than the silent False it replaces).
+    """
+    names = set(exception_names or [])
+    entity = entity_cls or ""
+    for want in (
+        "%sNotFoundError" % entity,
+        "%sNotFoundException" % entity,
+        "%sNotFound" % entity,
+        "Invalid%sIdError" % entity,
+        "%sIdError" % entity,
+        "Invalid%sError" % entity,
+    ):
+        if want in names:
+            return want
+    for want in ("NotFoundError", "NotFoundException"):
+        if want in names:
+            return want
+    return ""
+
+
+def missing_row_guard(entity_cls, id_expr, exception_names, indent="        "):
+    """The ``if row is None:`` guard lines for a lookup miss.
+
+    ``raise <DesignedNotFound>(<id_expr>)`` when the design declared an
+    exception for the entity, else ``return False``. One place decides, so
+    every recipe that loads a row reports a miss the same way.
+    """
+    exc = not_found_exception(entity_cls, exception_names)
+    if exc:
+        return [
+            indent + "if row is None:",
+            indent + "    raise %s(%s)" % (exc, id_expr),
+        ]
+    return [indent + "if row is None:", indent + "    return False"]
+
+
+def fk_parent_check(parent_cls, param, parent_var, exception_names,
+                    indent="        "):
+    """Lines that verify an FK parent row exists before a lookup miss is
+    reported as a no-op.
+
+    A caller that names a parent which does not exist (``budget update
+    --category-id 999``) must not be answered with ``False``: the referenced
+    row is absent, which is the very condition the designed exception class
+    describes. Rendered as an explicit ``is None`` test so it is correct
+    whichever style the repository uses for its getter (the deterministic CRUD
+    getter returns ``None``; a design may raise instead — the raise propagates
+    and the outcome is identical). Returns ``[]`` when the parent's entity has
+    no designed exception, so nothing is invented.
+    """
+    exc = not_found_exception(parent_cls, exception_names)
+    if not exc:
+        return []
+    return [
+        indent + "if self.%s_repo.get_by_id(%s) is None:" % (parent_var, param),
+        indent + "    raise %s(%s)" % (exc, param),
+    ]
+
+
+def fk_parent_guards(params, entities_by_class, exception_names,
+                     indent="            "):
+    """Guard lines for every FK parent named by a ``<entity>_id`` parameter.
+
+    Used inside an ``if row is None:`` block: a lookup that found nothing must
+    distinguish "the referenced parent does not exist" (a real error, named by
+    the design's own exception class) from "the row itself is absent" (an
+    honest no-op). ``budget update --category-id 999 --month 2024-01``
+    answered a bare ``False`` with exit 0 — the category it names does not
+    exist, which is exactly what ``CategoryNotFoundError`` is for.
+
+    Only a parameter whose entity the design MODELS and for which the design
+    declared a not-found exception produces a guard; anything else is left to
+    the plain ``return False``, so no class name is ever invented.
+    """
+    lines = []
+    for param in params or []:
+        if not isinstance(param, str) or not param.endswith("_id"):
+            continue
+        if param == "id":
+            continue
+        parent_cls = _camel(param[: -len("_id")])
+        if parent_cls not in (entities_by_class or {}):
+            continue
+        lines += fk_parent_check(
+            parent_cls, param, _snake(parent_cls), exception_names, indent=indent
+        )
+    return lines

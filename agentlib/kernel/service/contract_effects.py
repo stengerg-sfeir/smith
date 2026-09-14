@@ -23,8 +23,9 @@ renew_membership, ...) carries its invariants in prose the spec states and a
 ``renew_membership`` never flipped ``is_active``. Those effects are exactly
 renderable, so they are rendered here instead of being left to the fill.
 """
-from ...naming import _snake
+from ...naming import _camel, _snake
 from ..recipe_types import Recipe
+from .common import missing_row_guard
 
 
 def _field_expr(recv, field, effect):
@@ -46,15 +47,19 @@ def _field_expr(recv, field, effect):
     return None
 
 
-def _h_contract_effects(m, impl, ent, entities_by_class):
+def _h_contract_effects(m, impl, ent, entities_by_class, exception_names=None):
     """Load the anchor row, then apply the contract's effects."""
     anchor_var = _snake(impl["entity"])
     idp = impl["id_param"]
-    lines = [
-        "        row = self.%s_repo.get_by_id(%s)" % (anchor_var, idp),
-        "        if row is None:",
-        "            return False",
-    ]
+    # The anchor row is identified by an id the caller typed: a miss is a
+    # NOT-FOUND, not a silent False. `return loan --loan-id 999` used to print
+    # `False` and exit 0, so a user could not distinguish "nothing to do" from
+    # "no such loan"; the design's own exception class says which it is.
+    lines = ["        row = self.%s_repo.get_by_id(%s)" % (anchor_var, idp)]
+    # `impl["entity"]` is the snake name; the design's exception classes are
+    # named after the CamelCase class (InvalidLoanIdError), so resolve through
+    # _camel before looking a class up by name.
+    lines += missing_row_guard(_camel(impl["entity"]), idp, exception_names)
     for eff in impl.get("effects") or []:
         target = eff.get("target")
         field = eff.get("field")

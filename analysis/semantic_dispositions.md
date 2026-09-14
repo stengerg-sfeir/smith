@@ -83,19 +83,17 @@ invariant to fail on a mutated snapshot.
 | S15 | `borrow_book` over-restricts | **oracle-enforced** | Oracle round-trip: borrow must decrement, return must restore. |
 | S16 | `Member.is_active` default not captured | **recipe** | `agentlib/pipeline/model_defaults.py` transcribes defaults from the PROMPT alone and stamps them onto designed fields. Root cause of the miss: the design LLM stamps a default the renderer must STRICTLY reject, and the pass used to defer to it — it now defers only to a RENDERABLE default. Verified: `available_copies: int = 1`, `is_active: bool = True`. |
 | S17 | `BookRepository.search_book` omits author | **recipe** | The lone-term search recipe LIKEs the entity's own text columns AND the text columns of every entity it references through a `<ref>_id` column, joined in. Verified in the shipped body: `LEFT JOIN authors ON books.author_id = authors.id … OR authors.name LIKE ?`. Oracle: "search_books finds a book by its author's name" (a token that appears in no book column); killed by the dedicated `search_ignores_join` mutant. |
-| S18 | `bool`-returning methods carry no invariant enforcement | **partially closed — documented remainder** | `counter_delta` / `flag_toggle` / `flag_set` / `status_set` effects are now deterministic, and the fill forbids guards the specification does not state (`_NO_UNSTATED_GUARD_RULE`). **Remainder:** a workflow that must CREATE a child row needs the child's required fields stamped (library's `Loan(due_date, status)`), which is a domain decision neither independent source can supply, so `borrow_book` stays LLM-filled — but the part that IS checkable is checked by execution: the oracle asserts the `borrow → return` round-trip (decrement, then restore). The over-restriction did not recur, and the shipped guard is surgical — `loan_repo.get_loan_by_book_id_and_member_id(book_id, member_id)` compares the PAIR its message names, so it no longer blocks borrowing a different book. The general lever is `_NO_UNSTATED_GUARD_RULE`; there is deliberately **no** "borrowing a second, different book" oracle probe, because such a probe would only be meaningful once the child-creating workflow is itself deterministic — asserting it against a fill would turn an LLM-variance risk into a flaky gate. |
+| S18 | `bool`-returning methods carry no invariant enforcement | **recipe** | `counter_delta` / `flag_toggle` / `flag_set` / `status_set` effects are deterministic, AND so is the child-creating workflow: `compile_contract_impl` compiles a stated INSERT operation into a `create_child_row` impl (`agentlib/kernel/service/create_child_row.py`), which loads the anchor row, renders the guards from the DESIGN's own exception classes, applies the counter effects and inserts the child with every required column stamped from an exact source (a method parameter, the design's declared default, or "now" for an unqualified date). It is decided BEFORE the guard gate, so a guarded create is deterministic too. Earlier revisions of this row claimed `borrow_book` "stays LLM-filled" and that a child's required fields were "a domain decision neither source can supply" — measured on a fresh regeneration, that was a fill-luck dependency, not a necessity: one run shipped `borrow_book` as a dead `return False` stub, another happened to fill it correctly. The rendered body is now always `load Book → refuse when `(available_copies or 0) <= 0` → decrement → insert the Loan → True`, and the oracle's `borrow → return` round-trip (decrement, then restore) is a property of the renderer, not of the sample. |
 | S19 | Dead / duplicated methods | **fixed (surface)** | The prune ("keep only the commands the specification lists") used to be impossible: the deterministic surface it pruned against was itself incomplete — it lacked spec-required commands (`overdue`, `history`), so pruning by it removed working behaviour, and commit `30521e5` reverted the attempt. The lever was wrong, not the idea: the surface is no longer DERIVED from the design's methods, it is READ from the prompt's own command list (`agentlib/pipeline/cli_spec.py`), so it is complete by construction. `agentlib/pipeline/cli_propagate.py` now takes `preserve_surface=True` and skips its merge/drop loop entirely, and no LLM CLI design runs at all. Shipped counts: library_system 24 → 9 commands (the prompt's 9), expenses 22 → 14 (the prompt's 14); `run_cli_conformity.py` asserts the equality. |
 
 ## Residual, explicitly non-generic
 
-* **S18's child-creating workflows** are the one remaining semantic gap: a
-  workflow that must CREATE a child row needs that child's required fields
-  stamped (library's `Loan(due_date, status)`), which is a *domain decision*
-  neither independent source can supply — the design does not declare the value
-  and the prompt does not state it — so a deterministic recipe would have to
-  invent it. The part that IS checkable is checked by execution (the oracle's
-  borrow → return round-trip) and the fill is constrained by
-  `_NO_UNSTATED_GUARD_RULE`.
+* **No S18 remainder.** The child-creating workflow was the last one listed
+  here; it is now a recipe (see the row above), so the only thing a fill can
+  still get wrong on a `bool` workflow is a method the contract renderer
+  DECLINES — and every decline is a conservative "a required column has no
+  parameter, default or `now` stamp", which leaves the previous behaviour
+  untouched rather than shipping a half-stamped row.
 * **S19** is a surface-policy question, not a rendering one; see the table.
 
 ## The prompt-derived CLI surface (this revision)
@@ -479,3 +477,134 @@ inventory specification explicitly demands: "add_product(...): validates the
 category exists"). Both readers now walk the whole body, so the discovery is
 independent of how the body wraps the call. Inventory returns to 12/12 and the
 four-project façade is 5/5 + 12/12 + 14/14 + 9/9 with 0 unmapped.
+## Third pass: the borrow workflow, and a parent NAME as a filter value
+
+Two further defects of the GENERATOR surfaced by regenerating `library_system`
+and running every path the specification enumerates, including the two the
+executed oracle does not cover. Both are fixed in the generator; no generated
+file was edited.
+
+**(o) A stated INSERT workflow is rendered, never left to the fill.** —
+`agentlib/pipeline/method_contract.py` (`spec_line_effects`,
+`_create_child_impl`) and `agentlib/kernel/service/create_child_row.py`, wired
+into `service_render._render_service_file` (which now passes `prompt_text` down
+so a contract-less method can still be read). The specification states
+`borrow_book(member_id, book_id): checks availability, creates loan, decrements
+copies`, and the contract extractor's evidence closure rejected that line on all
+three retries ("evidence was not verbatim"), so the method carried **no**
+contract, fell to the LLM fill, and the fill is a coin toss: one measured run
+shipped it as a dead `return False` stub (borrowing neither decremented the book
+nor created the loan — the oracle caught it), another happened to fill it
+correctly. Two changes close it:
+
+1. `spec_line_effects` reads the method's OWN specification line and
+   transcribes it into the extractor's own vocabulary, entity-closed: `creates
+   loan` → `create_child` on the designed `Loan`; `decrements copies` → a
+   `counter_delta` on the designed field ending in `copies`
+   (`available_copies`); `checks availability` → `reject_unavailable` on that
+   field. An unresolvable word yields nothing, so a spec-derived contract can
+   never name an entity or a column the design lacks.
+2. `compile_contract_impl` compiles the INSERT shape into a
+   `create_child_row` impl **before** the guard gate (a guard no longer forces
+   the fill), and the recipe renders it: load the anchor row by the parameter
+   that names its id, run the guards (raising the DESIGN's own exception class,
+   resolved by name — `BookNotAvailableError` — so nothing is invented), apply
+   the counter deltas, then insert the child with every required column stamped
+   from an exact source: a parameter of the method (`book_id`, `member_id`), the
+   design's declared default (`status` = `'active'`, transcribed from the spec's
+   own `status (active/returned/overdue)` line), or `now` for an unqualified
+   date. A required column with none of those three sources DECLINES the
+   render, leaving the previous behaviour rather than a half-stamped row.
+
+Shipped body, verbatim:
+
+```python
+    def borrow_book(self, member_id: int, book_id: int) -> bool:
+        row = self.book_repo.get_by_id(book_id)
+        if row is None:
+            raise InvalidBookIdError(book_id)
+        if (row.available_copies or 0) <= 0:
+            raise BookNotAvailableError(book_id)
+        self.book_repo.update(book_id, {'available_copies': (row.available_copies or 0) - 1})
+        loan = Loan(book_id=book_id, member_id=member_id, loan_date=datetime.datetime.now().isoformat(), due_date=datetime.datetime.now().isoformat(), status='active')
+        self.loan_repo.create(loan)
+        return True
+```
+
+Verified by execution, not by reading: borrowing decrements `available_copies`
+2 → 1 and creates the `Loan` (oracle `borrow → return` round-trip), returning
+restores it, and borrowing a book with **zero** copies exits 1 with a one-line
+`Error:` and leaves both the counter and the loan table untouched — the
+specification's own "checks availability". Borrowing a book whose id does not
+exist exits 1 with `InvalidBookIdError`, again with no traceback.
+
+**(p) A parent NAME is a filter value, not a parent ID.** —
+`agentlib/generation/service_render.py` (`_parent_name_binding`,
+`_render_parent_name_lookup`, in the `list_<entity>` branch of
+`_generic_service_delegation`). The specification writes
+`library book list [--author]` — an author NAME — while the design's repository
+filters on `author_id`, and the design ALSO declared a second, optional
+`author_id` parameter. The method therefore could not be resolved against the
+declared filters (`author` is not a column), and the LLM fill answered
+`--author 'F. Scott Fitzgerald'` with
+`self.author_repo.get_by_id(None)` → `raise NotFoundError('Author with id None
+not found')`: exit 1 on a path the specification marks as an ordinary optional
+filter. The façade registered it honestly as 8/9. The generic delegation now
+resolves the name deterministically when the design pins every piece of the
+join: the parameter's `<name>_id` IS a declared `list()` filter of the entity,
+the referenced entity IS designed, and that parent carries exactly one
+candidate name column — the one the design calls `name`, else its single `str`
+column (the specification's Author model is `id, name, birth_year, biography`:
+TWO strs, so "exactly one str column" alone would still decline). The rendered
+body scans the parent rows through the design's own `list()`, and an author name
+that matches no row yields an empty listing rather than an error — the
+specification describes `--author` as a FILTER, not as a lookup that can fail:
+
+```python
+        if author:
+            _parent = None
+            for _row in self.author_repo.list():
+                if getattr(_row, 'name', None) == author:
+                    _parent = _row
+                    break
+            if _parent is None:
+                return []
+            author_id = _parent.id
+        return self.book_repo.list(available_only=available_only, author_id=author_id)
+```
+
+Measured: `library book list` lists every book, `--author <name>` filters by
+that author, `--available-only` filters on `available_copies > 0`, and the
+library façade is **9/9** (I2 passes).
+
+## Final verification (this revision, four projects regenerated from scratch)
+
+```
+== marqueurs (reject / dropped / still stubbed / reverted / sanitized):
+library_system 0   expenses 0   inventory 0   cli_tool 0
+
+== oracle:
+library_system: 15/15 invariant(s) hold
+library_system: mutation pass (baseline 15/15)
+expenses: 16/16 invariant(s) hold
+expenses: mutation pass (baseline 16/16)
+ALL SEMANTIC CHECKS PASS
+
+== conformité prompt→surface (les DEUX directions):
+[expenses]       status=pass prompt_commands=14 violations=0
+[inventory]      status=pass prompt_commands=11 violations=0
+[library_system] status=pass prompt_commands=9  violations=0
+
+== façade (invocations réelles sur base fraîche):
+[cli_tool]       status=pass mapped=5  unmapped=0 pass=5  fail=0
+[inventory]      status=pass mapped=12 unmapped=0 pass=12 fail=0
+[expenses]       status=pass mapped=14 unmapped=0 pass=14 fail=0
+[library_system] status=pass mapped=9  unmapped=0 pass=9  fail=0
+```
+
+`run_cli_conformity.py` is load-bearing, not decorative: it is what caught the
+last regression (2 violations on `inventory`, caused by a missing command the
+generator itself had dropped), and its output is the measured equality between
+each prompt's own command list and the shipped CLI — every prompt command
+present with the prompt's own group path and option names, and **nothing the
+prompt did not ask for**.

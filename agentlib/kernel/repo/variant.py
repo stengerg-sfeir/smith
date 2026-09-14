@@ -91,9 +91,21 @@ def _existing_variant_alias(attr, meth, repo_interface, call_args=None):
     if not pool:
         return None
     best = max(pool, key=_score)
+    matched = _score(best)[0]
+    # A forward is POSITIONAL (``return self.<existing>(*args)``), so a
+    # candidate must cover EVERY argument the call passes. Partial coverage
+    # aliases a 2-arg call onto a 1-arg method: the fill then writes
+    # ``loan_repo.get_by_member_and_book(member_id, book_id)`` against a
+    # signature that takes only ``member_id``, the call fails arity
+    # validation, and the method it was serving (library_system's
+    # ``borrow_book``) ships as a dead ``return False`` stub. Refusing the
+    # partial alias lets the fill (or the contract renderer) find a real
+    # method instead of a plausible-looking wrong one.
+    if call_args and matched < len(call_args):
+        return None
     # Only alias on real signal: a strict name-variant, or at least one call
     # arg the candidate's param set covers. Prevents random aliasing.
-    if _score(best)[0] == 0 and not _method_name_variant(best, meth):
+    if matched == 0 and not _method_name_variant(best, meth):
         return None
     return best
 

@@ -16,7 +16,11 @@ from ..config import LLM_RETRY_TEMPERATURE
 from ..naming import _camel, _entity_table_name, _plural, _snake
 from ..llm.fill import _llm_fill
 from ..kernel.service import dispatch_impl_body
-from ..kernel.service.common import _filter_params, _resolve_filter_args
+from ..kernel.service.common import (
+    _filter_params,
+    _resolve_filter_args,
+    fk_parent_guards,
+)
 from ..kernel.repo.finder import _render_simple_finder, _simple_finder_spec
 from ..kernel.repo.threshold_compare import _flag_threshold_spec
 from ..kernel.repo.variant import _existing_variant_alias, _render_variant_alias
@@ -732,7 +736,11 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
                 return ["        return self.%s_repo.%s()" % (_rep_ent, name)]
     impl = m.get("impl")
     if isinstance(impl, dict):
-        lines = dispatch_impl_body(m, impl, None, entities_by_class)
+        # exception_names travels to the recipe so a row lookup that finds
+        # nothing is reported as the design's not-found error instead of a
+        # silent False.
+        lines = dispatch_impl_body(m, impl, None, entities_by_class,
+                                   exception_names)
         if lines is not None:
             return lines
     # Unique-shape aggregate delegation: a zero-param Dict-returning service
@@ -955,6 +963,77 @@ def _create_limit_check_lines(var, ent, spec, param_names, entities_by_class):
         "                'budget exceeded for %s ' + str(%s)"
         " + ' in ' + str(month)" % (fk, fk),
         "            )",
+    ]
+
+
+def _parent_name_binding(param, ent, entities_by_class):
+    """Resolve a param that names a PARENT ROW BY ITS NAME, or None.
+
+    The specification writes ``library book list [--author]`` — an author
+    NAME — while the design's repository filters on ``author_id``. The two are
+    the same request one join apart: when the entity DECLARES ``<param>_id`` as
+    a ``list()`` filter, the referenced entity is designed, and that parent has
+    exactly ONE str column (its own name), the name can be resolved to the
+    parent's id deterministically.
+
+    Returns ``{"fk": "author_id", "var": "author", "cls": "Author",
+    "name_col": "name"}`` or None. Ambiguity (several str columns, or a parent
+    the design does not model) declines, so the caller keeps its previous
+    behaviour rather than guessing.
+    """
+    key = str(param or "")
+    if not key:
+        return None
+    fk = key + "_id"
+    if fk not in _filter_params(ent):
+        return None
+    parent = entities_by_class.get(_camel(key))
+    if not isinstance(parent, dict):
+        return None
+    strs = [
+        f.get("name") for f in (parent.get("fields") or [])
+        if isinstance(f, dict) and f.get("type") == "str"
+        and f.get("name") not in (None, "id")
+    ]
+    # The parent's NAME column is the one the design calls ``name`` (the
+    # specification's Author model is ``id, name, birth_year, biography`` —
+    # TWO strs, so "exactly one str column" alone would decline and the
+    # method would keep a fill that resolves the name against the parent's
+    # ID instead). A design with no such column still resolves when it has a
+    # single str column; several strs and none of them a name is ambiguous,
+    # so it declines.
+    if "name" in strs:
+        pick = "name"
+    elif len(strs) == 1:
+        pick = strs[0]
+    else:
+        return None
+    return {"fk": fk, "var": key, "cls": _camel(key), "name_col": pick}
+
+
+def _render_parent_name_lookup(binding):
+    """Lines resolving a parent-name param to the parent's row id.
+
+    ``for _row in self.author_repo.list(): ...`` scans the parent rows (the
+    design's own ``list()``, so no query is invented) and binds the FIRST row
+    whose name column equals the value the caller typed. No such row means no
+    child row can match, so the method returns an empty listing — never an
+    error, because the specification describes ``--author`` as an OPTIONAL
+    FILTER, not as a lookup that can fail.
+    """
+    var = binding["var"]
+    return [
+        "        if %s:" % var,
+        "            _parent = None",
+        "            for _row in self.%s_repo.list():"
+        % _snake(binding["cls"]),
+        "                if getattr(_row, %r, None) == %s:"
+        % (binding["name_col"], var),
+        "                    _parent = _row",
+        "                    break",
+        "            if _parent is None:",
+        "                return []",
+        "            %s = _parent.id" % binding["fk"],
     ]
 
 
@@ -1198,7 +1277,37 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # from_date/to_date loss, library's dropped author/active_only).
             resolved, unresolved = _resolve_filter_args(m, ent)
             if unresolved:
-                return _same_name_repo_call(m, var, repo_signatures)
+                # A param the declared filters cannot serve may still be the
+                # NAME of a parent row (the specification writes ``library
+                # book list [--author]`` — an author NAME — while the
+                # repository filters on ``author_id``). Resolve it to the
+                # parent's id when the design pins the shape; only what is
+                # left over decides the fallback.
+                bindings = []
+                still_unresolved = []
+                for p in unresolved:
+                    bind = _parent_name_binding(p, ent, entities_by_class)
+                    if bind is None:
+                        still_unresolved.append(p)
+                    else:
+                        bindings.append(bind)
+                if still_unresolved or not bindings:
+                    return _same_name_repo_call(m, var, repo_signatures)
+                lines = []
+                for bind in bindings:
+                    lines += _render_parent_name_lookup(bind)
+                for bind in bindings:
+                    # The explicit id param the caller may ALSO pass is
+                    # overwritten by the resolved parent id, so the emitted
+                    # call reads one coherent value.
+                    resolved = [
+                        (fp, mp) for fp, mp in resolved if fp != bind["fk"]
+                    ] + [(bind["fk"], bind["fk"])]
+                call = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
+                lines.append(
+                    "        return self.%s_repo.list(%s)" % (var, call)
+                )
+                return lines
             call = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
             return ["        return self.%s_repo.list(%s)" % (var, call)]
         if name == "get_%s_by_id" % var:
@@ -1232,8 +1341,15 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                     "        row = self.%s_repo.get_by_%s_and_%s(%s)"
                     % (var, a_fn, b_fn, ", ".join(upair)),
                     "        if row is None:",
-                    "            return False",
                 ]
+                # A miss on a key that NAMES a parent (category_id, month) is
+                # not necessarily "no such row": when the parent the caller
+                # named does not exist, that is the designed not-found error.
+                # `budget update --category-id 999` answered a bare `False`.
+                lines += fk_parent_guards(
+                    upair, entities_by_class, exception_names
+                )
+                lines.append("            return False")
                 if rest:
                     mapping = ", ".join(
                         "'%s': %s" % (p, p) for p in rest
@@ -1293,13 +1409,19 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                     if pair_has_id:
                         a_fn = pair[0][:-3] if pair[0].endswith("_id") else pair[0]
                         b_fn = pair[1][:-3] if pair[1].endswith("_id") else pair[1]
-                        return [
+                        lines = [
                             "        row = self.%s_repo.get_by_%s_and_%s(%s)"
                             % (var, a_fn, b_fn, ", ".join(pair)),
                             "        if row is None:",
+                        ]
+                        lines += fk_parent_guards(
+                            pair, entities_by_class, exception_names
+                        )
+                        lines += [
                             "            return False",
                             "        return self.%s_repo.delete(row.id)" % var,
                         ]
+                        return lines
                     return [
                         "        return self.%s_repo.delete(%s)"
                         % (var, ", ".join(pair))
@@ -4106,9 +4228,16 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
         if not isinstance(m, dict) or not m.get("name"):
             continue
         contract = (method_contracts or {}).get(m["name"])
-        if not contract:
-            continue
-        m["contract"] = contract
+        # An ABSENT contract is not the end of the story: the analyst's
+        # evidence closure drops a line the specification states plainly
+        # ("borrow_book(member_id, book_id): checks availability, creates loan,
+        # decrements copies" — rejected on all three retries), and a method
+        # with no contract then fell to the fill, which shipped it as a dead
+        # stub. Pass the specification text down so ``compile_contract_impl``
+        # can read the method's OWN line literally.
+        literal = not contract
+        if literal:
+            contract = {"name": m["name"]}
         impl = compile_contract_impl(
             contract,
             entities_by_class,
@@ -4117,9 +4246,14 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 if isinstance(p, dict) and p.get("name")
             ],
             returns=m.get("returns") or "",
+            prompt_text=prompt_text or "",
         )
         if impl is None:
             continue
+        if not literal:
+            m["contract"] = contract
+        else:
+            m.pop("contract", None)
         # The contract impl WINS over a design-supplied impl. Both describe
         # the same method, but the contract is closed against a verbatim span
         # of the SPECIFICATION while a design ``impl`` is the design model's

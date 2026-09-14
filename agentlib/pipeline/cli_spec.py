@@ -52,6 +52,20 @@ _FLAG_NAME_RE = re.compile(
     r"(?:^|-)only$|(?:^|-)active$|(?:^|-)enabled$|(?:^|-)recursive$"
 )
 
+# An INLINE enumeration of command names — "... exposes commands: add, list,
+# update, delete, and show." The specification names the commands but writes
+# no bullet line, no group and no option, so the bullet reader below finds
+# nothing and the LLM CLI design ran unconstrained: it shipped a group the
+# specification never wrote (``task add`` for a prompt that asked for ``add``)
+# and a user following the specification got ``No such command 'add'``.
+_INLINE_COMMANDS_RE = re.compile(
+    r"\bcommands?\b[^:\n]*:[ \t]*([^\n]+)", re.IGNORECASE
+)
+# Words that JOIN a list rather than name a command.
+_INLINE_STOPWORDS = frozenset({
+    "and", "or", "the", "a", "an", "with", "for", "to", "of", "plus",
+})
+
 # Semantic option -> parameter aliases. A specification freely names an option
 # by its USER-facing word (``--from-date``, ``--output``) while the service
 # signature uses the domain word (``start_date``, ``file_path``). Both sides
@@ -104,6 +118,84 @@ def extract_prompt_cli_commands(prompt_text):
             continue
         commands.append(candidate)
     return commands
+
+
+def extract_prompt_inline_commands(prompt_text):
+    """Bare command names from an inline ``commands: a, b, c`` enumeration.
+
+    Returns ``[]`` unless the enumeration really is a command list: at least
+    two names, every name a single lowercase word, and at least one of them a
+    canonical CLI verb — so a sentence that merely mentions "commands:" in
+    prose does not become a CLI surface. The names come back FLAT (no group):
+    the specification wrote no group, so the surface must render them at the
+    root (``add``, not ``task add``).
+    """
+    for match in _INLINE_COMMANDS_RE.finditer(prompt_text or ""):
+        body = re.split(r"[.;\n]", match.group(1))[0]
+        names = []
+        for token in re.split(r"[\s,]+", body):
+            token = token.strip().lower()
+            if not re.fullmatch(r"[a-z][a-z0-9_-]*", token):
+                continue
+            if token in _INLINE_STOPWORDS or token in names:
+                continue
+            names.append(token)
+        if len(names) < 2:
+            continue
+        if not any(name in _CANONICAL for name in names):
+            continue
+        return names
+    return []
+
+
+def _options_from_params(param_dicts, pairs):
+    """One click option per target-method parameter.
+
+    A specification that names a command without naming its options
+    ("exposes commands: add, list, ...") still requires the command to be
+    usable: the option set is then the target method's OWN signature — the
+    same signature the deterministic service renderer serves — so every
+    parameter the command has to supply has a way in. An optional parameter
+    renders as an optional option, a required one as a required option; a
+    bool parameter renders as a flag. Nothing is invented: the names, the
+    types and the optionality are all the design's.
+    """
+    optional = set()
+    for param in param_dicts or []:
+        if not isinstance(param, dict):
+            continue
+        name = param.get("name")
+        if not name:
+            continue
+        ptype = str(param.get("type") or "").strip()
+        low = ptype.split("=")[0].strip().lower()
+        if (
+            low.startswith("optional")
+            or "none" in low
+            or param.get("nullable")
+            or "default" in param
+        ):
+            optional.add(name)
+    options = []
+    for name, ptype in pairs or []:
+        declared = str(ptype or "").strip().split("=")[0].strip().lower()
+        if "bool" in declared:
+            otype = "flag"
+        elif "int" in declared or "float" in declared:
+            otype = "int"
+        else:
+            otype = "str"
+        if name in optional or declared.startswith("optional") or "none" in declared:
+            required = False
+        else:
+            required = otype != "flag"
+        options.append({
+            "name": "--" + str(name).replace("_", "-"),
+            "required": required,
+            "type": otype,
+            "field": name,
+        })
+    return options
 
 
 def parse_prompt_command(command):
@@ -323,13 +415,52 @@ def _score_candidate(command, cand_name, cand_params, entities_by_class):
 # how to serve, for a command the specification does not itself name.
 _CANONICAL = {
     "add": "add_%s", "create": "add_%s", "insert": "add_%s",
-    "list": "list_%s", "show": "list_%s", "view": "list_%s",
-    "get": "get_%s_by_id",
+    "list": "list_%s",
+    # A command named show/view/get asks for ONE row, not a listing: the
+    # deterministic renderer serves ``get_<entity>_by_id`` as a single-row
+    # read, so ``show`` must not degrade into the list command — both would
+    # then print the same listing and an id would have nowhere to go.
+    "get": "get_%s_by_id", "show": "get_%s_by_id", "view": "get_%s_by_id",
     "search": "search_%s", "find": "search_%s",
     "update": "update_%s", "edit": "update_%s",
     "delete": "delete_%s", "remove": "delete_%s",
     "history": "get_%s_history",
 }
+
+
+def _command_context(command, entities_by_class):
+    """``command`` with its entity hint folded into the group chain.
+
+    A command the specification wrote FLAT (``show``) carries no entity token
+    of its own, so every entity-sensitive helper — target resolution, the
+    canonical CRUD name, a declared parameter list — needs the entity the
+    surface resolved for it. The hint is used for RESOLUTION only; the
+    rendered path stays flat.
+    """
+    hint = command.get("entity_hint")
+    if not hint:
+        return command
+    ctx = dict(command)
+    ctx["group"] = [hint] + list(ctx.get("group") or [])
+    return ctx
+
+
+def _declared_params_for_target(command, entities_by_class):
+    """Parameters for a canonical target method the design never declared.
+
+    ``get_<entity>_by_id`` takes the entity's id — the deterministic service
+    renderer already knows how to serve exactly that call
+    (``self.<entity>_repo.get_by_id(id)``). Returns ``None`` for any other
+    name, so the caller keeps its option-derived parameter list.
+    """
+    cls = _command_entity(
+        _command_context(command, entities_by_class), entities_by_class
+    )
+    if cls is None:
+        return None
+    if (command.get("target") or "") == "get_%s_by_id" % _snake(cls):
+        return [{"name": "id", "type": "int"}]
+    return None
 
 
 def _canonical_target(command, entities_by_class):
@@ -429,11 +560,33 @@ def build_prompt_cli_surface(prompt_text, entities_by_class, spec_methods=None):
     and group is the specification's own, with targets resolved against the
     methods the specification declares.
     """
+    if not entities_by_class:
+        return None
     raw = extract_prompt_cli_commands(prompt_text)
-    if not raw or not entities_by_class:
+    # No bullet list: the specification may still have named its commands
+    # inline ("exposes commands: add, list, update, delete, and show"). Those
+    # are FLAT — the specification wrote no group — and their options are
+    # filled from the target method's own signature further down.
+    flat = [] if raw else extract_prompt_inline_commands(prompt_text)
+    if not raw and not flat:
         return None
     commands = []
     seen = set()
+    if flat:
+        hint = ""
+        if len(entities_by_class) == 1:
+            # A bare verb list on a single-entity project names that entity's
+            # commands; the entity resolves the TARGET only — never the path,
+            # which stays flat because the specification wrote no group.
+            hint = _snake(next(iter(entities_by_class)))
+        for name in flat:
+            commands.append({
+                "group": [],
+                "name": name,
+                "options": [],
+                "target": "",
+                "entity_hint": hint,
+            })
     for text in raw:
         command = parse_prompt_command(text)
         if command is None:
@@ -455,7 +608,11 @@ def build_prompt_cli_surface(prompt_text, entities_by_class, spec_methods=None):
             if isinstance(p, dict) and p.get("name")
         ]
     for command in commands:
-        command["target"] = resolve_target(command, entities_by_class, candidates)
+        command["target"] = resolve_target(
+            _command_context(command, entities_by_class),
+            entities_by_class,
+            candidates,
+        )
     return {"commands": commands}
 
 
@@ -535,19 +692,32 @@ def align_surface_to_design(surface, service_methods, entities_by_class):
     for command in (surface or {}).get("commands") or []:
         if not isinstance(command, dict):
             continue
+        ctx = _command_context(command, entities_by_class)
         if command.get("target") not in signatures:
-            command["target"] = resolve_target(
-                command, entities_by_class, designed
-            )
+            command["target"] = resolve_target(ctx, entities_by_class, designed)
         if not command.get("target"):
             # A specification command whose verb matches no designed method
             # (inventory's ``product report low-stock``) still has to exist: an
             # empty target is dropped by ``_sanitize_cli_design`` as an unknown
             # target, so the command the specification wrote would vanish from
             # the shipped CLI. Name the method from the command's own path and
-            # declare it, so the rendered call resolves to a real method.
-            command["target"] = _surface_target_name(command, entities_by_class)
-            if command["target"] and command["target"] not in signatures:
+            # declare it below.
+            command["target"] = _surface_target_name(ctx, entities_by_class)
+        if command.get("target") and command["target"] not in signatures:
+            # A target the design never declared. Two shapes are declarable,
+            # both served by the deterministic service renderer:
+            #   * an EMPTY target — a verb no designed method matches
+            #     (inventory's ``product report low-stock``): an empty target
+            #     is dropped by ``_sanitize_cli_design`` as an unknown target,
+            #     so the command the specification wrote would vanish from the
+            #     shipped CLI. Name the method from the command's own path;
+            #   * a CANONICAL read the service design omitted (``show`` ->
+            #     get_<entity>_by_id), which the renderer already serves as a
+            #     single-row read of the entity's repository.
+            if not command.get("target"):
+                command["target"] = _surface_target_name(ctx, entities_by_class)
+            entries = _declared_params_for_target(command, entities_by_class)
+            if entries is None:
                 entries = [
                     {
                         "name": _opt_key(o),
@@ -556,6 +726,7 @@ def align_surface_to_design(surface, service_methods, entities_by_class):
                     for o in command.get("options") or []
                     if isinstance(o, dict) and o.get("type") != "flag"
                 ]
+            if command["target"]:
                 for p in entries:
                     live_pairs.setdefault(command["target"], []).append(dict(p))
                 service_methods.append({
@@ -570,6 +741,14 @@ def align_surface_to_design(surface, service_methods, entities_by_class):
         pairs = signatures.get(command.get("target") or "")
         if not pairs:
             continue
+        if not command.get("options"):
+            # The specification named the command but not its options
+            # ("exposes commands: add, list, ..."), so the command cannot be
+            # left optionless: the target method's own signature — the same
+            # one the deterministic service renderer serves — supplies them.
+            command["options"] = _options_from_params(
+                live_pairs.get(command.get("target")) or [], pairs
+            )
         params = [n for n, _ in pairs]
         types = dict(pairs)
         if live_pairs.get(command.get("target")):

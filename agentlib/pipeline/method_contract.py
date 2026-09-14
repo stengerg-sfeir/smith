@@ -849,7 +849,206 @@ def _report_impl(contract, entities_by_class, params, returns):
     return impl
 
 
-def compile_contract_impl(contract, entities_by_class, params=None, returns=""):
+def _bool_return(returns):
+    """'bool' when the declaration is a bool workflow, else None.
+
+    ``Optional[bool]``/``bool | None`` are the SAME workflow: the design
+    merely annotates a best-effort result.
+    """
+    ret = (returns or "").strip().lower()
+    if ret.startswith("optional[") and ret.endswith("]"):
+        ret = ret[len("optional["):-1].strip()
+    elif ret.endswith("| none"):
+        ret = ret[: -len("| none")].strip()
+    if ret and ret not in ("bool", "boolean"):
+        return None
+    return "bool"
+
+
+def spec_line_effects(method_name, prompt_text, entities_by_class):
+    """Effects transcribed LITERALLY from the method's own specification line.
+
+    The LLM contract extractor is the primary source, but its evidence closure
+    drops a line the specification states plainly: library_system's
+    ``borrow_book(member_id, book_id): checks availability, creates loan,
+    decrements copies`` was rejected on all three retries ("evidence was not
+    verbatim"), so the method carried NO contract at all, fell to the fill, and
+    shipped as a dead ``return False`` stub — borrowing never decremented the
+    book and never created the loan.
+
+    This reader is literal and entity-closed: it reads the method's OWN line,
+    and every word must resolve against the designed entities (``loan`` ->
+    the Loan entity, ``copies`` -> the Book field ending in ``copies``). It
+    returns ``{"effects": [...], "guards": [...]}`` in the same vocabulary the
+    extractor uses, so a spec-derived contract is indistinguishable from an
+    extracted one and can never invent an entity or a field.
+    """
+    line = ""
+    for candidate in (prompt_text or "").splitlines():
+        if method_name in candidate:
+            line = candidate.strip()
+            break
+    if not line:
+        return {"effects": [], "guards": []}
+    low = line.lower()
+    effects = []
+    # "creates loan" / "inserts a loan row" -> insert a Loan row.
+    for match in re.finditer(
+        r"\b(?:creates?|inserts?|records?|adds?)\s+(?:an?\s+|a\s+)?"
+        r"([a-z_]+)",
+        low,
+    ):
+        cls = _effect_entity(entities_by_class, match.group(1))
+        if cls and not any(
+            e["kind"] == "create_child" and e["entity"] == cls for e in effects
+        ):
+            effects.append({"kind": "create_child", "entity": cls})
+    # "decrements copies" / "increments available_copies" -> the counter on the
+    # entity that carries that field (the spec word may be a suffix of the
+    # column: "copies" -> available_copies).
+    for match in re.finditer(
+        r"\b(%s)\s+([a-z_]+)" % "|".join(sorted(_DELTA_WORDS)),
+        low,
+    ):
+        delta = _DELTA_WORDS[match.group(1)]
+        word = match.group(2)
+        target = _field_owner(word, entities_by_class)
+        if target is None:
+            continue
+        cls, field = target
+        effects.append({
+            "kind": "counter_delta",
+            "entity": cls,
+            "field": field,
+            "value": str(delta),
+        })
+    guards = []
+    # "checks availability" -> refuse the operation when the counter is empty.
+    if re.search(r"\bchecks?\s+(?:the\s+)?availability", low):
+        counter = next(
+            (e for e in effects if e["kind"] == "counter_delta"), None
+        )
+        if counter is not None:
+            guards.append({
+                "kind": "reject_unavailable",
+                "entity": counter["entity"],
+                "field": counter["field"],
+            })
+    return {"effects": effects, "guards": guards}
+
+
+def _field_owner(word, entities_by_class):
+    """``(class, field)`` for a spec word naming a designed field, or None.
+
+    Exact name first, then the bounded prefix/suffix rule the option and model
+    renderers already use ("copies" -> Book.available_copies). Ambiguity
+    (several entities carrying such a field) resolves to nothing, so the
+    reader declines rather than guesses.
+    """
+    token = _snake_name(word)
+    hits = []
+    for cls, ent in (entities_by_class or {}).items():
+        for field in (ent.get("fields") or []):
+            if not isinstance(field, dict) or not field.get("name"):
+                continue
+            name = field["name"]
+            if (
+                name == token
+                or name.endswith("_" + token)
+                or name.startswith(token + "_")
+            ):
+                hits.append((cls, name))
+    if len(hits) != 1:
+        return None
+    return hits[0]
+
+
+def _create_child_impl(contract, entities_by_class, params, returns, effects):
+    """A ``create_child_row`` impl for a workflow that INSERTS a row.
+
+    The shape is a stated BUSINESS OPERATION rather than a state change on one
+    existing row: "checks availability, creates loan, decrements copies". The
+    anchor row is loaded by the parameter that names its id (``book_id``), the
+    counter effects apply to it, and the child row is inserted with every
+    required column stamped from a source that is itself exact:
+
+      * a column named by one of the method's own parameters (``book_id``,
+        ``member_id``);
+      * the design's declared default (``status (active/...)`` -> 'active');
+      * "now" for a date/datetime column the specification does not qualify.
+
+    Returns None the moment a required column has no such source — the fill
+    keeps the method rather than a half-stamped insert.
+    """
+    if _bool_return(returns) is None:
+        return None
+    children = [e for e in effects if e["kind"] == "create_child"]
+    if len(children) != 1:
+        return None
+    # ``effects`` reaches here RESOLVED (``contract_effects_for`` renames the
+    # stated entity to the designed class under ``cls``); accept either key so
+    # the compiler works on a raw contract too.
+    child_cls = _effect_entity(
+        entities_by_class,
+        children[0].get("cls") or children[0].get("entity"),
+    )
+    child = (entities_by_class or {}).get(child_cls or "")
+    if not isinstance(child, dict):
+        return None
+    params = list(params or [])
+    child_fields = []
+    for field in child.get("fields") or []:
+        if not isinstance(field, dict) or not field.get("name"):
+            continue
+        name = field["name"]
+        if name == "id" or field.get("nullable"):
+            continue
+        if name in params:
+            child_fields.append({"name": name, "param": name})
+        elif name.endswith("_id") and name[: -len("_id")] in params:
+            child_fields.append({"name": name, "param": name[: -len("_id")]})
+        elif "default" in field and field.get("default") is not None:
+            child_fields.append({"name": name, "value": field["default"]})
+        elif field.get("type") in ("date", "datetime"):
+            child_fields.append({"name": name, "now": True})
+        else:
+            return None
+    prepared = []
+    anchor = None
+    id_param = ""
+    for eff in [e for e in effects if e["kind"] != "create_child"]:
+        cls = eff.get("cls") or _effect_entity(
+            entities_by_class, eff.get("entity")
+        )
+        if not cls:
+            return None
+        if anchor is None:
+            anchor = cls
+            id_param = _id_param_for(cls, params) or ""
+        target = _effect_target(cls, anchor, entities_by_class)
+        if target is None:
+            return None
+        prepared.append(dict(eff, cls=cls, target=target))
+    if anchor is None:
+        # A pure insert ("records a payment"): anchor on the child's own id if
+        # the method names one, else on the child itself.
+        id_param = _id_param_for(child_cls, params) or ""
+        if not id_param:
+            return None
+        anchor = child_cls
+    return {
+        "kind": "create_child_row",
+        "entity": _snake(anchor),
+        "id_param": id_param,
+        "child": child_cls,
+        "child_fields": child_fields,
+        "effects": prepared,
+        "guards": contract_guards_for(contract, entities_by_class),
+    }
+
+
+def compile_contract_impl(contract, entities_by_class, params=None, returns="",
+                          prompt_text=""):
     """A renderable ``impl`` for this contract, or None when not exactly so.
 
     Deliberately narrow so a deterministic recipe can never SHADOW a body
@@ -873,6 +1072,33 @@ def compile_contract_impl(contract, entities_by_class, params=None, returns=""):
     if report is not None:
         return report
     effects = contract_effects_for(contract, entities_by_class)
+    if not effects and prompt_text:
+        # The extractor's evidence closure can drop a line the specification
+        # states plainly (borrow_book). Read the method's OWN line literally
+        # and use it, so a stated workflow is rendered deterministically
+        # instead of being left to a 4B fill that has already shipped it as a
+        # dead stub.
+        derived = spec_line_effects(
+            contract.get("name") or "", prompt_text, entities_by_class
+        )
+        if derived.get("effects"):
+            contract = dict(contract)
+            contract["effects"] = derived["effects"]
+            contract["guards"] = derived.get("guards") or []
+            effects = contract_effects_for(contract, entities_by_class)
+    # A stated INSERT workflow (a counter moved plus a child row created) is
+    # served by the dedicated recipe — which renders its GUARDS too, from the
+    # design's own exception classes. It is therefore decided BEFORE the guard
+    # gate below: honouring that gate first kept library_system's borrow_book
+    # on its LLM fill ("checks availability, creates loan, decrements
+    # copies"), so whether borrowing worked at all depended on the fill's
+    # luck — one run shipped it as a dead ``return False`` stub.
+    if any(e["kind"] == "create_child" for e in effects):
+        impl = _create_child_impl(
+            contract, entities_by_class, params, returns, effects
+        )
+        if impl is not None:
+            return impl
     if not effects:
         # No state change stated: the method is a READ whose contract is a
         # restricting parameter over a period. That shape is exactly
@@ -887,6 +1113,9 @@ def compile_contract_impl(contract, entities_by_class, params=None, returns=""):
     if guards:
         return None
     if any(e["kind"] == "create_child" for e in effects):
+        # Reached only when ``_create_child_impl`` DECLINED the shape (a
+        # required column no parameter, default or "now" can stamp): the fill
+        # keeps the method.
         return None
     ret = (returns or "").strip().lower()
     # ``Optional[bool]`` is the SAME workflow: the design merely annotates a
