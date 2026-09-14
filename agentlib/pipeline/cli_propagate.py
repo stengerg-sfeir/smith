@@ -26,6 +26,36 @@ from agentlib.naming import _snake, _camel, _plural
 from agentlib.generation.cli_render import _optvar, _match_param, _resolve_option_param
 
 
+def _repo_custom_return(designs, repo_attr, method_name):
+    """The return type the DESIGN declares for ``repo_attr.method_name``, or "".
+
+    ``repo_attr`` is the repository INSTANCE attribute (``member_repo``); the
+    design file stem is derived from it (``member_repository``). The stem match
+    keeps two same-named methods on different repositories apart; a name-only
+    fallback covers a design whose file stem does not follow the convention.
+    """
+    stem = (
+        repo_attr[: -len("_repo")] + "_repository"
+        if repo_attr.endswith("_repo")
+        else repo_attr
+    )
+    for path, kind, d in designs or []:
+        if kind != "repositories" or not isinstance(d, dict):
+            continue
+        if Path(path).stem != stem:
+            continue
+        for m in d.get("methods") or []:
+            if isinstance(m, dict) and m.get("name") == method_name:
+                return m.get("returns") or ""
+    for path, kind, d in designs or []:
+        if kind != "repositories" or not isinstance(d, dict):
+            continue
+        for m in d.get("methods") or []:
+            if isinstance(m, dict) and m.get("name") == method_name:
+                return m.get("returns") or ""
+    return ""
+
+
 def _merge_cli_commands_by_key(data, key_fn):
     """Merge duplicate CLI commands by ``key_fn(cmd)``, unioning options.
 
@@ -64,7 +94,7 @@ def _merge_cli_commands_by_key(data, key_fn):
 
 
 def _propagate_cli_commands(data, prompt_text, entities_by_class,
-svc_design, designs):
+svc_design, designs, preserve_surface=False):
     """Bounded back-propagation of CLI wiring conflicts into the designs.
 
     Three gates keep this from becoming a hallucination channel:
@@ -113,7 +143,11 @@ svc_design, designs):
         "exporter": "export", "importer": "import", "import": "import",
         "calculer": "calculate",
     }
-    for c in data.get("commands") or []:
+    # A spec-enumerated surface has already fixed every group chain and
+    # command name: never flatten a nested group to its owning entity (that
+    # turned ``expense category add`` into ``category add``) and never
+    # rename a verb the specification wrote.
+    for c in (() if preserve_surface else (data.get("commands") or [])):
         if not isinstance(c, dict):
             continue
         cls = _command_entity(c, entities_by_class)
@@ -167,8 +201,19 @@ svc_design, designs):
     # method. Union their options first so ONE command processes the method;
     # the post-wiring merge at the end stays as the backstop for commands
     # whose targets only converge AFTER propagation assigns them.
+    # A spec-enumerated surface keys the merge by the WHOLE command path:
+    # two commands that share a verb and (still empty) target — ``library
+    # book add`` and ``library member add`` — must never be fused into one.
     _merge_cli_commands_by_key(
-        data, lambda c: (str(c.get("name") or ""), str(c.get("target") or ""))
+        data,
+        (
+            lambda c: (
+                tuple(str(g) for g in (c.get("group") or [])),
+                str(c.get("name") or ""),
+                str(c.get("target") or ""),
+            )
+        ) if preserve_surface
+        else (lambda c: (str(c.get("name") or ""), str(c.get("target") or ""))),
     )
 
     def required_missing(cls, covered):
@@ -462,7 +507,10 @@ svc_design, designs):
                             rret = m.get("returns") or rret
                 synth(sname, [], rret)
                 c["target"] = sname
-                c["group"] = []
+                # A spec-enumerated command keeps the group path the spec
+                # wrote (``library overdue`` stays under ``library``).
+                if not preserve_surface:
+                    c["group"] = []
                 notes.append(
                     "%s -> %s (delegates to %s.%s)"
                     % (label, sname, attr, meth)
@@ -951,24 +999,36 @@ svc_design, designs):
             # and the rendered click INTEGER option disagree, the branch
             # declines, and the command is dropped as an unknown target.
             idopts[0]["type"] = "int"
-            hit = next(
-                ((a, m) for a, m, ps in repo_customs if ps == [key]), None
-            )
+            def _hit_for(k):
+                """The repo custom a history listing should delegate to.
+
+                A history shows MANY rows, so when several repo customs take
+                exactly this key, prefer the one that returns a COLLECTION:
+                library_system's member repository has both
+                ``get_member_by_id(member_id) -> Optional[Member]`` and
+                ``get_member_loan_history(member_id) -> List[Loan]``, and
+                taking the first made the synthesized ``get_member_history``
+                return a Member — so `library member history` echoed the
+                member and dropped the loans (S13). Shape-based, never a name
+                heuristic.
+                """
+                cands = [(a, m) for a, m, ps in repo_customs if ps == [k]]
+                if not cands:
+                    return None
+                for pair in cands:
+                    r = _repo_custom_return(designs, pair[0], pair[1]).lower()
+                    if r.startswith("list") or "list[" in r:
+                        return pair
+                return cands[0]
+
+            hit = _hit_for(key)
             if hit is None and field and field != key:
                 key = field
-                hit = next(
-                    ((a, m) for a, m, ps in repo_customs if ps == [key]), None
-                )
+                hit = _hit_for(key)
             if hit is None:
                 continue
             attr, meth = hit
-            rret = "List[Any]"
-            for path, kind, d in designs or []:
-                if kind != "repositories" or not isinstance(d, dict):
-                    continue
-                for m in d.get("methods") or []:
-                    if isinstance(m, dict) and m.get("name") == meth:
-                        rret = m.get("returns") or rret
+            rret = _repo_custom_return(designs, attr, meth) or "List[Any]"
             sname = "get_%s_history" % sn
             synth(sname, [(key, "int")], rret)
             c["target"] = sname
@@ -1234,7 +1294,15 @@ svc_design, designs):
     for _c in data.get("commands") or []:
         if not isinstance(_c, dict):
             continue
-        _key = (str(_c.get("name") or ""), str(_c.get("target") or ""))
+        _key = (
+            (
+                tuple(str(g) for g in (_c.get("group") or [])),
+                str(_c.get("name") or ""),
+                str(_c.get("target") or ""),
+            )
+            if preserve_surface
+            else (str(_c.get("name") or ""), str(_c.get("target") or ""))
+        )
         _prev = _merged_by_key.get(_key)
         if _prev is None:
             _merged_by_key[_key] = _c
@@ -1513,7 +1581,7 @@ def _strip_bare_verb_orphans(svc_design, data):
 
 
 def _reconcile_cli_design(data, prompt_text, entities_by_class, designs,
-verbose=False):
+verbose=False, preserve_surface=False):
     """Propagation-first reconciliation of one CLI design against the
     designed services/models: try bounded back-propagation on deepcopies,
     commit on clean validation, then sanitize whatever remains unwired.
@@ -1551,7 +1619,10 @@ verbose=False):
     # the param it supplies (--start-date vs from_date). Map ONLY options that
     # the deterministic name-based _match_param can't connect; set o['field']
     # so the reconcile/sanitize below (still the authority) can wire them.
-    if service_methods:
+    if service_methods and not preserve_surface:
+        # A spec-enumerated surface already binds every option to its designed
+        # parameter deterministically (``--from-date`` -> ``start_date``);
+        # there is nothing left for a semantic mapping call to add.
         data = _llm_resolve_cli_option_mappings(
             data, service_methods, entities_by_class, verbose
         )
@@ -1617,7 +1688,8 @@ verbose=False):
         trial_ents = _copy.deepcopy(entities_by_class)
         trial_svc = _copy.deepcopy(svc_design or {"methods": []})
         notes = _propagate_cli_commands(
-            trial_data, prompt_text, trial_ents, trial_svc, designs
+            trial_data, prompt_text, trial_ents, trial_svc, designs,
+            preserve_surface=preserve_surface,
         )
         if notes:
             # Commit: replay the deterministic mutations on the LIVE
@@ -1626,7 +1698,8 @@ verbose=False):
             # Partial repairs are fine — whatever stays unwired goes to the
             # sanitizer below.
             _propagate_cli_commands(
-                data, prompt_text, entities_by_class, svc_design, designs
+                data, prompt_text, entities_by_class, svc_design, designs,
+                preserve_surface=preserve_surface,
             )
             service_methods = (svc_design or {}).get("methods") or []
             errs = _validate(data, service_methods)

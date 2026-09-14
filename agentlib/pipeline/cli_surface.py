@@ -1067,6 +1067,33 @@ def cli_surface_constraint(surface):
 
 # --- repository design-time constraint --------------------------------------
 
+def repo_spec_constraint(prompt_text, ent_snake):
+    """The SPECIFICATION's own responsibility bullet for this repository.
+
+    The repository design is bounded by the CLI surface (``repo_surface_
+    constraint``), but a specification states repository duties the CLI list
+    never reaches: expense's ``BudgetRepository — … check if a category has
+    exceeded its budget`` has no CLI command of its own, so once the
+    over-generated ``budget check`` command is gone the repository design stops
+    producing ``check_budget_status`` and the spec's own requirement silently
+    disappears. Feed the specification's matching bullet so the design still
+    covers it. Structural: match the entity's ``<entity>repository`` token in a
+    prompt line, strip the bullet/heading decoration, return the line verbatim.
+    """
+    if not prompt_text or not ent_snake:
+        return ""
+    needle = re.sub(r"[^a-z0-9]", "", (str(ent_snake) + "repository").lower())
+    if not needle:
+        return ""
+    for line in prompt_text.splitlines():
+        flat = re.sub(r"[^a-z0-9]", "", line.lower())
+        if needle in flat:
+            clean = line.strip().lstrip("0123456789.-*# ").strip()
+            if clean:
+                return clean
+    return ""
+
+
 def repo_surface_constraint(cli_surface, ent_snake):
     """Human-readable design constraint for a repository design call.
 

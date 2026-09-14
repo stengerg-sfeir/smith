@@ -21,6 +21,17 @@ prompts:
 """
 import re
 
+from ...naming import _entity_table_name
+
+# The status words and the boundary at which the middle state starts. The
+# specification states the three STATES of a budget status
+# ("on_track/warning/exceeded") but never the boundary, so ONE documented
+# default is used in the kernel while a service contract may override the
+# words. Keeping a single convention means the repository's status and the
+# report's per-category status can never disagree.
+_WARN_RATIO = 0.8
+_DEFAULT_LABELS = {"ok": "on_track", "warn": "warning", "over": "exceeded"}
+
 
 def _param_type(m, pname):
     """Declared type of a designed param, or None when untyped/absent."""
@@ -57,6 +68,26 @@ def _flag_list_body(
     if len(bool_cols) != 1:
         return None
     col = bool_cols[0]
+    # A ``<x>_only`` parameter is a RESTRICTION, not a selector: the caller
+    # asks for the rows that carry the flag, and OMITTING it means "no
+    # restriction" — the specification's ``member list [--active-only]`` /
+    # ``book list [--available-only]``. Emitting ``WHERE is_active = ?`` with
+    # ``0`` for the omitted flag did the opposite: it listed exactly the
+    # INACTIVE members and returned nothing at all for a fresh database,
+    # while ``--active-only`` listed the active ones and no invocation could
+    # list everything. The restriction form needs no bind, so the query is
+    # assembled conditionally.
+    if pname.endswith("_only"):
+        return [
+            "        with self.db.connect() as conn:",
+            '            query = "SELECT * FROM %s WHERE 1=1"' % table,
+            "            if %s:" % pname,
+            '                query += " AND %s = 1"' % col,
+            '            rows = conn.execute('
+            'query + " ORDER BY id").fetchall()',
+            "            return [%s(**dict(r)) for r in rows]" % model,
+        ]
+    # Any other bool parameter SELECTS the matching value (1/0).
     return [
         "        with self.db.connect() as conn:",
         "            rows = conn.execute(",
@@ -105,8 +136,15 @@ def _filtered_aggregate_body(
 ):
     """``Dict`` over params that ALL resolve to declared filters -> SUM.
 
-    Emits ``SUM(<the one numeric column>)`` over that WHERE clause and keys
-    the result by the method's first param. Returns body lines, or None.
+    Emits ``SUM(<the one numeric column>)`` over that WHERE clause and returns
+    ``{'total': ..., 'count': ...}`` — the SAME key convention
+    ``_period_aggregate_body`` already uses. Keying the aggregate by the
+    method's first parameter was a defect (S3): ``get_category_spending(
+    category_id, start_date, end_date)`` returned ``{'category_id': 3000}`` —
+    the money total stored under the name of the category it was filtered BY,
+    with no ``total`` key at all — and the service consuming it read
+    ``total_spent``/``count`` and silently got ``None``. An aggregate is named
+    by what it IS. Returns body lines, or None.
     """
     if not params or len(num_cols) != 1:
         return None
@@ -115,15 +153,99 @@ def _filtered_aggregate_body(
         return None
     ncol = num_cols[0]
     cast = _cast_for(fields[ncol].get("type"))
-    key = params[0]
     return [
         "        with self.db.connect() as conn:",
         "            row = conn.execute(",
-        '                "SELECT COALESCE(SUM(%s), 0) AS v FROM %s%s",'
-        % (ncol, table, frag),
+        '                "SELECT COALESCE(SUM(%s), 0) AS v,'
+        ' COUNT(*) AS n FROM %s%s",' % (ncol, table, frag),
         "                %s" % tup(binds),
         "            ).fetchone()",
-        "            return {%r: %s(row[\"v\"])}" % (key, cast),
+        "            return {'total': %s(row[\"v\"]), 'count': int(row[\"n\"])}"
+        % cast,
+    ]
+
+
+def _budget_status_body(
+    model, fields, params, ret_l, entities_by_class, num_cols, tup,
+    warn_ratio, labels,
+):
+    """``str`` over ONE row id -> that row's limit vs ACTUAL spending.
+
+    Shape-gated and design-only. The owner entity must carry exactly one
+    foreign key (the group the budget is kept for), exactly one str column
+    (the period, "YYYY-MM") and exactly one numeric non-FK column (the limit);
+    exactly ONE other designed entity must carry that same foreign key plus
+    exactly one date column and one numeric column — the spending compared.
+    The status is then ``SUM(spending)`` for that (group, period) against the
+    limit, in the three states the specification names.
+
+    Why: expenses' ``BudgetRepository.check_budget_status(budget_id)``
+    compared the budget's LIMIT to the category's ``monthly_budget`` FIELD —
+    never to actual spending — and
+    ``CategoryRepository.check_category_budget_status`` summed ALL TIME,
+    ignoring the month (S7). Neither the limit nor the period was ever tied to
+    what was spent. Returns body lines, or None.
+    """
+    if "str" not in ret_l or len(params) != 1:
+        return None
+    fks = sorted(
+        f for f in fields
+        if isinstance(f, str) and f.endswith("_id") and f != "id"
+    )
+    strs = [
+        f for f in fields
+        if isinstance(f, str) and fields[f].get("type") == "str"
+    ]
+    if len(fks) != 1 or len(strs) != 1 or len(num_cols) != 1:
+        return None
+    fk, period, limit = fks[0], strs[0], num_cols[0]
+    spend = []
+    for cls, other in (entities_by_class or {}).items():
+        if cls == model or not isinstance(other, dict):
+            continue
+        ofields = {
+            f.get("name"): f for f in (other.get("fields") or [])
+            if isinstance(f, dict) and f.get("name")
+        }
+        if fk not in ofields:
+            continue
+        odates = [
+            n for n, f in ofields.items()
+            if f.get("type") in ("date", "datetime")
+        ]
+        onums = [
+            n for n, f in ofields.items()
+            if f.get("type") in ("int", "float")
+            and n != "id" and not n.endswith("_id")
+        ]
+        if len(odates) == 1 and len(onums) == 1:
+            spend.append((cls, odates[0], onums[0]))
+    if len(spend) != 1:
+        return None
+    scls, sdate, snum = spend[0]
+    stable = _entity_table_name(entities_by_class[scls])
+    pid = params[0]
+    return [
+        "        with self.db.connect() as conn:",
+        "            row = conn.execute(",
+        '                "SELECT %s, %s, %s FROM %s WHERE id = ?",'
+        % (fk, period, limit, _entity_table_name(entities_by_class[model])),
+        "                %s" % tup([pid]),
+        "            ).fetchone()",
+        "            if row is None:",
+        "                return 'unknown'",
+        "            spent = conn.execute(",
+        '                "SELECT COALESCE(SUM(%s), 0) AS v FROM %s'
+        ' WHERE %s = ? AND substr(%s, 1, 7) = ?",'
+        % (snum, stable, fk, sdate),
+        "                %s" % tup(["row[%r]" % fk, "row[%r]" % period]),
+        "            ).fetchone()[\"v\"]",
+        "            limit = row[%r]" % limit,
+        "            if spent > limit:",
+        "                return %r" % labels["over"],
+        "            if limit and spent >= limit * %s:" % warn_ratio,
+        "                return %r" % labels["warn"],
+        "            return %r" % labels["ok"],
     ]
 
 
@@ -187,11 +309,19 @@ def _repo_extra_body(
     is_list_model,
     where,
     tup,
+    entities_by_class=None,
 ):
     """Dispatch the extra recipes; None => let the existing tiers decide."""
     if not ent:
         return None
     field_names = list(fields)
+
+    body = _budget_status_body(
+        model, fields, params, ret_l, entities_by_class, num_cols, tup,
+        _WARN_RATIO, _DEFAULT_LABELS,
+    )
+    if body is not None:
+        return body
 
     body = _detect_and_mark_body(
         model, table, fields, num_cols, params, name, is_list_model

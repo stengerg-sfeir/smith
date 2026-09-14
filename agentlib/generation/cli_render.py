@@ -63,6 +63,7 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
     # renderer flattened it to a root-level @cli.command('category-add'),
     # discarding the group structure every spec asks for. Ancestor groups are
     # emitted on first use, root-first, so a decorator always sees its parent.
+    param_types = _service_param_types(service_methods)
     group_idents = {}
     used_group_idents = {"cli"}
 
@@ -121,6 +122,7 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         used_idents.add(flat_ident)
         opts = c.get("options") or []
         target = c.get("target") or name or ""
+        target_types = param_types.get(target) or {}
 
         if owner:
             lines.append("@%s.command(%r)" % (owner, cmd_name))
@@ -132,6 +134,11 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
                 continue
             otype = o.get("type") or "str"
             opt_key = o.get("field") or _optvar(o)
+            resolved = (
+                _resolve_option_param(o, list(target_types))
+                if target_types else None
+            )
+            declared = (target_types.get(resolved) or "") if resolved else ""
             req = (
                 "required=True"
                 if o.get("required") and opt_key not in default_fields
@@ -140,8 +147,26 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
             if otype == "int":
                 lines.append("@click.option(%r, type=int%s)"
                              % (oname, (", " + req) if req else ""))
-            elif otype == "flag":
-                lines.append("@click.option(%r, is_flag=True, default=False)" % oname)
+            elif otype == "flag" or _is_bool_type(declared):
+                # A boolean parameter must be a FLAG, whatever the design
+                # declared: `--is-active` was designed as a plain string
+                # option, so `member add --is-active false` stored the TEXT
+                # 'false' — a row that then matched neither the active nor the
+                # inactive listing, and an `is_active` that was not a bool.
+                # When the field ALSO carries a declared default (is_active
+                # -> True), offer the tri-state `--x/--no-x` form: an omitted
+                # flag is None, so the designed default still applies (and a
+                # partial update never writes a column the caller omitted).
+                opt_fields = (opt_key, resolved)
+                if any(f and f in default_fields for f in opt_fields):
+                    lines.append(
+                        "@click.option(%r, default=None)"
+                        % ("%s/--no-%s" % (oname, oname.lstrip("-")))
+                    )
+                else:
+                    lines.append(
+                        "@click.option(%r, is_flag=True, default=False)" % oname
+                    )
             else:
                 lines.append("@click.option(%r%s)"
                              % (oname, (", " + req) if req else ""))
@@ -175,6 +200,25 @@ def _cli_ident(path):
 
 def _optvar(o):
     return re.sub(r"[- ]", "_", (o.get("name") or "").lstrip("-"))
+
+
+def _service_param_types(service_methods):
+    """{method_name: {param_name: declared type}} from the designed service."""
+    out = {}
+    for m in service_methods or []:
+        if isinstance(m, dict) and m.get("name"):
+            out[m["name"]] = {
+                p.get("name"): (p.get("type") or "")
+                for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            }
+    return out
+
+
+def _is_bool_type(declared):
+    """True when a declared parameter type is a boolean (Optional included)."""
+    low = (declared or "").strip().lower()
+    return low == "bool" or "bool" in low
 
 
 def _match_param(key, params):
@@ -284,9 +328,29 @@ def _build_service_call(target, opts, service_methods):
             if k in used or k in params:
                 continue
             used.add(k)
-            packed.append("'%s': %s" % (k, _optvar(o)))
+            var = _optvar(o)
+            if o.get("type") == "flag":
+                # A click flag cannot express "explicitly False": an ABSENT
+                # flag hands the callback False, indistinguishable from a
+                # deliberate False. Fold it to None so the `is not None`
+                # filter below treats it as "not supplied" — otherwise
+                # `expense update --id 1 --description x` silently rewrote
+                # is_recurring to 0 on a row that was marked recurring.
+                packed.append("'%s': (%s if %s else None)" % (k, var, var))
+            else:
+                packed.append("'%s': %s" % (k, var))
         if packed:
-            parts.append("data={%s}" % ", ".join(packed))
+            # A PARTIAL update must not write the options the user did not
+            # supply: click hands the callback None for an absent option, and
+            # the designed ``update(id, data)`` writes every key it receives,
+            # so a None overwrites a column — inventory I2 (`product update
+            # --name`) sent sku=None and died on ``NOT NULL constraint failed:
+            # products.sku``. Filter the None entries out so only the supplied
+            # fields are written.
+            parts.append(
+                "data={k: v for k, v in {%s}.items() if v is not None}"
+                % ", ".join(packed)
+            )
         return "result = svc.%s(%s)" % (target, ", ".join(parts))
 
     kwargs, used = [], set()

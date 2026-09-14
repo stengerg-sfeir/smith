@@ -36,9 +36,27 @@ def _h_total_in_period(m, impl, ent, entities_by_class):
     returns = m.get("returns") or ""
     if "Dict" not in returns and "dict" not in returns:
         return rows_lines + ["        return sum(e.%s for e in rows)" % vf]
+    if gran != "year":
+        return rows_lines + [
+            "        total = sum(e.%s for e in rows)" % vf,
+            "        return {'%s': %s, '%s': total}" % (pp, pp, rk),
+        ]
+    # Year bucket. The spec's year report asks for MONTHLY totals ("returns
+    # monthly totals, top spending categories, average monthly spend"), so a
+    # single annual number is a semantic hole: emit the per-month breakdown
+    # alongside the annual total. Rows without a date cannot be bucketed and
+    # are skipped rather than crashing the key computation.
     return rows_lines + [
-        "        total = sum(e.%s for e in rows)" % vf,
-        "        return {'%s': %s, '%s': total}" % (pp, pp, rk),
+        "        monthly = {}",
+        "        for e in rows:",
+        "            stamp = e.%s" % df,
+        "            if not stamp:",
+        "                continue",
+        "            key = str(stamp)[:7]",
+        "            monthly[key] = monthly.get(key, 0) + e.%s" % vf,
+        "        total = sum(monthly.values())",
+        "        return {'%s': %s, 'monthly_totals': monthly, '%s': total}"
+        % (pp, pp, rk),
     ]
 
 

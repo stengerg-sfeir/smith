@@ -247,6 +247,69 @@ def service_contract_constraint(contract):
     return "\n".join(lines)
 
 
+def apply_service_contract_floors(contract, svc_design, entities_by_class):
+    """Add the spec-declared methods the design omitted, when bodyable.
+
+    ``service_contract_constraint`` TELLS the design to include every
+    spec-declared method, but the 4B pass still drops some (expenses lost
+    ``update_expense`` and ``delete_expense``, so two paths the
+    specification authorizes raised AttributeError). This floor restores
+    them deterministically — but ONLY the shapes the deterministic service
+    renderer can body exactly from the designed repository API:
+
+      * ``delete_<entity>(id)``        -> ``self.<e>_repo.delete(id)``
+      * ``update_<entity>(id, ...)``   -> ``self.<e>_repo.update(id, data)``
+
+    Any other missing method is left to ``check_service_contract``: adding
+    a method with no deterministic body would ship a locked stub raising
+    NotImplementedError on a spec-authorized path, which is strictly worse
+    than the method's absence. Returns the sorted names actually added.
+    """
+    if not contract or not isinstance(svc_design, dict):
+        return []
+    methods = contract.get("required_methods") or []
+    if not methods:
+        return []
+    known = {_snake_name(c) for c in (entities_by_class or ())}
+    designed = {
+        _snake_name(m.get("name"))
+        for m in svc_design.get("methods") or []
+        if isinstance(m, dict) and m.get("name")
+    }
+    added = []
+    for m in methods:
+        name = _snake_name(m.get("name"))
+        if not name or name in designed:
+            continue
+        params = [
+            p for p in (m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        ]
+        pnames = [_snake_name(p["name"]) for p in params]
+        shape = None
+        for verb in ("delete_", "update_"):
+            if name.startswith(verb) and name[len(verb):] in known:
+                rest = pnames[1:]
+                if verb == "delete_" and pnames == ["id"]:
+                    shape = verb
+                elif verb == "update_" and rest and "id" in pnames[:1]:
+                    shape = verb
+                break
+        if shape is None:
+            continue
+        svc_design.setdefault("methods", []).append({
+            "name": name,
+            "params": [
+                {"name": pn, "type": pt or "Any"}
+                for pn, pt in zip(pnames, [p.get("type") for p in params])
+            ],
+            "returns": m.get("returns") or "bool",
+        })
+        designed.add(name)
+        added.append(name)
+    return sorted(added)
+
+
 def check_service_contract(contract, svc_design):
     """Coverage violations: required spec methods absent from the design.
 
@@ -288,3 +351,82 @@ def check_service_contract(contract, svc_design):
                    ", ".join(missing))
             )
     return violations
+def apply_service_contract_params(contract, svc_design):
+    """Rename designed params to the spec-declared names they fulfil.
+
+    ``service_contract_constraint`` tells the design to use the spec's own
+    parameter names, but the 4B pass paraphrases a role: the specification
+    declares ``list_expenses(category_id, start_date, end_date,
+    payment_method)`` and the design shipped
+    ``list_expenses(category_id, from_date, to_date, payment_method)``.
+    ``check_service_contract`` reported it, and nothing repaired it — so a
+    caller who followed the specification got a TypeError, even though the
+    CLI option (``--from-date``) was correctly bound.
+
+    The rename is applied ONLY when it is UNAMBIGUOUS:
+
+      * the spec method is present in the design;
+      * some spec param is absent and the design carries exactly as many EXTRA
+        params as there are missing ones (so a rename is a permutation, never
+        a guess);
+      * the two names denote the same RANGE ROLE (lower bound: ``start_``,
+        ``from_``, ``after_``, ``since_``; upper bound: ``end_``, ``to_``,
+        ``until_``, ``before_``) — the same role vocabulary the filter pairing
+        already uses, so a ``from_date`` is exactly the ``start_date`` the
+        specification named.
+
+    Nothing is renamed when a role is absent or ambiguous; the violation is
+    then still reported by ``check_service_contract``. Returns the list of
+    ``<method>.<old>-><new>`` renames actually applied.
+    """
+    if not contract or not isinstance(svc_design, dict):
+        return []
+    from agentlib.kernel.service.common import _range_role
+
+    by_name = {
+        _snake_name(m.get("name")): m
+        for m in svc_design.get("methods") or []
+        if isinstance(m, dict) and m.get("name")
+    }
+    renames = []
+    for spec_m in contract.get("required_methods") or []:
+        if not isinstance(spec_m, dict):
+            continue
+        name = _snake_name(spec_m.get("name"))
+        got = by_name.get(name)
+        if got is None:
+            continue
+        want = [
+            _snake_name(p.get("name")) for p in (spec_m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        ]
+        want = [w for w in want if w]
+        live = [
+            p for p in (got.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        ]
+        have = [_snake_name(p["name"]) for p in live]
+        missing = [w for w in want if w not in have]
+        if not missing:
+            continue
+        extra = [p for p, h in zip(live, have) if h not in want]
+        if len(extra) != len(missing):
+            continue
+        for want_name in missing:
+            role = _range_role(want_name)
+            if role is None:
+                continue
+            cand = next(
+                (
+                    p for p in extra
+                    if _range_role(_snake_name(p["name"])) == role
+                ),
+                None,
+            )
+            if cand is None:
+                continue
+            old = _snake_name(cand["name"])
+            cand["name"] = want_name
+            extra.remove(cand)
+            renames.append("%s.%s->%s" % (name, old, want_name))
+    return renames

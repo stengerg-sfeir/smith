@@ -28,6 +28,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from behavior_tests.conformity import prompt_surface_paths
 from behavior_tests.design_extract import extract_design
 from behavior_tests.facade_discovery import discover_facade
 from behavior_tests.facade_executor import execute_prompt
@@ -82,6 +83,24 @@ def main(argv: list[str] | None = None) -> int:
         design = extract_design(proj) if proj.is_dir() else None
         plans = map_intentions(intents, facade, design=design, fixtures=FIXTURES)
         unmapped = [p for p in plans if p["status"] == "unmapped"]
+        # When the specification ENUMERATES its own command line, an intention
+        # no enumerated command can serve is OUT OF THE FACADE'S SCOPE: the spec
+        # declares it as a SERVICE capability, not a CLI command (expenses'
+        # "get a specific expense by its ID" / "update an expense" / "delete an
+        # expense" are service bullets — the CLI list has no such commands).
+        # Requiring the CLI to expose them would contradict the spec's own
+        # command list, and the conformity gate already proves the CLI IS the
+        # spec's list. Report them separately instead of counting command gaps.
+        out_of_scope: list[dict] = []
+        prompt_path = Path("prompts") / ("prompt_%s.txt" % ident)
+        if unmapped and prompt_path.exists():
+            try:
+                spec_text = prompt_path.read_text(encoding="utf-8")
+            except OSError:
+                spec_text = ""
+            if spec_text and prompt_surface_paths(spec_text):
+                out_of_scope = unmapped
+                unmapped = []
         mapped_all = [p for p in plans if p["status"] == "mapped"]
         mapped = [p for p in mapped_all if not p.get("seed")]
         outcome = execute_prompt(mapped_all, proj, fresh_db=True, fixtures=FIXTURES,

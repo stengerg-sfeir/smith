@@ -431,6 +431,23 @@ def _infer_refs_and_creates(cmd: dict, design: dict | None) -> tuple[str, list[d
                 refs.append({"flag": flag, "entity": target_entity, "kind": "target"})
             elif _is_bulk_id_key(resolved, target_entity):
                 refs.append({"flag": flag, "entity": target_entity, "kind": "bulk"})
+    # A NON-create command that references SEVERAL entities through
+    # ``--<entity>_id`` options CREATES A RELATION between them (library's
+    # `library borrow --member-id --book-id`). Both rows are CONSUMED by that
+    # operation, so the plan must own its own pair: reusing the shared rows an
+    # earlier seed already linked asked the project to borrow a book that the
+    # very same member already holds — a self-contradictory scenario, which
+    # then fails on correct duplicate-refusing logic and passes only when the
+    # logic is absent. ``target`` refs make the executor hand this plan FRESH
+    # rows. Shape-only: a create-style command keeps the shared parents it is
+    # attached to.
+    if not create_style:
+        fk_refs = [r for r in refs if r.get("kind") == "fk"]
+        if len(fk_refs) >= 2 and not any(
+            r.get("kind") == "target" for r in refs
+        ):
+            for r in fk_refs:
+                r["kind"] = "target"
     return creates, refs
 
 
@@ -648,6 +665,32 @@ def _make_seed_plan(cmd: dict, entity: str, facade: dict, design: dict | None,
     return plan
 
 
+def _seed_literal(default):
+    """``(value, is_number)`` for a model default's SOURCE literal, or None.
+
+    ``design_extract`` records the default exactly as written in the model
+    source (``"'active'"``, ``"1"``, ``"True"``) and marks a field with a
+    default as ``nullable`` — but the generated DDL renders a non-Optional
+    field NOT NULL with NO SQL DEFAULT, so a direct INSERT that omits it dies
+    on ``NOT NULL constraint failed``. Unquote a string literal, map a bool to
+    1/0, pass a number through; ``None``/``"None"`` means "no default".
+    """
+    if default in (None, "", "None"):
+        return None
+    s = str(default).strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        return (s[1:-1], False)
+    if s in ("True", "true"):
+        return ("1", True)
+    if s in ("False", "false"):
+        return ("0", True)
+    try:
+        float(s)
+    except ValueError:
+        return None
+    return (s, True)
+
+
 def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | None:
     """Direct-DB seed when no CLI command creates ``entity``.
 
@@ -669,14 +712,24 @@ def _make_sql_seed_plan(entity: str, value: str | None, design: dict) -> dict | 
     cols: list[str] = []
     vals: list[tuple[str, bool]] = []
     for f in ent.get("fields", []):
-        if f.get("primary_key") or f.get("nullable"):
-            continue
-        if f.get("default") is not None:
+        if f.get("primary_key"):
             continue
         col = f.get("name", "")
         if not col:
             continue
+        default = f.get("default")
+        literal = _seed_literal(default)
+        # A field the extractor marked nullable ONLY because it carries a
+        # Python default is NOT NULL in the DDL (library's ``loans.status``:
+        # ``status TEXT NOT NULL`` rendered from ``status: str = "active"``).
+        # Seed it with the declared default; a nullable field with no default
+        # stays omitible.
+        if f.get("nullable") and literal is None:
+            continue
         cols.append(col)
+        if literal is not None:
+            vals.append(literal)
+            continue
         if f.get("type") in ("int", "float"):
             vals.append(("1", True))
         elif f.get("type") in ("date", "datetime") or (

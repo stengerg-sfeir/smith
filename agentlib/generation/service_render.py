@@ -18,11 +18,44 @@ from ..llm.fill import _llm_fill
 from ..kernel.service import dispatch_impl_body
 from ..kernel.service.common import _filter_params, _resolve_filter_args
 from ..kernel.repo.finder import _render_simple_finder, _simple_finder_spec
+from ..kernel.repo.threshold_compare import _flag_threshold_spec
 from ..kernel.repo.variant import _existing_variant_alias, _render_variant_alias
+from ..pipeline.method_contract import (
+    compile_contract_impl,
+    method_contract_violations,
+)
 from .helpers import _method_stub_code
 from .model_render import _coerce_field_default
 from .repo_render import _repo_dict_keys
 from .splice import _fn_has_stub_raise, _merge_stub_bodies
+
+# Spellings a design may use for a BOOLEAN filter parameter. A bool param is
+# never a BOUND value in list() — the click flag behind it defaults to False
+# and False must mean "no filter" — so its declared type is load-bearing: it
+# selects the constant-predicate rewrite in _apply_filter_floors below.
+_BOOL_FILTER_TYPES = (
+    "bool",
+    "boolean",
+    "Optional[bool]",
+    "bool | None",
+    "None | bool",
+)
+
+
+def _is_bool_param_type(ptype):
+    """True when a declared param type denotes a boolean flag.
+
+    Accepts the bare word in either case, the Optional/union spellings and a
+    trailing default (``bool = False``), so the flag rewrite is not defeated
+    by a spelling the design happened to choose.
+    """
+    if not ptype:
+        return False
+    text = str(ptype).split("=")[0].strip()
+    if text in _BOOL_FILTER_TYPES:
+        return True
+    parts = re.split(r"[|\[\],\s]+", text)
+    return any(p.lower() in ("bool", "boolean") for p in parts if p)
 
 
 def _bulk_update_spec(attr, meth, entities_by_class):
@@ -261,6 +294,31 @@ _OPTIONAL_GETTER_RULE = (
     "row (e.g. a category's budget) only when its row exists."
 )
 
+# Deterministic fill-prompt rule: the model ADDS refusals the specification
+# never states, and makes them wider than the message they raise. Library's
+# borrow_book was filled with
+#     for loan in existing_loans:
+#         elif loan.status == 'active':
+#             raise ValidationError(f'Member {member_id} already has an active
+#                                    loan for book {book_id}')
+# — while the spec asks only that borrow_book "checks availability, creates
+# loan, decrements copies". The extra scan refuses a borrow whenever the
+# member holds ANY active loan (book_id is never compared), so a member who
+# borrowed one book could never borrow another, and the raised message named
+# a pair the condition never tested. A hard instruction, mirroring the other
+# rules: enforce ONLY the stated conditions, and make every guard test what
+# its message claims.
+_NO_UNSTATED_GUARD_RULE = (
+    "GUARDS  enforce ONLY the conditions the method's description states. "
+    "Never add a refusal for something the description does not mention — an "
+    "existence, availability, or state check on the row being operated on is "
+    "allowed, but a duplicate/already-exists check or any test on the OTHER "
+    "rows of an entity is NOT unless it is stated. Every guard must test "
+    "exactly what its message claims: if the message names an id or a field, "
+    "the condition must compare THAT id or field, never a broader one."
+)
+
+
 # Validates in the SYSTEM message (primacy slot) so a small model attends to
 # the rules instead of losing them at the bottom of a long user-side
 # instruction. Domain-agnostic prohibitions; the user-side interface listing
@@ -272,6 +330,7 @@ _FILL_SYSTEM_RULES = "\n\n".join([
     _REPO_SPREAD_RULE,
     _NO_SWALLOW_RULE,
     _OPTIONAL_GETTER_RULE,
+    _NO_UNSTATED_GUARD_RULE,
 ])
 
 
@@ -440,6 +499,192 @@ def _repo_custom_signatures(designs, entities_by_class):
     return out
 
 
+def _repo_custom_returns(designs, entities_by_class):
+    """{method_name: [(entity_snake, [param_names], returns)]} for every
+    DESIGNED repository custom method, paired with its declared return type.
+
+    Mirrors ``_repo_custom_signatures`` (same name/params shape match) and
+    additionally carries the return annotation, so a delegating service
+    method can be given the type of what it actually returns.
+    """
+    known = {_snake(c) for c in entities_by_class}
+    out = {}
+    for path, kind, data in designs or []:
+        if kind != "repositories" or not isinstance(data, dict):
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        if ent_snake not in known:
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            pnames = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            out.setdefault(m["name"], []).append(
+                (ent_snake, pnames, m.get("returns") or "")
+            )
+    return out
+
+
+def _returns_a_container(returns):
+    """True when a declared return names a collection or mapping."""
+    low = (returns or "").lower()
+    return "dict" in low or "list" in low or "[" in low
+
+
+def _is_generic_crud_name(name, entities_by_class):
+    """True when ``_generic_service_delegation`` owns this method name.
+
+    ``_service_method_body`` reaches its same-name repository delegation only
+    AFTER the generic tier, so a method the generic tier handles
+    (``list_expense`` -> ``expense_repo.list()``) must NOT be aligned against
+    a same-name repo custom: it delegates to ``list()``, not to the custom.
+    """
+    for ent_name in entities_by_class or {}:
+        var = _snake(ent_name)
+        if name in {
+            "add_" + var, "create_" + var,
+            "list_" + var, "list_" + _plural(var),
+            "get_%s_by_id" % var,
+            "update_" + var, "delete_" + var,
+            "bulk_update_" + var, "search_" + var,
+        }:
+            return True
+    return False
+
+
+def _align_delegated_returns(svc_design, repo_returns, entities_by_class,
+                             verbose=False):
+    """Give a thin-delegation service method the repository's return type.
+
+    A service method that IS a pass-through (same name, same parameter names,
+    exactly ONE repository candidate — the shape match
+    ``_service_method_body``'s same-name route uses) renders
+    ``return self.<repo>.<name>(...)``, so it returns exactly what the
+    repository returns. The design model declares the two signatures
+    INDEPENDENTLY and they can disagree: expenses shipped
+    ``get_category_spending(category_id, start_date, end_date) -> int`` whose
+    body returns the repository's ``Dict[str, Any]`` — an annotation that
+    contradicted the only value it could ever produce, and that no consumer
+    could catch.
+
+    Only the UNAMBIGUOUS direction is aligned: a method that DECLARES a
+    scalar while the repository declares a container. A container/container
+    disagreement (``List[Expense]`` vs ``List[Dict]``) is a design judgement
+    about element shape and is left alone, so this never rewrites a working
+    CLI surface.
+    """
+    if not isinstance(svc_design, dict):
+        return
+    for m in svc_design.get("methods") or []:
+        if not isinstance(m, dict) or not m.get("name"):
+            continue
+        name = m["name"]
+        if _is_generic_crud_name(name, entities_by_class):
+            continue
+        # A method carrying an `impl` renders FROM that impl — the same-name
+        # repository delegation is downstream of impl dispatch, so such a
+        # method's body is not a pass-through and its declared return must
+        # stand (library's `return_book -> bool` is a deterministic effect
+        # body, not a call to a same-named repository method).
+        if isinstance(m.get("impl"), dict):
+            continue
+        pnames = [
+            p.get("name") for p in (m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        ]
+        cands = [
+            entry for entry in (repo_returns or {}).get(name, [])
+            if entry[1] == pnames
+        ]
+        if len(cands) != 1:
+            continue
+        _ent, _params, repo_ret = cands[0]
+        if not repo_ret or not _returns_a_container(repo_ret):
+            continue
+        if _returns_a_container(m.get("returns")):
+            continue
+        if verbose:
+            print(
+                "    [contract] %s: returns %r aligned to the repository's %r"
+                % (name, m.get("returns") or "", repo_ret)
+            )
+        m["returns"] = repo_ret
+
+
+# Flag column prefixes that mean "this row carries the property".
+_FLAG_PREFIXES = ("is_", "has_")
+
+
+def _detect_and_mark_impl(m, entities_by_class):
+    """Deterministic "mark the recurring rows" body, or None.
+
+    Fires for a zero-param ``detect_*`` method that returns a list, when
+    EXACTLY ONE designed entity carries a single bool flag together with
+    exactly one date/datetime column, one numeric non-FK column and one FK
+    column — the shape "same amount, same foreign key, more than one month".
+
+    The LLM fill gets this backwards: it filters on the very flag it is meant
+    to set (expenses' repo ``detect_recurring`` shipped
+    ``WHERE e.is_recurring = 1``, so nothing was ever marked). Rows are
+    grouped by the design's own key columns, and only a key seen in two
+    distinct months marks its rows. Anything else returns None so the method
+    keeps its fill.
+    """
+    if "list" not in (m.get("returns") or "").lower():
+        return None
+    cands = []
+    for cls_name, ent in (entities_by_class or {}).items():
+        if not isinstance(ent, dict):
+            continue
+        fields = [
+            f for f in (ent.get("fields") or [])
+            if isinstance(f, dict) and f.get("name") and f["name"] != "id"
+        ]
+        flags = [
+            f["name"] for f in fields
+            if f.get("type") == "bool"
+            and f["name"].startswith(_FLAG_PREFIXES)
+        ]
+        dates = [
+            f["name"] for f in fields
+            if f.get("type") in ("date", "datetime")
+        ]
+        nums = [
+            f["name"] for f in fields
+            if f.get("type") in ("int", "float")
+            and not f["name"].endswith("_id")
+        ]
+        fks = [f["name"] for f in fields if f["name"].endswith("_id")]
+        if len(flags) == 1 and len(dates) == 1 and len(nums) == 1 and len(fks) == 1:
+            cands.append((cls_name, flags[0], dates[0], nums[0], fks[0]))
+    if len(cands) != 1:
+        return None
+    cls_name, flag, date_field, num_field, fk = cands[0]
+    var = _snake(cls_name)
+    return [
+        "        rows = self.%s_repo.list()" % var,
+        "        months = {}",
+        "        for e in rows:",
+        "            key = (getattr(e, '%s', None), getattr(e, '%s', None))"
+        % (fk, num_field),
+        "            months.setdefault(key, set()).add("
+        "str(getattr(e, '%s', ''))[:7])" % date_field,
+        "        for e in rows:",
+        "            key = (getattr(e, '%s', None), getattr(e, '%s', None))"
+        % (fk, num_field),
+        "            if len(months.get(key) or ()) >= 2 "
+        "and not getattr(e, '%s', False):" % flag,
+        "                self.%s_repo.update(e.id, {'%s': True})" % (var, flag),
+        "        return self.%s_repo.list()" % var,
+    ]
+
+
 def _service_method_body(m, entities_by_class, exception_names, repo_customs=None, repo_bulk_updates=None, repo_search_targets=None, repo_signatures=None):
     """Deterministic body lines for a service method, or None (=> stub).
 
@@ -466,14 +711,21 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
                 m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets,
                 repo_signatures
             )
+    # Detect-and-mark recipe, ahead of every delegation tier: delegating hands
+    # the behaviour to a fill that filters on the very flag it is meant to
+    # set, so nothing is ever marked (expenses' detect_recurring).
+    if name.startswith("detect_") and not (m.get("params") or []):
+        detected = _detect_and_mark_impl(m, entities_by_class)
+        if detected is not None:
+            return detected
     # A zero-param service method sharing its name with a zero-param DESIGNED
     # repository custom is a thin pass-through: the design put the real work
-    # on the repository (expense's detect_recurring does the detection and
-    # marking), and any aggregate `impl` stamped on the service method is a
-    # MIS-SHAPE — expenses' detect_recurring carried a group-and-sum impl that
-    # returned a dict where List[Dict[str, Any]] is declared. Delegate first;
-    # the name AND zero arity must both match, so this never fires for a
-    # parameterized method or a different name.
+    # on the repository (expense's detect_category_recurring), and any
+    # aggregate `impl` stamped on the service method is a MIS-SHAPE —
+    # expenses' detect_recurring carried a group-and-sum impl that returned a
+    # dict where List[Dict[str, Any]] is declared. Delegate; the name AND zero
+    # arity must both match, so this never fires for a parameterized method or
+    # a different name.
     if not (m.get("params") or []):
         for _rep_ent, _rparams in (repo_signatures or {}).get(name, []):
             if not _rparams:
@@ -488,14 +740,26 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
     # repository custom across the whole design (shape-matched, never by
     # name). More than one candidate => ambiguous => degrade to the generic
     # tiers instead of guessing.
+    param_names = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+    anchors = _method_anchor_entities(name, param_names, entities_by_class)
     if (
         repo_customs
         and len(repo_customs) == 1
-        and not (m.get("params") or [])
+        and not param_names
         and "dict" in (m.get("returns") or "").lower()
     ):
         ent_snake, meth = repo_customs[0]
-        return ["        return self.%s_repo.%s()" % (ent_snake, meth)]
+        # Entity-scoped: the unique aggregate only serves a method that does
+        # NOT name a DIFFERENT designed entity. A zero-param list_author() /
+        # get_overdue_loans() must reach its OWN entity's repo, never the
+        # single aggregate that happens to exist elsewhere in the design
+        # (library_system: both used to become book_repo.
+        # list_books_with_available_copies()).
+        if not anchors or ent_snake in {_snake(a) for a in anchors}:
+            return ["        return self.%s_repo.%s()" % (ent_snake, meth)]
     lines = _generic_service_delegation(
         m, entities_by_class, exception_names, repo_bulk_updates, repo_search_targets,
         repo_signatures
@@ -520,6 +784,23 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
                 "        return self.%s_repo.%s(%s)"
                 % (ent_snake, name, ", ".join(pnames))
             ]
+    # Anchor-scoped same-STEM repo delegation: a service method whose name
+    # minus its leading verb matches a designed repository custom on the
+    # SAME anchor entity, with the SAME parameter names, is a thin
+    # pass-through — get_overdue_loans() -> loan_repo.list_overdue_loans().
+    # Both the entity (anchor) and the exact parameter names must match, so
+    # this is a shape match, never a fuzzy spelling heuristic.
+    stem = _verb_stem(name)
+    anchor_snakes = {_snake(a) for a in anchors}
+    for cand, entries in (repo_signatures or {}).items():
+        if _verb_stem(cand) != stem:
+            continue
+        for ent_snake, rparams in entries:
+            if ent_snake in anchor_snakes and rparams == pnames:
+                return [
+                    "        return self.%s_repo.%s(%s)"
+                    % (ent_snake, cand, ", ".join(pnames))
+                ]
     return None
 
 
@@ -559,49 +840,122 @@ _LIMIT_EXC_MARKERS = (
 )
 
 
-def _declines_for_unraised_limit(ent, ent_name, entities_by_class, exception_names):
-    """True when a generic create must NOT be emitted deterministically.
+def _unraised_limit_spec(ent, ent_name, entities_by_class, exception_names):
+    """The OTHER entity whose numeric limit a create must consult, or None.
 
-    Design-only signal, no prompt text: some OTHER designed entity shares a
-    foreign-key column with the entity being created (Budget.category_id and
-    Expense.category_id are the same FK), that entity carries a numeric limit
-    column, and the design declares a limit-shaped exception naming it
-    (BudgetExceededException). Creating the entity is then expected to consult
-    that limit — logic the generic create body cannot express. Returning None
-    hands the method to the LLM fill, which sees the prompt, instead of
-    shipping a body that silently omits the requirement.
+    Design-only signal, no prompt text: some OTHER designed entity shares
+    exactly one foreign-key column with the entity being created
+    (Budget.category_id and Expense.category_id are the same FK), that entity
+    carries exactly one numeric non-FK column (the limit) and exactly one str
+    column (the period it applies to), and the design declares a limit-shaped
+    exception naming it (BudgetExceededException). Returns
+    ``{cls, var, fk, limit, period, exception}`` or None.
     """
-    fk_fields = {
+    fk_fields = sorted(
         f.get("name")
         for f in (ent.get("fields") or [])
         if isinstance(f, dict) and (f.get("name") or "").endswith("_id")
         and f.get("name") != "id"
-    }
+    )
     if not fk_fields:
-        return False
+        return None
     for cls, other in (entities_by_class or {}).items():
         if cls == ent_name or not isinstance(other, dict):
             continue
-        other_fks = {
-            f.get("name")
-            for f in (other.get("fields") or [])
-            if isinstance(f, dict) and (f.get("name") or "").endswith("_id")
-            and f.get("name") != "id"
+        ofields = {
+            f.get("name"): f for f in (other.get("fields") or [])
+            if isinstance(f, dict) and f.get("name")
         }
-        if not (fk_fields & other_fks):
+        shared = [fk for fk in fk_fields if fk in ofields]
+        if len(shared) != 1:
             continue
-        has_limit = any(
-            isinstance(f, dict) and f.get("type") in ("int", "float")
-            and (f.get("name") or "") != "id"
-            and not (f.get("name") or "").endswith("_id")
-            for f in (other.get("fields") or [])
-        )
-        if not has_limit:
+        nums = [
+            n for n, f in ofields.items()
+            if f.get("type") in ("int", "float") and n != "id"
+            and not n.endswith("_id")
+        ]
+        strs = [n for n, f in ofields.items() if f.get("type") == "str"]
+        if len(nums) != 1 or len(strs) != 1:
             continue
         for exc in exception_names or []:
             if cls in exc and any(m in exc for m in _LIMIT_EXC_MARKERS):
-                return True
-    return False
+                return {
+                    "cls": cls,
+                    "var": _snake(cls),
+                    "fk": shared[0],
+                    "limit": nums[0],
+                    "period": strs[0],
+                    "exception": exc,
+                }
+    return None
+
+
+def _declines_for_unraised_limit(ent, ent_name, entities_by_class, exception_names):
+    """True when a generic create cannot consult the limit it must consult."""
+    return _unraised_limit_spec(
+        ent, ent_name, entities_by_class, exception_names
+    ) is not None
+
+
+def _create_limit_check_lines(var, ent, spec, param_names, entities_by_class):
+    """Body lines consulting the shared-FK entity's limit AFTER a create.
+
+    Narrow and design-only. The created entity must declare exactly one date
+    column and exactly one numeric non-FK column (what was spent), the shared
+    FK must be one of the method's params, and BOTH repositories must accept
+    that FK as a ``list()`` filter — read through ``_filter_params``, the same
+    source the repository renderer used to build ``list()``. Returns None when
+    anything is missing, so the caller keeps its previous behaviour.
+
+    Why: the specification says "add_expense: ... adds expense, checks if
+    budget exceeded after insertion" and declares BudgetExceededException, but
+    nothing ever raised it, so a create silently succeeded over the limit.
+    Every column involved (the limit, the period, the summed amount, the date)
+    is read off the design — no domain vocabulary.
+    """
+    if spec is None or spec["fk"] not in param_names:
+        return None
+    efields = {
+        f.get("name"): f for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+    dates = [
+        n for n, f in efields.items()
+        if f.get("type") in ("date", "datetime")
+    ]
+    nums = [
+        n for n, f in efields.items()
+        if f.get("type") in ("int", "float") and n != "id"
+        and not n.endswith("_id")
+    ]
+    if len(dates) != 1 or len(nums) != 1:
+        return None
+    date_col, sum_col = dates[0], nums[0]
+    if date_col not in param_names:
+        return None
+    fk = spec["fk"]
+    if fk not in _filter_params(ent):
+        return None
+    other = entities_by_class.get(spec["cls"]) or {}
+    if fk not in _filter_params(other):
+        return None
+    return [
+        "        month = str(%s)[:7]" % date_col,
+        "        limit = None",
+        "        for _row in self.%s_repo.list(%s=%s):"
+        % (spec["var"], fk, fk),
+        "            if str(_row.%s) == month:" % spec["period"],
+        "                limit = _row.%s" % spec["limit"],
+        "        spent = 0",
+        "        for _row in self.%s_repo.list(%s=%s):" % (var, fk, fk),
+        "            if str(_row.%s)[:7] == month:" % date_col,
+        "                spent += _row.%s" % sum_col,
+        "        if limit is not None and spent > limit:",
+        "            raise %s(" % spec["exception"],
+        "                'budget exceeded for %s ' + str(%s)"
+        " + ' in ' + str(month)" % (fk, fk),
+        "            )",
+    ]
 
 
 def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None, repo_search_targets=None, repo_signatures=None):
@@ -628,14 +982,19 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
 
         if name in ("add_" + var, "create_" + var):
             # A create whose design declares a limit-shaped exception for a
-            # shared-FK entity means the prompt wants the limit consulted after
-            # insertion (expense's BudgetExceededException / Budget.category_id
-            # vs Expense.category_id). The generic create cannot express that,
-            # so DECLINE: a body that silently omits the requirement is worse
-            # than handing the method to the LLM fill, which sees the prompt.
-            if _declines_for_unraised_limit(
+            # shared-FK entity must consult that entity's limit AFTER the
+            # insertion ("add_expense: ... adds expense, checks if budget
+            # exceeded after insertion"). Build that check when the design
+            # supplies every column it needs; otherwise DECLINE, so the method
+            # goes to the LLM fill instead of shipping a body that silently
+            # omits the requirement.
+            limit_spec = _unraised_limit_spec(
                 ent, ent_name, entities_by_class, exception_names
-            ):
+            )
+            limit_check = _create_limit_check_lines(
+                var, ent, limit_spec, param_names, entities_by_class
+            )
+            if limit_spec is not None and limit_check is None:
                 return None
             field_defaults = {}
             for f in (ent.get("fields") or []):
@@ -656,7 +1015,39 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 for p in param_names
                 if p in fields
             ]
+            # A NON-NULLABLE date/datetime field whose CLI option is OPTIONAL
+            # arrives as None: click hands the callback None when the option is
+            # absent, so `expense add --amount-cents ...` with no --expense-date
+            # sent expense_date=None straight into the INSERT and died on
+            # "NOT NULL constraint failed: expenses.expense_date". The spec
+            # declares that option optional (`[--expense-date]`), so the only
+            # sensible reading is TODAY. Bounded to date/datetime-typed,
+            # non-nullable, default-less fields, so a required str/int column is
+            # never silently invented. Normalised into the PARAMETER (not
+            # inlined into the constructor call) so every later read — the
+            # constructor, the period computation, any limit check — sees the
+            # same resolved value.
+            _field_types = {
+                f["name"]: (f.get("type") or "str")
+                for f in (ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            _nullable_or_defaulted = {
+                f["name"]
+                for f in (ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+                and (f.get("nullable") or f.get("default") is not None)
+            }
+            date_fallback = sorted(
+                p for p in param_names
+                if p in fields and p not in _nullable_or_defaulted
+                and _field_types.get(p) in ("date", "datetime")
+            )
             if not kwargs:
+                if limit_spec is not None:
+                    # The limit check needs the field params; a data-dict
+                    # create declines to the fill rather than omitting it.
+                    return None
                 # Data-dict add (add_<entity>(data: Dict[str, Any])): build
                 # the entity from a single dict parameter, validating FK keys
                 # that reference a designed entity with a designed NotFound
@@ -726,6 +1117,16 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 if dk in fields:
                     kwargs.append("%s=%r" % (dk, dv))
             lines = []
+            # Resolve an omitted optional date/datetime ONCE, into the
+            # parameter itself, before any read of it.
+            for _dp in date_fallback:
+                _stamp = (
+                    "datetime.datetime.now().isoformat()"
+                    if _field_types.get(_dp) == "datetime"
+                    else "datetime.date.today().isoformat()"
+                )
+                lines.append("        if %s is None:" % _dp)
+                lines.append("            %s = %s" % (_dp, _stamp))
             # Generic FK validation: for any designed param that is a
             # foreign-key column of this entity (<x>_id), when the referenced
             # entity <X> exists AND a <X>NotFoundError was designed, emit a
@@ -749,7 +1150,15 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                     )
                     lines.append("                raise %s(%s)" % (not_found, fk))
             lines.append("        %s = %s(%s)" % (var, ent_name, ", ".join(kwargs)))
-            lines.append("        return self.%s_repo.create(%s)" % (var, var))
+            if limit_check is None:
+                lines.append(
+                    "        return self.%s_repo.create(%s)" % (var, var)
+                )
+                return lines
+            # Insert FIRST, then check: the specification puts the limit check
+            # after the insertion, so the new row is part of the total.
+            lines.append("        self.%s_repo.create(%s)" % (var, var))
+            lines.extend(limit_check)
             return lines
         if name in ("list_" + var, "list_" + _plural(var)):
             # Pair the designed params with the declared list() filters. A
@@ -815,7 +1224,13 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 return lines
             idp = param_names[0] if param_names else "id"
             if "data" in param_names:
-                return ["        self.%s_repo.update(%s, data)" % (var, idp)]
+                # RETURN the repository's boolean: every sibling branch above
+                # returns the update result, and the designed signature
+                # declares `-> bool` (the specification's `update_<e>(id,
+                # data)`), so a bare statement made the method's declared
+                # value None — a caller checking success always read falsy.
+                return ["        return self.%s_repo.update(%s, data)"
+                        % (var, idp)]
             # Designed signature carries field params (e.g. update_task(id,
             # title, ...)): build the dict for the deterministic repo API,
             # dropping fields the caller left as None so the repo never
@@ -995,6 +1410,9 @@ def _apply_filter_floors(entities_by_class, designs):
     """
     uniq = []
     seen = set()
+    # Param name -> declared type. A BOOL-typed param can never be a BOUND
+    # value (see the flag normalisation below), so its type is load-bearing.
+    param_types = {}
     for path, kind, data in designs:
         if kind not in ("repositories", "services") or not isinstance(data, dict):
             continue
@@ -1002,7 +1420,10 @@ def _apply_filter_floors(entities_by_class, designs):
             if not isinstance(m, dict):
                 continue
             for p in m.get("params") or []:
-                if isinstance(p, dict) and p.get("name") and p["name"] not in seen:
+                if not (isinstance(p, dict) and p.get("name")):
+                    continue
+                param_types.setdefault(p["name"], p.get("type"))
+                if p["name"] not in seen:
                     seen.add(p["name"])
                     uniq.append(p["name"])
     uniq_set = set(uniq)
@@ -1022,6 +1443,31 @@ def _apply_filter_floors(entities_by_class, designs):
         ]
         declared = {s["param"] for s in lf}
         covered_ops = {(s.get("column"), s.get("op")) for s in lf}
+
+        # A BOOL list-filter is never a BOUND value. The click flag behind it
+        # defaults to False and the rendered guard is "is not None", so that
+        # False was BOUND into the comparison: inventory's `low_only` became
+        # "AND stock_qty <= 0" and the UNFILTERED `product list` listed
+        # nothing at all. Rewrite every bool spec as a constant predicate —
+        # either the "below the referenced row's threshold" test the flag
+        # actually means, or a bare truthiness guard on its own column.
+        for spec in lf:
+            ptype = param_types.get(spec["param"])
+            if not _is_bool_param_type(ptype):
+                continue
+            flag = _flag_threshold_spec(
+                spec["param"], ptype, ent, entities_by_class,
+                declared_column=spec.get("column"),
+            )
+            if flag:
+                spec["column"] = flag["column"]
+                spec["op"] = "below_ref"
+                spec["ref"] = flag["ref"]
+                spec["ref_column"] = flag["ref_column"]
+                spec["ref_cls"] = flag["ref_cls"]
+                continue
+            ctype = (fields.get(spec.get("column")) or {}).get("type")
+            spec["op"] = "eq_true" if ctype == "bool" else "gt_zero"
 
         for fname in sorted(fields):
             if fname != "id" and fname in uniq_set and fname not in declared:
@@ -1281,7 +1727,36 @@ def _apply_impl_floors(entities_by_class, designs):
                         p for p in params
                         if p not in date_cols and p not in range_params
                     ]
-                    if len(group_by) >= 2:
+                    # A group key equal to the entity's OWN unique_together
+                    # constraint can only group ONE row per group: the count is
+                    # a constant 1 and the entity's own columns are replaced by
+                    # a synthetic ``{'count': 1}`` dict. expenses' Budget is
+                    # declared UNIQUE(category_id, month), so `budget list`
+                    # answered ``[{'category_id': 1, 'month': '2024-01',
+                    # 'count': 1}]`` instead of the budget rows the
+                    # specification's own `budget list` asks for. Such a method
+                    # is a plain filtered CRUD list of the entity's rows: leave
+                    # it unstamped so the generic delegation renders it.
+                    unique_keys = {
+                        tuple(sorted(str(c) for c in up))
+                        for up in (ent_.get("unique_together") or [])
+                        if isinstance(up, (list, tuple, set))
+                    }
+                    # A method named ``list_<entity>`` / ``list_<entities>``
+                    # for a DESIGNED entity IS the canonical CRUD list of that
+                    # entity's rows — the same name the generic delegation tier
+                    # owns. Its ``List[Dict]`` annotation is only the element
+                    # shape the design chose, so it must never be rewritten
+                    # into a grouped count: expenses'
+                    # ``list_expenses(category_id, start_date, end_date,
+                    # payment_method)`` shipped ``[{'category_id': 1,
+                    # 'payment_method': 'cash', 'count': 1}, …]`` instead of the
+                    # expenses the specification's own `expense list` asks for.
+                    if (
+                        len(group_by) >= 2
+                        and tuple(sorted(group_by)) not in unique_keys
+                        and not _is_generic_crud_name(mname, entities_by_class)
+                    ):
                         m["impl"] = {
                             "kind": "count_by_group",
                             "entity": _snake(cls_),
@@ -1350,6 +1825,20 @@ def _apply_impl_floors(entities_by_class, designs):
                 if isinstance(s, dict)
             }
             nonfilter = [p for p in params if p not in declared]
+            # A period total is only well-formed when that single param really
+            # NAMES a period. ``id`` is an entity's ROW id, not a year:
+            # stamping total_in_period over it made expenses' over-generated
+            # ``detect_category(id)`` bucket every expense over
+            # ``str(id)+'-01-01'`` .. ``str(id)+'-12-31'`` — the row id read as
+            # a year (S6). Without a period name the method carries no
+            # exactly-renderable aggregate and keeps its LLM fill, where the
+            # repo/entity coherence gate holds it to Category's own repository.
+            if not any(
+                tok in params[0].lower()
+                for tok in ("month", "year", "period", "week", "quarter",
+                            "annee", "mois")
+            ):
+                continue
             if len(params) == 1 and len(nonfilter) == 1:
                 ptype = next(
                     (q.get("type", "") for q in m.get("params") or []
@@ -1644,6 +2133,79 @@ def _repo_return_strings(entities_by_class, designs):
     return returns
 
 
+def _dict_literal_keys(node):
+    """The constant string keys of a dict literal, or None when undecidable."""
+    if not isinstance(node, ast.Dict):
+        return None
+    keys = set()
+    for key in node.keys:
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return None
+        keys.add(key.value)
+    return keys
+
+
+def _dict_value_keys(node):
+    """The keys of ``{'a': ..}`` and of the filtered-comprehension shape.
+
+    The renderer's own deterministic bodies build field dicts as
+    ``{k: v for k, v in {'a': ..}.items() if v is not None}``; resolving both
+    shapes lets an ``Entity(**data)`` call be checked against what ``data``
+    really carries.
+    """
+    keys = _dict_literal_keys(node)
+    if keys is not None:
+        return keys
+    if isinstance(node, ast.DictComp) and node.generators:
+        return _dict_literal_keys(node.generators[0].iter)
+    return None
+
+
+def _scope_dict_bindings(body):
+    """{variable: {keys}} for the ``x = {...}`` assignments in a body."""
+    out = {}
+    for stmt in body:
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            target = node.targets[0]
+            if not isinstance(target, ast.Name):
+                continue
+            keys = _dict_value_keys(node.value)
+            if keys:
+                out[target.id] = keys
+    return out
+
+
+def _dict_bindings_by_scope(tree):
+    """{id(scope node): {variable: {keys}}} for the module and every function."""
+    return {
+        id(scope): _scope_dict_bindings(scope.body)
+        for scope in ast.walk(tree)
+        if isinstance(
+            scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
+    }
+
+
+def _scope_bindings_lookup(tree, bindings_by_scope):
+    """A ``node -> bindings`` resolver walking the AST parent chain."""
+    parent_of = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parent_of[id(child)] = parent
+
+    def _lookup(node):
+        cur = node
+        while cur is not None:
+            if id(cur) in bindings_by_scope:
+                return bindings_by_scope[id(cur)]
+            cur = parent_of.get(id(cur))
+        return {}
+
+    return _lookup
+
+
 def _semantic_fill_violations(tree, type_ctx):
     """Semantic checks over an LLM service fill using DESIGNED types only:
 
@@ -1772,6 +2334,14 @@ def _semantic_fill_violations(tree, type_ctx):
                 )
                 break
     violations = list(date_arith)
+    # A constructor called as ``Entity(**data)`` names its fields through a
+    # dict, so the missing-required-field gate below must resolve what that
+    # dict carries — otherwise a correct body is rejected for "missing
+    # book_id, due_date, member_id, status" while it passes all four
+    # (library_system's borrow_book looped three times and shipped a stub).
+    _scope_bindings = _scope_bindings_lookup(
+        tree, _dict_bindings_by_scope(tree)
+    )
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             fields = entity_fields.get(node.func.id)
@@ -1807,7 +2377,22 @@ def _semantic_fill_violations(tree, type_ctx):
                     kw.arg for kw in node.keywords
                     if kw.arg and kw.arg
                 }
-                missing = req_fields - provided
+                spread_unknown = False
+                for kw in node.keywords:
+                    if kw.arg is not None:
+                        continue
+                    # ``**data``: resolve the keys the operand really carries.
+                    # An operand that cannot be resolved makes the field set
+                    # UNKNOWABLE, so the gate stands down rather than looping
+                    # the fill forever on a body it cannot read.
+                    keys = _dict_value_keys(kw.value)
+                    if keys is None and isinstance(kw.value, ast.Name):
+                        keys = _scope_bindings(node).get(kw.value.id)
+                    if keys is None:
+                        spread_unknown = True
+                    else:
+                        provided |= keys
+                missing = set() if spread_unknown else req_fields - provided
                 if missing:
                     violations.append(
                         "%s() missing required field(s) %s (model requires: %s)"
@@ -1967,7 +2552,7 @@ def _dict_shaped_expr(node):
     )
 
 
-def _undefined_name_violations(tree):
+def _undefined_name_violations(tree, extra_bound=None):
     """Flag bare Name loads in a fill that are never bound anywhere.
 
     The LLM fill re-emits the whole service file with the locked header, so
@@ -1979,9 +2564,17 @@ def _undefined_name_violations(tree):
     available. Over-collecting bound names keeps this conservative: it only
     fires on names that are truly never bound, so valid fills are not
     spuriously rejected.
+
+    ``extra_bound`` carries the names the MERGED module binds at top level
+    but the snippet does not import itself (the service header's
+    ``from database import Database`` and its model imports): a fill that
+    annotates a local with a name the header already provides is not a
+    NameError, and reporting it sent library_system's service fill into a
+    pointless retry ("undefined name 'Database'").
     """
     bound = set(dir(builtins))
     bound.add("self")
+    bound.update(extra_bound or ())
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             bound.add(node.name)
@@ -2046,6 +2639,215 @@ def _undefined_name_violations(tree):
                     "undefined name %r — not a parameter, import, or local "
                     "variable of this method" % node.id
                 )
+    return violations
+
+
+def _repo_entity_coherence_violations(tree, entity_names, repo_interface):
+    """A service method naming entity E must reach E's OWN repository.
+
+    Deterministic, design-only (no prompt text): when a method's name names
+    a designed entity E that owns a repository (list_author -> Author,
+    get_overdue_loans -> Loan, detect_category -> Category) and the body
+    touches SOME repository, that repository must be E's. A body wired only
+    to a DIFFERENT entity's repo is bound to the wrong repository —
+    library_system shipped ``list_author`` -> ``book_repo.list_books_with_
+    available_copies()`` and ``get_overdue_loans`` -> the same book call.
+
+    Only the entity NAMED by the method counts (never an FK parameter), so a
+    legitimately cross-entity method such as ``history(member_id)`` — which
+    names no entity and walks loan_repo — is never flagged. Methods that
+    touch no repository at all are left to the other gates.
+    """
+    if not entity_names:
+        return []
+    violations = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        prim = _primary_named_entity(fn.name, entity_names)
+        if prim is None:
+            continue
+        # Which repository the body must reach. A method that ACTS on a row
+        # names that row through a ``<entity>_id`` parameter, and may reach
+        # any OTHER entity only through that row's foreign keys:
+        # return_book(loan_id) legitimately touches Book only via
+        # loan.book_id, so demanding book_repo there would be wrong — it must
+        # reach loan_repo, exactly like a pure query must reach its own
+        # entity's repo. When no parameter names a row, the entity the method
+        # NAME names is the requirement.
+        required = set()
+        for arg in fn.args.args:
+            if arg.arg == "self" or not arg.arg.endswith("_id"):
+                continue
+            cand = next(
+                (c for c in entity_names if _snake(c) == arg.arg[: -len("_id")]),
+                None,
+            )
+            if cand is not None:
+                required.add(_snake(cand) + "_repo")
+        if not required:
+            required.add(_snake(prim) + "_repo")
+        required = {r for r in required if r in repo_interface}
+        if not required:
+            continue
+        touched = {
+            node.attr
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+            and node.attr.endswith("_repo")
+        }
+        if touched and not (touched & required):
+            violations.append(
+                "%s must work through %s but only reaches %s"
+                % (
+                    fn.name,
+                    ", ".join("self." + r for r in sorted(required)),
+                    ", ".join("self." + t for t in sorted(touched)),
+                )
+            )
+    return violations
+
+
+def _self_repo_tag(node, repo_returns, repo_returns_raw=None, entity_names=None):
+    """``(attr, method, tag)`` when ``node`` calls a repo method the DESIGN
+    returns as an entity (``("entity", cls)`` or ``("list", cls)``).
+
+    Returns None for everything else — a dict-returning method, a scalar, or a
+    call that is not ``self.<x>_repo.<method>(...)`` — so only a receiver that
+    definitely holds MODEL instances, or a LIST of them, is considered. The
+    tag comes from the designed return annotation, never from the body, so
+    this never fires on a legitimate ``row.get('total')`` over a ``Dict``.
+
+    The raw annotation is consulted when the pre-computed tag map has no entry
+    for the (repo, method) pair. That happens for a method the fill reaches
+    through an ALIAS the bounded inter-file repair just created — expenses'
+    ``self.expense_repo.get_expenses_by_category(...)`` aliases
+    ``list_expenses`` (``List[Expense]``), and the alias is registered in the
+    raw map, not in the tag map.
+    """
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    if not (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Attribute)
+        and isinstance(func.value.value, ast.Name)
+        and func.value.value.id == "self"
+    ):
+        return None
+    attr, method = func.value.attr, func.attr
+    tag = (repo_returns or {}).get((attr, method))
+    if tag is None and repo_returns_raw:
+        raw = repo_returns_raw.get((attr, method)) or ""
+        low = raw.lower()
+        cls = next(
+            (
+                c for c in (entity_names or ())
+                if re.search(r"\b%s\b" % re.escape(c), raw)
+            ),
+            None,
+        )
+        if cls is not None:
+            tag = ("list", cls) if "list" in low else ("entity", cls)
+    if tag and tag[0] in ("entity", "list"):
+        return attr, method, tag
+    return None
+
+
+def _model_accessor_violations(tree, repo_returns, repo_returns_raw=None,
+                               entity_names=None):
+    """Reject ``.get(...)`` / ``['key']`` on a MODEL instance in a fill body.
+
+    The 4B model treats every repository result as a dict. expenses shipped
+    ``category detect --id 1`` calling ``exp.get('category_id')`` where ``exp``
+    came from ``self.expense_repo.get_expenses_by_category(...)``, designed
+    ``List[Expense]`` — an ``AttributeError: 'Expense' object has no attribute
+    'get'`` on a CLI-reachable path. Design-only: a local is a model ONLY when
+    the DESIGNED return annotation of the repository method that produced it
+    names a designed entity, so a legitimate ``row.get('total')`` over a
+    ``("dict",)`` method is left alone.
+
+    Element variables are tracked as well, so the common
+    ``for exp in expenses: exp.get(...)`` and
+    ``sum((e.get('x', 0) for e in rows))`` shapes are caught, not only a
+    direct ``.get`` on the assignment.
+    """
+    if not repo_returns and not repo_returns_raw:
+        return []
+    violations = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        model_vars = {}
+        list_vars = {}
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            target = node.targets[0]
+            if not isinstance(target, ast.Name):
+                continue
+            hit = _self_repo_tag(
+                node.value, repo_returns, repo_returns_raw, entity_names
+            )
+            if hit is None:
+                continue
+            if hit[2][0] == "entity":
+                model_vars[target.id] = hit[2][1]
+            else:
+                list_vars[target.id] = hit[2][1]
+        # A loop / comprehension element of a list-of-models is itself a model
+        # of the SAME class — carrying the class keeps the violation message
+        # actionable for the refill ("Expense", not "entity").
+        for node in ast.walk(fn):
+            if isinstance(node, (ast.For, ast.comprehension)):
+                iter_node, target = node.iter, node.target
+            else:
+                continue
+            if not isinstance(target, ast.Name):
+                continue
+            base = iter_node
+            if isinstance(base, ast.Name) and base.id in list_vars:
+                model_vars[target.id] = list_vars[base.id]
+            else:
+                hit = _self_repo_tag(
+                    base, repo_returns, repo_returns_raw, entity_names
+                )
+                if hit is not None:
+                    model_vars[target.id] = hit[2][1]
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if not (isinstance(func, ast.Attribute) and func.attr == "get"):
+                    continue
+                recv = func.value
+                cls = model_vars.get(recv.id) if isinstance(recv, ast.Name) else None
+                if cls:
+                    violations.append(
+                        "%s: %s.get(...) treats a MODEL as a dict — %s holds "
+                        "%s instances, not dicts; read fields with attribute "
+                        "access (%s.<field>)"
+                        % (fn.name, recv.id, recv.id, cls, recv.id)
+                    )
+                elif _self_repo_tag(
+                    recv, repo_returns, repo_returns_raw, entity_names
+                ) is not None:
+                    violations.append(
+                        "%s: .get(...) applied directly to a repository call "
+                        "that returns a MODEL (or a list of models) — assign "
+                        "it to a local and read fields with attribute access, "
+                        "never .get() or ['key']" % fn.name
+                    )
+            elif isinstance(node, ast.Subscript):
+                base = node.value
+                cls = model_vars.get(base.id) if isinstance(base, ast.Name) else None
+                if cls:
+                    violations.append(
+                        "%s: %s['...'] indexes a MODEL as a dict — %s holds %s "
+                        "instances; read fields with attribute access "
+                        "(%s.<field>)" % (fn.name, base.id, base.id, cls, base.id)
+                    )
     return violations
 
 
@@ -2348,7 +3150,54 @@ def _service_fill_violations(filled, repo_interface, svc_design, type_ctx=None):
             )
     if type_ctx:
         violations.extend(_semantic_fill_violations(tree, type_ctx))
-    violations.extend(_undefined_name_violations(tree))
+    violations.extend(
+        _repo_entity_coherence_violations(
+            tree,
+            (type_ctx or {}).get("entity_fields") or {},
+            repo_interface,
+        )
+    )
+    # A repo result tagged as an entity (or a list of entities) is a MODEL,
+    # never a dict: `.get('field')` on it is an AttributeError at runtime.
+    violations.extend(
+        _model_accessor_violations(
+            tree,
+            (type_ctx or {}).get("repo_returns") or {},
+            (type_ctx or {}).get("repo_returns_raw") or {},
+            (type_ctx or {}).get("entity_fields") or {},
+        )
+    )
+    # Prompt-derived method contracts: each designed method may carry a
+    # ``contract`` transcribed from the SPECIFICATION alone (see
+    # agentlib.pipeline.method_contract). Verifying here keeps the two
+    # sources independent — the extractor never saw a body, the verifier
+    # never sees the specification.
+    contracts = {
+        m.get("name"): m.get("contract")
+        for m in (svc_design or {}).get("methods") or []
+        if isinstance(m, dict) and m.get("name") and m.get("contract")
+    }
+    if contracts:
+        violations.extend(
+            method_contract_violations(
+                tree,
+                svc_design,
+                contracts,
+                (type_ctx or {}).get("entity_fields") or {},
+                repo_returns=(type_ctx or {}).get("repo_returns_raw") or {},
+            )
+        )
+    # Names the merged module binds at top level, which the snippet may use
+    # WITHOUT importing them: the header imports the Database class and every
+    # model class, and `datetime`/`date` come from its date imports. A local
+    # annotated `x: Database` is therefore legal — flagging it as an undefined
+    # name was a false positive that cost a retry on library_system.
+    module_bound = {"Database", "datetime", "date"}
+    module_bound.update((type_ctx or {}).get("entity_fields") or {})
+    for _repo_attr in repo_interface or {}:
+        if _repo_attr.endswith("_repo"):
+            module_bound.add(_camel(_repo_attr[: -len("_repo")]))
+    violations.extend(_undefined_name_violations(tree, module_bound))
     # Signature-drift gate: the LLM can "fix" an undefined body by changing a
     # method's parameters (prompt 18's import_contact wrote `filename` while
     # the design declares `id`). _merge_stub_bodies preserves the DESIGNED
@@ -2762,6 +3611,67 @@ def _positive_repo_targets(repo_interface, type_ctx=None):
     return "\n".join(lines)
 
 
+# Verbs that may prefix a method name. Used to compare a service method
+# against a designed repository custom by their shared STEM
+# (get_overdue_loans -> list_overdue_loans): the verb is a synonym slot, the
+# remainder identifies the operation.
+_METHOD_VERBS = (
+    "get", "list", "find", "fetch", "search", "load", "show", "view",
+    "retrieve", "read", "report", "count", "compute", "calculate",
+)
+
+
+def _verb_stem(name):
+    """``get_overdue_loans`` -> ``overdue_loans`` (leading verb removed).
+
+    The leading verb is a synonym slot (get/list/find over the same
+    operation); only the remainder identifies the query. Returns the name
+    unchanged when it carries no leading verb or nothing after it.
+    """
+    for verb in _METHOD_VERBS:
+        if name.startswith(verb + "_") and len(name) > len(verb) + 1:
+            return name[len(verb) + 1:]
+    return name
+
+
+def _primary_named_entity(name, entity_names):
+    """The designed entity a method name NAMES, or None.
+
+    The longest entity snake/plural name CONTAINED in the method name wins
+    (list_author -> Author, get_overdue_loans -> Loan, return_book -> Book).
+    Design-only: no prompt text, no verb vocabulary, no field heuristics.
+    """
+    prim = None
+    best = -1
+    for cls in entity_names:
+        for tok in (_snake(cls), _plural(_snake(cls))):
+            if tok and tok in name and len(tok) > best:
+                best = len(tok)
+                prim = cls
+    return prim
+
+
+def _method_anchor_entities(name, params, entities_by_class):
+    """{class names} a service method's body plausibly anchors on.
+
+    Two design-only signals, no prompt text:
+      * the entity the method NAME names (return_loan -> Loan,
+        get_overdue_loans -> Loan, list_author -> Author);
+      * every entity named by a ``<x>_id`` parameter (borrow_loan(member_id,
+        book_id) anchors on Member AND Book).
+    """
+    anchors = set()
+    prim = _primary_named_entity(name, entities_by_class)
+    if prim:
+        anchors.add(prim)
+    for p in params:
+        if p.endswith("_id") and p != "id":
+            ref = _camel(p[: -len("_id")])
+            if ref in entities_by_class:
+                anchors.add(ref)
+    return anchors
+
+
 def _scoped_repo_interface(m, repo_interface, entities_by_class):
     """Filter repo_interface to the repos a method's body plausibly touches.
 
@@ -3125,7 +4035,8 @@ def _unwrap_swallowed_raises(cand):
 
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                          prompt_text, exception_names=None, verbose=False,
-                         repo_sources=None, models_module="models"):
+                         repo_sources=None, models_module="models",
+                         method_contracts=None):
     """Deterministic service: real contract bodies + stubs for extras.
 
     Contract methods (the tested surface) get real bodies rendered here with
@@ -3160,6 +4071,60 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
     repo_signatures = _repo_custom_signatures(designs, entities_by_class)
     repo_bulk_updates = _bulk_update_repo_targets(designs, entities_by_class)
     repo_search_targets = _search_repo_targets(designs, entities_by_class)
+    # Prompt-derived contracts (stage 2/3). Attach the contract to the design
+    # method so the fill validator can reach it through ``svc_design`` (no
+    # extra plumbing through the six fill call sites), and compile the
+    # exactly-renderable part into a deterministic recipe impl. A method
+    # whose contract is not exactly renderable keeps its LLM fill.
+    for m in svc_design.get("methods") or []:
+        if not isinstance(m, dict) or not m.get("name"):
+            continue
+        contract = (method_contracts or {}).get(m["name"])
+        if not contract:
+            continue
+        m["contract"] = contract
+        impl = compile_contract_impl(
+            contract,
+            entities_by_class,
+            params=[
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ],
+            returns=m.get("returns") or "",
+        )
+        if impl is None:
+            continue
+        # The contract impl WINS over a design-supplied impl. Both describe
+        # the same method, but the contract is closed against a verbatim span
+        # of the SPECIFICATION while a design ``impl`` is the design model's
+        # own guess at the body. Keeping the design impl meant a stated filter
+        # was silently dropped: expenses' get_monthly_report carried a
+        # sum-by-category impl with no month predicate, so it summed every row
+        # and S1 shipped. Overriding is narrow — ``compile_contract_impl``
+        # returns None unless the contract is exactly renderable.
+        if m.get("impl") is not None and verbose:
+            print(
+                "    [contract] %s: overrides design impl (%s)"
+                % (m["name"], (m.get("impl") or {}).get("kind"))
+            )
+        m["impl"] = impl
+        if verbose:
+            print(
+                "    [contract] %s: deterministic effects from the "
+                "spec" % m["name"]
+            )
+    # A service method that is a pure delegation must DECLARE what it
+    # actually returns: the design model types the service and the repository
+    # INDEPENDENTLY, so they can disagree (expenses' get_category_spending
+    # declared -> int while its body returns the repository's Dict). Run
+    # AFTER the contract loop so a method that just received a deterministic
+    # effect or aggregate impl is left alone by the `impl` guard above.
+    _align_delegated_returns(
+        svc_design,
+        _repo_custom_returns(designs, entities_by_class),
+        entities_by_class,
+        verbose=verbose,
+    )
     for m in svc_design.get("methods") or []:
         if not isinstance(m, dict) or not m.get("name"):
             continue

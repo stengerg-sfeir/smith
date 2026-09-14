@@ -11,7 +11,7 @@ from pathlib import Path
 from ..config import LLM_RETRY_TEMPERATURE
 from ..naming import _camel, _entity_table_name, _plural, _snake
 from ..llm.fill import _llm_fill
-from ..kernel.service.common import _declared_filters
+from ..kernel.service.common import _declared_filters, _filter_flag_refs
 from ..kernel.repo.bodies import _repo_method_body
 from .helpers import _method_stub_code
 from .model_render import _repo_columns
@@ -192,9 +192,36 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         "eq_true": " AND %s = 1", "gt_zero": " AND %s > 0",
     }
     _BOUND_OPS = {"eq", "gte", "lte"}
+    # "Below the referenced row's threshold" filters (see
+    # _flag_threshold_spec): the compared column lives on THIS table, the
+    # threshold on the row this entity's foreign key points at, so they need
+    # their own JOIN and a fragment qualified by BOTH aliases. Kept apart from
+    # _FRAG, whose fragments are single-column constants.
+    flag_refs = _filter_flag_refs(ent)
+    below_specs = [
+        (p, col, flag_refs[p])
+        for p, col, op in filter_specs
+        if op == "below_ref" and p in flag_refs
+    ]
+    for _p, _col, _ref in below_specs:
+        ref_alias = _snake(_ref["ref_cls"])
+        ref_table = table_names.get(_ref["ref_cls"]) or _plural(ref_alias)
+        join_clauses.append(
+            "JOIN %s %s ON %s.%s = %s.id"
+            % (ref_table, ref_alias, ent_snake, _ref["ref"], ref_alias)
+        )
+    below_where = [
+        (
+            " AND %s.%s < %s.%s"
+            % (ent_snake, col, _snake(r["ref_cls"]), r["ref_column"]),
+            p,
+        )
+        for p, col, r in below_specs
+    ]
     filter_where = [
         (_FRAG[op] % qualified.get(col, col), p, op in _BOUND_OPS)
         for p, col, op in filter_specs
+        if op in _FRAG
     ]
 
     # --- unique_together pair -> lookup + delete-by-pair --------------------
@@ -283,6 +310,12 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
             L.append("                query += %r" % frag)
             if bound:
                 L.append("                params.append(%s)" % expr)
+        # Below-threshold flags bind no value: the flag being truthy is the
+        # whole condition, so guard on truthiness (never "is not None" — a
+        # click flag defaults to False and False means "no filter").
+        for frag, expr in below_where:
+            L.append("            if %s:" % expr)
+            L.append("                query += %r" % frag)
         order_col = "%s.id" % ent_snake if join_clauses else "id"
         L.append(
             "            rows = conn.execute(query + \" ORDER BY %s\", params).fetchall()"

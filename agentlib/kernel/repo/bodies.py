@@ -19,6 +19,8 @@ from ...naming import _camel, _entity_table_name
 from ..recipe_types import Recipe
 from ..service.common import _filter_params
 from .aggregates import _repo_extra_body
+from .limit_status import _limit_status_body
+from .threshold_compare import _threshold_compare_body
 
 
 def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
@@ -112,6 +114,54 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         frag = (" WHERE " + " AND ".join(conds)) if conds else ""
         return frag, binds
 
+    # Suffixes a BOOLEAN filter param carries when it GUARDS a column rather
+    # than filtering it by value ("available_only" -> "available_copies").
+    flag_suffixes = ("_only", "_flag", "_present", "_exists", "_active")
+
+    def _own_filter_specs(ps):
+        """[(param, (column, op))] for params filtering the OWNER's columns.
+
+        Returns None when any param cannot be explained. A designed field
+        name filters by equality; a declared list-filter param keeps its
+        declared column/op; a bool param naming a column through a bounded
+        suffix rule (``available_only`` -> the unique field starting with
+        ``available_``, i.e. ``available_copies``) guards that column. This is
+        what lets an owner-ref list emit a CONDITIONAL WHERE: an omitted
+        optional filter must drop its clause, never bind NULL (which matches
+        no row at all — library's ``library book list`` listed nothing).
+        """
+        out = []
+        for p in ps:
+            spec = lfmap.get(p)
+            if spec and spec.get("column"):
+                out.append((p, (spec.get("column"), spec.get("op") or "eq")))
+                continue
+            if p in fields:
+                out.append((p, (p, "eq")))
+                continue
+            base = next(
+                (p[: -len(s)] for s in flag_suffixes if p.endswith(s)), None
+            )
+            col = None
+            if base:
+                if base in fields:
+                    col = base
+                else:
+                    starts = [n for n in fields if n.startswith(base + "_")]
+                    ends = [n for n in fields if n.endswith("_" + base)]
+                    cands = starts or ends
+                    col = cands[0] if len(cands) == 1 else None
+            if col is None:
+                return None
+            ftype = fields[col].get("type")
+            if ftype == "bool":
+                out.append((p, (col, "eq_true")))
+            elif ftype in ("int", "float"):
+                out.append((p, (col, "gt_zero")))
+            else:
+                return None
+        return out
+
     def _tup(srcs):
         """Python tuple-literal source for SQL parameter binding. A
         single-element list MUST emit '(x,)': bare '(x)' is just x in
@@ -135,12 +185,40 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         ]
         return lines
 
+    # ---- 0. limit-status verdict ------------------------------------------
+    # Ahead of every list route: a method DECLARING a status string over a
+    # limit entity ("check if a category has exceeded its budget") must
+    # compare spending to the stored limit, never delegate to self.list().
+    # Rendered only when the designed shape pins every column involved.
+    status_lines = _limit_status_body(
+        m, ent, params, ret, entities_by_class, model
+    )
+    if status_lines is not None:
+        return status_lines
+
+    # ---- 0.5 below-the-referenced-threshold list ---------------------------
+    # The threshold lives on the REFERENCED row, which no single-table recipe
+    # can express — such a method shipped `return []`, so the command behind
+    # it listed nothing even when the condition held.
+    threshold_lines = _threshold_compare_body(
+        m, ent, model, params, ret, entities_by_class
+    )
+    if threshold_lines is not None:
+        return threshold_lines
+
     # ---- 1. declared impl: list_filtered -----------------------------------
     # Delegate when the method's params map onto declared filters; when they
     # do NOT, fall through to the shape recipes below instead of bailing —
     # a stale/defaulted stamp must never shadow count/sum/top/join bodies.
     impl = m.get("impl")
     if isinstance(impl, dict) and impl.get("kind") == "list_filtered":
+        # ``self.list(...)`` yields the entity's ROWS: a method declaring a
+        # scalar or a status string must never take this route. Budget's
+        # ``check_budget_exceeded -> str`` shipped ``return self.list(...)``
+        # — a List[Budget] under a str annotation, so the capability the
+        # specification requires returned no verdict at all.
+        if ret_l and "list" not in ret_l and model not in ret:
+            return None
         valid = _filter_params(ent)
         args = [p for p in params if p in valid]
         if args and len(args) == len(params):
@@ -465,6 +543,42 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         elif p == "offset":
             page_roles[p] = "off"
 
+    def _fk_text_cols():
+        """[(qualified column, LEFT JOIN clause)] for FK-reachable text.
+
+        A search must reach the text a user actually types. A query LIKE'ing
+        only the entity's own columns silently ignores a joined neighbour's
+        name — library_system's ``search_book(query)`` searched ``title`` and
+        ``isbn`` but not the AUTHOR, which the spec names as a search field
+        ("searches across title/author/isbn", S17) and which lives on the
+        entity the FK points at. Generic shape: for every ``<ref>_id`` column
+        of the searching entity, LEFT JOIN the referenced table and search its
+        text columns too. Structural, never domain vocabulary; an entity with
+        no ``_id`` reference yields nothing.
+        """
+        extra = []
+        if not entities_by_class:
+            return extra
+        for fname in fields:
+            if fname == "id" or not fname.endswith("_id"):
+                continue
+            ref_ent = entities_by_class.get(_camel(fname[: -len("_id")]))
+            if not isinstance(ref_ent, dict):
+                continue
+            ref_tbl = _entity_table_name(ref_ent)
+            ref_cols = [
+                f.get("name") for f in (ref_ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+                and f.get("name") != "id" and f.get("type") == "str"
+            ]
+            if not ref_cols:
+                continue
+            join = "LEFT JOIN %s ON %s.%s = %s.id" % (
+                ref_tbl, table, fname, ref_tbl)
+            for c in ref_cols:
+                extra.append(("%s.%s" % (ref_tbl, c), join))
+        return extra
+
     def _compose_search_pages():
         """Shared emitter: LIKE groups + declared filters + paging."""
         conds, binds = [], []
@@ -477,7 +591,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                 if p.endswith(suf):
                     base = p[: -len(suf)]
                     if base in str_cols:
-                        groups.append((p, [base]))
+                        groups.append((p, [base], False))
                         placed = True
                     else:
                         cands = [
@@ -485,13 +599,16 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                             if c.endswith("_" + base)
                         ]
                         if len(cands) == 1:
-                            groups.append((p, cands))
+                            groups.append((p, cands, False))
                             placed = True
                     break
             if not placed and p in (
                 "term", "query", "keyword", "search", "pattern", "domain",
             ) and str_cols:
-                groups.append((p, list(str_cols)))
+                # A bare term is a SEARCH, so it is WIDENED to the FK-reachable
+                # text columns: a joined name (books -> authors.name) is found
+                # alongside the entity's own text.
+                groups.append((p, list(str_cols), True))
                 placed = True
             if not placed:
                 leftover.append(p)
@@ -503,10 +620,26 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
         ]
         if unknown or not (groups or pages):
             return None
-        for p, cols in groups:
-            frag = " OR ".join("%s LIKE ?" % c for c in cols)
-            conds.append("(%s)" % frag if len(cols) > 1 else frag)
-            binds.extend(['"%%" + %s + "%%"' % p] * len(cols))
+        # Resolve every group's column refs first, so each referenced table is
+        # joined once and the entity's own columns are qualified exactly when a
+        # join makes an unqualified name ambiguous.
+        used_joins, resolved = [], []
+        for p, cols, joinable in groups:
+            refs = list(cols)
+            if joinable:
+                for ref, join in _fk_text_cols():
+                    refs.append(ref)
+                    if join not in used_joins:
+                        used_joins.append(join)
+            resolved.append((p, refs))
+        for p, refs in resolved:
+            defs = [
+                ("%s.%s" % (table, c)) if used_joins and "." not in c else c
+                for c in refs
+            ]
+            frag = " OR ".join("%s LIKE ?" % d for d in defs)
+            conds.append("(%s)" % frag if len(refs) > 1 else frag)
+            binds.extend(['"%%" + %s + "%%"' % p] * len(refs))
         if filt:
             ffrag, fbinds = _where(filt)
             if ffrag is None:
@@ -525,10 +658,15 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             lim = " LIMIT ?"
             extra = [size]
         where = (" WHERE " + " AND ".join(conds)) if conds else ""
+        join_sql = (" " + " ".join(used_joins)) if used_joins else ""
+        # A join must not leak the joined table's columns into the entity
+        # constructor: select the entity's OWN columns explicitly.
+        select = ("%s.*" % table) if used_joins else "*"
         out = [
             "        with self.db.connect() as conn:",
             "            rows = conn.execute(",
-            '                "SELECT * FROM %s%s%s",' % (table, where, lim),
+            '                "SELECT %s FROM %s%s%s",'
+            % (select, table + join_sql, where, lim),
         ]
         if binds or extra:
             out.append("                %s" % _tup(binds + extra))
@@ -537,6 +675,56 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             '            return [%s(**dict(r)) for r in rows]' % model,
         ]
         return out
+
+    # ---- 7.1 lone-term search over the entity's FK-reachable text ----------
+    # The spec names a search over SEVERAL fields, and one of them may live on
+    # a JOINed entity ("search_books(query): searches across title/author/isbn",
+    # S17) — library's search_book LIKE'd only title/isbn and silently missed
+    # the author. A single bare search term is an unambiguous shape, so render
+    # it deterministically: LIKE over every text column of THIS entity plus
+    # every text column of the entities it references through a ``<ref>_id``
+    # column, joined in.
+    #
+    # This covers the design's ``List[Dict[str, Any]]`` row-list return as well
+    # as an entity list: the repository builds ENTITY instances from each row
+    # for that annotation too (the executor's convention, not a type claim).
+    # Anything richer (extra filters, paging) is left to the composer below.
+    _squashed = ret_l.replace(" ", "")
+    is_row_list = _squashed.startswith("list[dict") or _squashed.startswith("list[list")
+    if (
+        (is_list_model or is_row_list)
+        and len(params) == 1
+        and params[0] in (
+            "term", "query", "keyword", "search", "pattern", "domain",
+        )
+        and str_cols
+    ):
+        refs = ["%s.%s" % (table, c) for c in str_cols]
+        joins, seen = [], set()
+        for ref, join in _fk_text_cols():
+            refs.append(ref)
+            if join not in seen:
+                seen.add(join)
+                joins.append(join)
+        if not joins:
+            # No FK-reachable text: keep the unqualified form the composer and
+            # the strict recipe have always emitted.
+            refs = list(str_cols)
+        frag = " OR ".join("%s LIKE ?" % r for r in refs)
+        binds = ['"%%" + %s + "%%"' % params[0]] * len(refs)
+        join_sql = (" " + " ".join(joins)) if joins else ""
+        # A join must not leak the joined table's columns into the entity
+        # constructor: select the entity's OWN columns explicitly.
+        select = ("%s.*" % table) if joins else "*"
+        return [
+            "        with self.db.connect() as conn:",
+            "            rows = conn.execute(",
+            '                "SELECT %s FROM %s%s WHERE %s",'
+            % (select, table, join_sql, frag),
+            "                %s" % _tup(binds),
+            "            ).fetchall()",
+            '            return [%s(**dict(r)) for r in rows]' % model,
+        ]
 
     if is_list_model:
         body = _compose_search_pages()
@@ -599,7 +787,12 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                 return lines
 
     # ---- 8.7 overdue / expired ----------------------------------------------
-    if is_list_model and not params and re.search(
+    # ``is_row_list`` covers a design that annotates the method
+    # ``List[Dict[str, Any]]`` (the row-list spelling the executor also builds
+    # entity instances from). Requiring the ENTITY spelling left library's
+    # ``get_overdue_loans`` without a body at all — a bare ``pass``/``return
+    # []`` stub, which reported no overdue loan ever.
+    if (is_list_model or is_row_list) and not params and re.search(
         r"_(?:is_)?(?:overdue|expired|past_due)", name
     ):
         due_cands = [
@@ -612,11 +805,31 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
             ]
             col = donly[0] if len(donly) == 1 else None
         if col is not None:
+            # "Overdue" also means STILL OPEN: a row already closed out (a
+            # returned loan) is past its due date but is not overdue. The
+            # closure column is the design's own other nullable date column
+            # whose name says the row was settled (returned/actual/closed/
+            # completed/end/resolved/paid) — name-shape over the designed
+            # schema, never domain vocabulary, and only when exactly one such
+            # column exists.
+            closure_cands = [
+                c for c in date_cols
+                if c != col and fields[c].get("nullable")
+                and any(
+                    tok in c for tok in (
+                        "return", "actual", "closed", "completed",
+                        "end", "resolved", "paid",
+                    )
+                )
+            ]
+            conds = ["%s IS NOT NULL" % col, "%s < date('now')" % col]
+            if len(closure_cands) == 1:
+                conds.append("%s IS NULL" % closure_cands[0])
             return [
                 "        with self.db.connect() as conn:",
                 "            rows = conn.execute(",
-                '                "SELECT * FROM %s WHERE %s IS NOT NULL'
-                " AND %s < date('now')\"" % (table, col, col),
+                '                "SELECT * FROM %s WHERE %s",'
+                % (table, " AND ".join(conds)),
                 "            ).fetchall()",
                 '            return [%s(**dict(r)) for r in rows]' % model,
             ]
@@ -746,6 +959,7 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
     extra = _repo_extra_body(
         m, ent, model, name, params, ret_l, fields, table, lfmap,
         num_cols, date_cols, is_list_model, _where, _tup,
+        entities_by_class=entities_by_class,
     )
     if extra is not None:
         return extra
@@ -869,6 +1083,56 @@ def _repo_method_body(m, ent, ent_snake, model, entities_by_class=None):
                 # (customer_name -> name on Customer), else the other
                 # entity's unique str field. SELECT r.* keeps the row shape
                 # on the OWNER model so the repo-body guard accepts it.
+                # A filter on the OWNER's own FK column (the param IS
+                # ``<other>_id``) needs no JOIN, and it must be CONDITIONAL:
+                # the caller may omit an optional filter, and a hard
+                # ``WHERE o.id = ?`` bound to NULL matches no row at all —
+                # library's ``library book list`` (both options optional)
+                # listed nothing. Remaining params resolve against the
+                # owner's own columns (``available_only`` ->
+                # ``available_copies > 0``).
+                if name_param == ref_fk:
+                    own = _own_filter_specs(
+                        [p for p in params if p != name_param]
+                    )
+                    if own is not None:
+                        lines = [
+                            "        with self.db.connect() as conn:",
+                            '            query = "SELECT * FROM %s WHERE 1=1"'
+                            % table,
+                            "            binds = []",
+                            "            if %s is not None:" % name_param,
+                            "                query += ' AND %s = ?'" % ref_fk,
+                            "                binds.append(%s)" % name_param,
+                        ]
+                        for p, (col, op) in own:
+                            if op == "gt_zero":
+                                lines += [
+                                    "            if %s:" % p,
+                                    "                query += ' AND %s > 0'"
+                                    % col,
+                                ]
+                            elif op == "eq_true":
+                                lines += [
+                                    "            if %s:" % p,
+                                    "                query += ' AND %s = 1'"
+                                    % col,
+                                ]
+                            else:
+                                lines += [
+                                    "            if %s is not None:" % p,
+                                    "                query += ' AND %s = ?'"
+                                    % col,
+                                    "                binds.append(%s)" % p,
+                                ]
+                        lines += [
+                            '            rows = conn.execute('
+                            'query + " ORDER BY id", binds).fetchall()',
+                            "            return [%s(**dict(r)) for r in rows]"
+                            % model,
+                        ]
+                        return lines
+
                 prefix = o_snake + "_"
                 filt_col = None
                 if name_param.startswith(prefix):

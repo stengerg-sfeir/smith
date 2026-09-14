@@ -35,13 +35,21 @@ from agentlib.pipeline.cli_surface import (
     derive_cli_surface,
     _merge_cli_surfaces,
     cli_surface_constraint,
+    repo_spec_constraint,
     repo_surface_constraint,
+)
+from agentlib.pipeline.cli_spec import (
+    align_surface_to_design,
+    build_prompt_cli_surface,
+    surface_command_paths,
 )
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.pipeline.service_contract import (
     extract_service_contract,
     service_contract_constraint,
     check_service_contract,
+    apply_service_contract_floors,
+    apply_service_contract_params,
 )
 from agentlib.generation.service_render import (
     _apply_filter_floors,
@@ -54,6 +62,11 @@ from agentlib.generation.model_render import (
 )
 from agentlib.generation.cli_render import _render_cli_file, _render_main_file
 from agentlib.generation.repo_render import _render_repository_file
+from agentlib.pipeline.method_contract import extract_method_contracts
+from agentlib.pipeline.model_defaults import (
+    apply_model_defaults,
+    extract_model_defaults,
+)
 from agentlib.checks.ast_utils import _extract_model_ast
 from agentlib.naming import _generate_database_file, _snake, _camel
 from agentlib.pipeline.generate import _generate_file
@@ -480,6 +493,21 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 if merged is not None and merged is not ent:
                     ents[i] = merged
 
+    # 2.4 Spec-declared field defaults, transcribed from the PROMPT alone.
+    # The design LLM is asked to stamp ``"default"`` when the spec declares
+    # one, but a 4B model drops it — library_system's ``is_active (default
+    # True)`` and ``available_copies (default 1)`` then render as REQUIRED
+    # constructor arguments, so the spec's default is lost and a caller that
+    # omits the field gets a TypeError instead of the specified value (S16).
+    # Independent source: the prompt states the default, the generated code
+    # never feeds this scan, and only a field a designed entity already
+    # carries can be stamped.
+    _spec_defaults = extract_model_defaults(prompt_text)
+    if _spec_defaults:
+        if verbose:
+            print("    [models] spec defaults: %r" % _spec_defaults)
+        apply_model_defaults(designs, _spec_defaults, verbose=verbose)
+
     if not entities_by_class:
         print("    [design] no entities designed", file=sys.stderr)
         # A manifest that plans no data model is a script-like project
@@ -559,8 +587,26 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # for its command shape. The deterministic compute_needs_cli regex gate
     # above remains only as a cheap, zero-LLM safety net (it can only ADD an
     # early CLI, never refuse one), so the agent is not dependent on it.
+    # The methods the SPECIFICATION declares (evidence-closed) — needed BOTH
+    # to resolve the spec's own CLI surface here and as a service-design
+    # requirement further down.
+    service_contract = extract_service_contract(prompt_text, verbose=verbose)
+    # A specification that ENUMERATES its command line has already fixed the
+    # CLI surface. Take it verbatim (group chain, command names, option names,
+    # required/optional) instead of designing a CLI and unioning the two: the
+    # union is what shipped commands the spec never asked for, under group and
+    # option names the spec never used.
+    prompt_surface = build_prompt_cli_surface(
+        prompt_text, entities_by_class,
+        (service_contract or {}).get("required_methods"),
+    )
+    if prompt_surface is not None and verbose:
+        print("      - spec-enumerated CLI surface: %d command(s)"
+              % len(prompt_surface.get("commands") or []))
     cli_surface = None
-    if entities_by_class:
+    if prompt_surface is not None:
+        cli_surface = prompt_surface
+    elif entities_by_class:
         classified = classify_intentions(
             intentions, entities_by_class, verbose=verbose
         )
@@ -615,8 +661,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         ent_snake = (
             stem[: -len("_repository")] if stem.endswith("_repository") else stem
         )
-        repo_constraint = (
-            repo_surface_constraint(cli_surface, ent_snake) if cli_surface else ""
+        # The CLI-derived bound PLUS the specification's own bullet for this
+        # repository: the spec states duties the CLI list never reaches
+        # ("check if a category has exceeded its budget"), and once an
+        # over-generated command that used to imply them is dropped, only the
+        # spec's bullet keeps the repository design covering them.
+        repo_constraint = "\n\n".join(
+            x for x in (
+                repo_surface_constraint(cli_surface, ent_snake) if cli_surface else "",
+                repo_spec_constraint(prompt_text, ent_snake),
+            ) if x
         )
         if _design_into(
             rp, "repositories", _fmt_design_context(designs, compact=True),
@@ -663,7 +717,8 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # CLI. Without it a spec method with no CLI command (renew_membership) is
     # dropped, and a wrong name (borrow_member) can replace a real one
     # (borrow_book). Underspecified prompts yield few/no required methods.
-    service_contract = extract_service_contract(prompt_text, verbose=verbose)
+    # Already extracted ABOVE (the spec-enumerated CLI surface is resolved
+    # against it) — never extracted twice for the same prompt text.
     _contract_block = service_contract_constraint(service_contract)
     svc_constraint = "\n\n".join(
         x for x in (
@@ -747,6 +802,17 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     cli_paths = [s["file"] for s in manifest if s["kind"] == "cli"]
     svc_design = next((d for p, k, d in designs if k == "services"), None)
     service_methods = (svc_design or {}).get("methods") or []
+    # Spec param-name floor, applied BEFORE the CLI surface binds its options:
+    # the specification declares its service signatures verbatim
+    # (list_expenses(category_id, start_date, end_date, payment_method)) and
+    # the design paraphrases a role (from_date/to_date). Renaming here — ahead
+    # of align_surface_to_design — makes the shipped method callable exactly as
+    # the specification wrote it, and lets the CLI option (--from-date) bind to
+    # the spec's own parameter.
+    _param_renames = apply_service_contract_params(service_contract, svc_design)
+    if _param_renames and verbose:
+        print("    [contract] renamed to spec param names: %s"
+              % ", ".join(_param_renames))
     cli_failed = False
     # CLI ← intentions (Approach B, LLM-classified). For prompts that NAME a
     # CLI explicitly (click/argparse/--flag), keep the LLM design. Otherwise
@@ -765,7 +831,15 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         # mentions a CLI ("use click") also needs the LLM to invent the tree.
         # Keep the open-ended _design_cli (then merge with the deterministic
         # surface); the LLM's proper targets survive the sanitizer.
-        if explicit_cli or cli_surface is None:
+        if prompt_surface is not None:
+            # The specification enumerated the commands: use them verbatim. No
+            # CLI design runs and nothing is merged, so no unrequested command
+            # can appear and no group/option name can drift. Options are bound
+            # to the DESIGNED service parameters here (the service design ran
+            # above) so every rendered call passes the value the user typed.
+            align_surface_to_design(prompt_surface, service_methods, entities_by_class)
+            data = prompt_surface
+        elif explicit_cli or cli_surface is None:
             if _service_is_complex(cli_surface, entities_by_class) and cli_surface is not None:
                 # Split the CLI design by command group so no single design
                 # call packs the whole service + context (which hit ~7944
@@ -846,12 +920,23 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         # designs first (spec-token gated FK completion + CRUD/history
         # synthesis), deterministic sanitization as the backstop.
         data, service_methods = _reconcile_cli_design(
-            data, prompt_text, entities_by_class, designs, verbose
+            data, prompt_text, entities_by_class, designs, verbose,
+            preserve_surface=prompt_surface is not None,
         )
         if data is None:
             print("    [design] %s: FAILED (will generate via per-file path)" % cp, file=sys.stderr)
             cli_failed = True
             continue
+        if prompt_surface is not None:
+            # Reconciliation must never REMOVE a command the specification
+            # wrote: a missing one is a generator defect, reported loudly
+            # instead of shipping a CLI that cannot answer the spec.
+            _missing = sorted(
+                set(surface_command_paths(prompt_surface))
+                - set(surface_command_paths(data))
+            )
+            for _m in _missing:
+                print("    [conformity] MISSING command: %s" % _m, file=sys.stderr)
         designs.append((cp, "cli", data))
         if verbose:
             print("      - %s [cli] commands=%d"
@@ -871,6 +956,19 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # method is a real specification gap and is reported loudly — the anchor
     # that stops a spec method with no CLI command from silently vanishing.
     _svc_final = next((d for p, k, d in designs if k == "services"), None)
+    # Restore the spec-declared service methods the design dropped, for the
+    # two shapes the deterministic renderer bodies exactly (delete_<e>(id),
+    # update_<e>(id, ...)): expenses lost update_expense/delete_expense, so
+    # two spec-authorized service paths raised AttributeError. Anything else
+    # stays reported below rather than shipping a NotImplementedError stub.
+    _added_methods = apply_service_contract_floors(
+        service_contract, _svc_final, entities_by_class
+    )
+    if _added_methods and verbose:
+        print(
+            "    [contract] restored %d spec method(s) the design omitted: %s"
+            % (len(_added_methods), ", ".join(_added_methods))
+        )
     for _cv in check_service_contract(service_contract, _svc_final):
         print("    [contract] VIOLATION: %s" % _cv, file=sys.stderr)
 
@@ -913,6 +1011,30 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             {p for p, k, d in designs if k == "exceptions"}
         ),
     }
+
+    # ---- Prompt-derived method contracts (stage 3) ----
+    # Transcribed from the SPECIFICATION alone, plus the design's own method
+    # signatures (which only NAME the methods to describe). The extractor
+    # never sees a generated body, so a contract cannot restate the code;
+    # the contract-time body verifier never sees the specification. Feeds
+    # both the deterministic effect recipes and the fill-time verifier.
+    _mc_sigs = [
+        (
+            m.get("name"),
+            [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ],
+        )
+        for _p, _k, _d in designs
+        if _k == "services" and isinstance(_d, dict)
+        for m in _d.get("methods") or []
+        if isinstance(m, dict) and m.get("name")
+    ]
+    method_contracts = (
+        extract_method_contracts(prompt_text, _mc_sigs, verbose=verbose)
+        if _mc_sigs else {}
+    )
 
     # ---- Render phase (deterministic) ----
     files = {}
@@ -959,6 +1081,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             prompt_text, exception_names, verbose,
             repo_sources=repo_srcs,
             models_module=models_module,
+            method_contracts=method_contracts,
         )
         files[sp] = body
         # (#3) adopt bounded repository repairs made while filling this

@@ -29,6 +29,34 @@ def _filter_params(ent):
     return [p for p, _, _ in _declared_filters(ent)]
 
 
+def _filter_flag_refs(ent):
+    """{param: {ref, ref_column, ref_cls}} for cross-table flag filters.
+
+    A declared filter whose op is ``below_ref`` (see
+    ``agentlib.kernel.repo.threshold_compare``) compares this entity's own
+    column against a threshold column on the entity its foreign key points
+    at, so the rendered ``list()`` needs a JOIN for it: ``ref`` is the FK
+    column, ``ref_column`` the referenced threshold and ``ref_cls`` the
+    referenced entity class.
+    """
+    out = {}
+    for spec in ent.get("list_filters") or []:
+        if not isinstance(spec, dict) or not spec.get("param"):
+            continue
+        if spec.get("op") != "below_ref":
+            continue
+        ref = spec.get("ref")
+        ref_column = spec.get("ref_column")
+        ref_cls = spec.get("ref_cls")
+        if ref and ref_column and ref_cls:
+            out[spec["param"]] = {
+                "ref": ref,
+                "ref_column": ref_column,
+                "ref_cls": ref_cls,
+            }
+    return out
+
+
 def _csv_chunk(items, size):
     return [items[i:i + size] for i in range(0, len(items), size)]
 
@@ -42,6 +70,72 @@ def _impl_bindings_ok(impl, m, entities_by_class):
     """
     kind = impl.get("kind")
     returns = m.get("returns") or ""
+    if kind == "contract_effects":
+        # A prompt-derived contract render (see
+        # agentlib.pipeline.method_contract): the impl is self-describing —
+        # an anchor entity plus resolved effects. Validated here so a
+        # contract can never reference an entity or a field the design does
+        # not have. A bool-returning workflow is the whole point, so the
+        # Dict/int return gate below must NOT apply.
+        anchor = entities_by_class.get(_camel(impl.get("entity") or ""))
+        if not isinstance(anchor, dict):
+            return None, None
+        anchor_fields = {
+            f.get("name") for f in (anchor.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        effects = impl.get("effects") or []
+        if not effects:
+            return None, None
+        if impl.get("id_param") not in [
+            p.get("name") for p in (m.get("params") or [])
+            if isinstance(p, dict)
+        ]:
+            return None, None
+        for eff in effects:
+            ref = entities_by_class.get(_camel(eff.get("cls") or ""))
+            if not isinstance(ref, dict) or eff.get("field") not in {
+                f.get("name") for f in (ref.get("fields") or [])
+                if isinstance(f, dict)
+            }:
+                return None, None
+            target = eff.get("target")
+            if target != "self" and target not in anchor_fields:
+                return None, None
+        return _camel(impl["entity"]), anchor
+    if kind == "report_parts":
+        # A prompt-derived report render (see
+        # agentlib.pipeline.method_contract): a COMPOUND report whose parts the
+        # specification names ("total spent, per-category breakdown, budget
+        # status"). Validated here so the impl can never name a field, a
+        # grouping column or a period parameter the design does not have. The
+        # period parameter must be one of the METHOD's own params — a report
+        # that does not read its window is exactly the S1 defect.
+        if not ("Dict" in returns or "dict" in returns):
+            return None, None
+        ent = entities_by_class.get(_camel(impl.get("entity") or ""))
+        if not isinstance(ent, dict):
+            return None, None
+        fields = {
+            f.get("name") for f in (ent.get("fields") or [])
+            if isinstance(f, dict)
+        }
+        params = [
+            p.get("name") for p in (m.get("params") or [])
+            if isinstance(p, dict)
+        ]
+        if impl.get("value_field") not in fields:
+            return None, None
+        if impl.get("date_field") not in fields:
+            return None, None
+        if impl.get("period_param") not in params:
+            return None, None
+        if not impl.get("parts"):
+            return None, None
+        group = impl.get("group_field")
+        if group and group not in fields:
+            return None, None
+        return _camel(impl["entity"]), ent
     if kind == "export_csv":
         if (
             returns and returns != "None"

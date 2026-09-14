@@ -33,6 +33,21 @@ def _normalize_option_arg(item: ast.expr) -> str | None:
     return None
 
 
+def _has_dual_flag_form(dec: ast.Call) -> bool:
+    """True for the click ``'--x/--y'`` boolean-pair option form.
+
+    Click writes such an option as ONE string literal (``'--is-active/--no-is-active'``)
+    and it takes NO value: ``--x`` sets True, ``--y`` sets False. ``is_flag`` is
+    never spelled in the decorator, so the flag-ness must be read off the
+    literal.
+    """
+    for a in dec.args:
+        v = _normalize_option_arg(a)
+        if v and "/" in v:
+            return True
+    return False
+
+
 def _flag_type_keyword(dec: ast.Call) -> tuple[str, bool, bool]:
     """Best-effort type/required/flag reading from a ``@click.option(...)``."""
     is_flag = False
@@ -56,7 +71,16 @@ def _read_option_arg(dec: ast.Call) -> tuple[list[str], str | None]:
     names: list[str] = []
     for a in dec.args:
         v = _normalize_option_arg(a)
-        if v:
+        if not v:
+            continue
+        if "/" in v:
+            # Click DUAL-FLAG form, one literal for two flags. Recording it
+            # verbatim made the compound the only name, so the tri-state flag
+            # the CLI really declares was invisible: the mapper rejected a
+            # valid ``--is-active`` as a "stray flag/arg not declared on
+            # member add" (library_system I4 left unmapped).
+            names.extend(p.strip() for p in v.split("/") if p.strip())
+        else:
             names.append(v)
     dest = None
     for kw in dec.keywords:
@@ -128,6 +152,11 @@ def _parse_click_command(node: ast.FunctionDef) -> dict | None:
         if fn.attr == "option":
             names, dest = _read_option_arg(dec)
             vtype, required, is_flag = _flag_type_keyword(dec)
+            # A dual --x/--y option is a BOOLEAN FLAG even though is_flag is
+            # never spelled: it takes no value.
+            if _has_dual_flag_form(dec):
+                is_flag = True
+                vtype = "bool"
             opt = {
                 "names": names,
                 "dest": dest,

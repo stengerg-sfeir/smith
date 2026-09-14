@@ -496,3 +496,83 @@ def check_conformity(prompt_text: str, design: dict, project_dir: Path,
         "requirements": report,
         "issues": deterministic_errs,
     }
+# ---------------------------------------------------------------------------
+# DECLARED CLI SURFACE CONFORMITY (deterministic, no LLM)
+# ---------------------------------------------------------------------------
+# The prompt for library_system / expenses ENUMERATES its command line
+# verbatim. The generator must ship EXACTLY that surface: every command the
+# prompt names, with the prompt's group path and option names, and NOTHING
+# else. This gate is deterministic — it reads the prompt's own command list
+# and the DISCOVERED click surface, and compares them name-for-name. It is the
+# regression test for the "24 commands for 9 requested" defect.
+
+
+def _option_long_names(option: dict) -> list[str]:
+    """The ``--long`` spellings of a discovered click option (no ``-s``)."""
+    return [n for n in (option.get("names") or []) if str(n).startswith("--")]
+
+
+def prompt_surface_paths(prompt_text: str) -> list[dict]:
+    """The commands the prompt itself enumerates, as ``{path, options}``.
+
+    ``[]`` when the prompt never lists a command line — in that case there is
+    no declared surface to conform to and the gate stays silent.
+    """
+    from agentlib.pipeline.cli_spec import (
+        extract_prompt_cli_commands, parse_prompt_command,
+    )
+
+    out: list[dict] = []
+    for text in extract_prompt_cli_commands(prompt_text):
+        command = parse_prompt_command(text)
+        if command is None:
+            continue
+        out.append({
+            "path": " ".join(list(command["group"]) + [command["name"]]),
+            "options": [o["name"] for o in command["options"]],
+        })
+    return out
+
+
+def surface_conformity_violations(prompt_text: str,
+                                  project_dir: Path) -> list[str]:
+    """Prompt→surface name conformance ([] = the CLI is exactly the prompt's).
+
+    For each command the prompt enumerates: the exact group path must exist
+    and every option it names must be declared. For each command the CLI
+    exposes: the prompt must have asked for it. A missing command, a missing
+    option, or a generated extra is a violation.
+    """
+    from behavior_tests.facade_discovery import discover_facade
+
+    wanted = prompt_surface_paths(prompt_text)
+    if not wanted:
+        return []
+
+    facade = discover_facade(project_dir)
+    if facade.get("kind") not in ("click_group", "click_command"):
+        return ["prompt enumerates a command line but no click CLI was discovered"]
+
+    discovered: dict[str, set[str]] = {}
+    for command in facade.get("commands", []):
+        discovered[command.get("name", "")] = {
+            name
+            for option in command.get("options", [])
+            for name in _option_long_names(option)
+        }
+
+    errs: list[str] = []
+    wanted_paths = {w["path"] for w in wanted}
+    for w in wanted:
+        path = w["path"]
+        if path not in discovered:
+            errs.append("prompt requires command %r but the CLI does not expose it" % path)
+            continue
+        for name in w["options"]:
+            if name not in discovered[path]:
+                errs.append("prompt requires option %s on command %r but it is missing"
+                            % (name, path))
+    for path in sorted(discovered):
+        if path not in wanted_paths:
+            errs.append("CLI exposes command %r that the prompt does not request" % path)
+    return errs

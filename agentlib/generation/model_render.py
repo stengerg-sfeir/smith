@@ -90,14 +90,19 @@ def _render_models_file(design):
             elif ftype == "datetime":
                 needs_datetime = True
             dflt = _coerce_field_default(ftype, f.get("default"))
-            if fname == "id" or f.get("nullable"):
+            if fname == "id":
                 opt.append((fname, f.get("type", "int")))
             elif dflt is not None:
                 # A spec-declared default (e.g. available_copies default 1,
-                # is_active default True) becomes a real dataclass default so
-                # constructing the entity without it yields the spec value
-                # instead of None.
-                defaulted.append((fname, ftype, dflt))
+                # is_active default True, low_active default False) becomes a
+                # real dataclass default so constructing the entity without it
+                # yields the spec value. This runs BEFORE the nullable branch:
+                # a NULLABLE field whose spec also declares a default
+                # (inventory's "low_active (optional bool, default False)")
+                # would otherwise drop to None and lose the specified value.
+                defaulted.append((fname, ftype, dflt, bool(f.get("nullable"))))
+            elif f.get("nullable"):
+                opt.append((fname, f.get("type", "int")))
             elif (
                 f.get("auto") == "now"
                 and f.get("type") in ("date", "datetime")
@@ -115,8 +120,9 @@ def _render_models_file(design):
             else:
                 req.append((fname, f.get("type", "str")))
         parts = ["    %s: %s" % (fname, ftype) for fname, ftype in req]
-        parts += ["    %s: %s = %r" % (fname, ftype, dflt)
-                  for fname, ftype, dflt in defaulted]
+        for fname, ftype, dflt, nullable in defaulted:
+            ann = "Optional[%s]" % _bare(ftype) if nullable else ftype
+            parts.append("    %s: %s = %r" % (fname, ann, dflt))
         parts += ["    %s: Optional[%s] = None" % (fname, _bare(ftype))
                   for fname, ftype in opt]
         body = "\n".join(parts)
