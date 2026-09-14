@@ -12,7 +12,8 @@ from .model_render import _coerce_field_default
 
 
 def _render_cli_file(design, svc_class, entities_by_class, service_methods,
-                     verbose=False, db_path="app.db", money=False):
+                     verbose=False, db_path="app.db", money=False,
+                     exception_names=()):
     """Deterministic click CLI: one flat top-level command per command.
 
     A designed command `group=["item"], name="add"` becomes
@@ -45,7 +46,23 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
             ) is not None:
                 default_fields.add(_f["name"])
 
-    lines = ["import click", "from database import Database"]
+    # Every generated CLI reads and writes through the repository layer, so a
+    # user-visible UNIQUE / FOREIGN KEY violation (a duplicate isbn, an unknown
+    # --author-id) must never reach the user as a raw traceback. sqlite3 is
+    # imported so the command body can catch IntegrityError; the project's own
+    # DESIGNED exception classes are imported too, so the domain errors the
+    # specification asks for (CategoryNotFoundError, BookNotAvailableError, …)
+    # are REPORTED, not dumped. Before this, `expense add --category 999` and
+    # `library member add` with a duplicate email printed a full Python
+    # traceback — the opposite of the "proper error handling with custom
+    # exception classes" the specification asks for.
+    lines = ["import sqlite3", "import click", "from database import Database"]
+    _exc_names = sorted({
+        n for n in (exception_names or [])
+        if isinstance(n, str) and n.isidentifier()
+    })
+    if _exc_names:
+        lines.append("from exceptions import %s" % ", ".join(_exc_names))
     if money:
         # The specification's money convention is two-sided: integer cents in
         # storage, decimal amounts for DISPLAY. Import the conversion helpers
@@ -201,7 +218,20 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         )
         # The service __init__ takes a Database object, not a path string.
         lines.append("    svc = %s(Database(DB_PATH))" % svc_class)
-        lines.append("    " + call)
+        # Report, never crash: the specification's error contract IS a set of
+        # custom exception classes, and a repository write can additionally
+        # raise a plain IntegrityError. Both become a one-line stderr message
+        # and a non-zero exit instead of a Python traceback.
+        _caught = ["sqlite3.IntegrityError"] + _exc_names
+        _caught_src = (
+            _caught[0] if len(_caught) == 1
+            else "(%s)" % ", ".join(_caught)
+        )
+        lines.append("    try:")
+        lines.append("        " + call)
+        lines.append("    except %s as exc:" % _caught_src)
+        lines.append('        click.echo("Error: %s" % exc, err=True)')
+        lines.append("        raise SystemExit(1)")
         # A read command must PRINT its result for the CLI to be usable (and
         # for a stdout expectation to be satisfiable). A None-returning
         # mutation stays silent.

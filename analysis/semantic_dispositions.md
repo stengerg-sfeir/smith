@@ -409,3 +409,73 @@ This is what removed the over-generated surface (library's `loan add`,
 `expense report --id`, `expense update/delete/get/detect`, `budget check`,
 `category detect/check`) — including `member borrow --id N`, a dead command
 that always raised `ValidationError: Book not specified for borrowing` (S14).
+## Whole-surface evaluation, second pass: error reporting and the entry point
+
+Two defects of the GENERATED PROJECT (found by running every error path and
+every command, not by reading the code), plus the tester-side fix they
+required.
+
+**(l) A command must REPORT a domain error, not dump a traceback.** —
+`agentlib/generation/cli_render.py::_render_cli_file`, now given the project's
+designed exception names by `manifest.py`. The specification's own error
+contract IS a set of custom exception classes ("Implement proper error
+handling with custom exception classes: CategoryNotFoundError,
+ExpenseNotFoundError, BudgetExceededException"), and the generated classes
+existed — but nothing caught them, so a user following the specification got a
+raw Python traceback ending in `exceptions.CategoryNotFoundError: 999`:
+
+```
+$ python3 main.py expense add --amount 5.00 --description x --category 999
+Traceback (most recent call last):
+  ...
+exceptions.CategoryNotFoundError: 999
+```
+
+Every command body now wraps its service call:
+
+```python
+    try:
+        result = svc.add_expense(...)
+    except (sqlite3.IntegrityError, CategoryNotFoundError, ExpenseNotFoundError,
+            BudgetExceededException) as exc:
+        click.echo("Error: %s" % exc, err=True)
+        raise SystemExit(1)
+```
+
+The `sqlite3.IntegrityError` arm is unconditional, because a repository write
+can raise a plain UNIQUE / FOREIGN KEY violation on a user-visible path
+(a duplicate isbn, an unknown `--author-id`) and that is just as much a raw
+crash. Measured on the freshly regenerated projects, all 19 error paths exit
+with a one-line message and NO traceback:
+
+```
+Error: 999                                     (CategoryNotFoundError)
+Error: UNIQUE constraint failed: categories.name
+Error: UNIQUE constraint failed: books.isbn
+Error: UNIQUE constraint failed: members.email
+Error: FOREIGN KEY constraint failed
+Error: Book with id 999 not found
+Error: Member with id 999 not found
+```
+
+**(m) A CLI project always has a runnable entry point.** —
+`agentlib/pipeline/manifest.py`. `main.py` was rendered only for a spec the
+LLM layout happened to list, so `library_system` shipped with NO entry point
+while `expenses` (the same shape: a click CLI) got one — `python main.py …`,
+the way a user runs the deliverable, worked in one project and not the other
+for no reason a user could see. The entry point is a property of the tree, not
+a design decision: a tree with a `cli.py` and no `main.py`/`app.py` now gets
+`_render_main_file` unconditionally. Verified: both projects ship a `main.py`.
+
+**(n) The tester reads the call wherever the generated body puts it.** —
+`behavior_tests/facade_discovery.py::_find_service_target` and
+`_data_keys_from_body`. Both scanned only a function's TOP-LEVEL statements.
+Adding the `try:` wrapper above nested the `result = svc.…` assignment one
+level down, so the facade discovered an EMPTY target for every command of every
+project: with no target it could not infer the command's FK references, stopped
+synthesizing the parent seed, and reported three FALSE failures on correct code
+(inventory `product add --category 1` -> the `CategoryNotFoundError` the
+inventory specification explicitly demands: "add_product(...): validates the
+category exists"). Both readers now walk the whole body, so the discovery is
+independent of how the body wraps the call. Inventory returns to 12/12 and the
+four-project façade is 5/5 + 12/12 + 14/14 + 9/9 with 0 unmapped.

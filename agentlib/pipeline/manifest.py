@@ -1122,6 +1122,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             files[path] = _render_cli_file(
                 data, svc_class, entities_by_class, service_methods,
                 verbose, db_path=db_file, money=money_display,
+                exception_names=exception_names,
             )
     if money_display:
         files[MONEY_MODULE] = render_money_module()
@@ -1232,6 +1233,21 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 "    dropped invented module %s (no design contract)" % fn,
                 file=sys.stderr,
             )
+
+    # A CLI project ALWAYS gets a runnable entry point, whether or not the
+    # manifest happened to declare one. The loop above renders a main.py only
+    # for a spec the LLM layout listed — so library_system shipped with NO
+    # entry point while expenses (the same shape: a click CLI) got one, purely
+    # because the layout named the module in one project and not the other.
+    # `python main.py library book list` is how a user runs the deliverable;
+    # that cannot depend on an LLM listing a file. Emitted unconditionally
+    # here, for a tree that has a CLI and no entry point of its own.
+    if "cli.py" in files and not any(
+        Path(f).stem in ("main", "app") for f in files
+    ):
+        files["main.py"] = _render_main_file(files, db_file)
+        if verbose:
+            print("    [render] added main.py entry point (layout omitted it)")
 
     # NOTE: _multi_pass (run.py) runs the authoritative validation
     # (_check_syntax_and_imports + _check_structural) over this tree. Running

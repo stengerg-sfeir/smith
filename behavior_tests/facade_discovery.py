@@ -95,19 +95,27 @@ def _read_option_arg(dec: ast.Call) -> tuple[list[str], str | None]:
 
 
 def _find_service_target(body: list[ast.stmt]) -> str | None:
-    """Find the ``svc.<method>(...)`` call inside a command function body."""
+    """Find the ``svc.<method>(...)`` call inside a command function body.
+
+    Scans the WHOLE body, not just its TOP-LEVEL statements. The CLI wraps the
+    call in ``try: … except …:`` so the project's designed exceptions are
+    reported instead of dumped, which nests the assignment one level down and
+    made the target invisible to a top-level-only scan. With no target the
+    facade could not infer the command's FK reference, stopped seeding the
+    parent row, and reported FALSE failures on correct code (inventory
+    ``product add --category 1`` -> the specification-mandated
+    CategoryNotFoundError). Reading the call wherever it sits keeps the
+    discovery independent of how the generated body wraps it.
+    """
     for stmt in body:
-        # Direct: `result = svc.method(...)`
-        if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call):
-            call = stmt.value
-        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-            call = stmt.value
-        else:
-            continue
-        fn = call.func
-        if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name) \
-                and fn.value.id == "svc":
-            return fn.attr
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if (isinstance(fn, ast.Attribute)
+                    and isinstance(fn.value, ast.Name)
+                    and fn.value.id == "svc"):
+                return fn.attr
     return None
 
 
@@ -120,21 +128,21 @@ def _data_keys_from_body(body: list[ast.stmt]) -> dict[str, str]:
     can match against the design.
     """
     keys: dict[str, str] = {}
+    # Same whole-body walk as _find_service_target: the call may be nested in
+    # a ``try:`` block (the CLI's error reporting), and a top-level-only scan
+    # would lose the ``data={'field': click_var}`` mapping that FK/PK
+    # inference relies on.
     for stmt in body:
-        call = None
-        if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call):
-            call = stmt.value
-        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-            call = stmt.value
-        if not call:
-            continue
-        for kw in call.keywords:
-            if kw.arg != "data" or not isinstance(kw.value, ast.Dict):
+        for call in ast.walk(stmt):
+            if not isinstance(call, ast.Call):
                 continue
-            for k, v in zip(kw.value.keys, kw.value.values):
-                if (isinstance(k, ast.Constant) and isinstance(k.value, str)
-                        and isinstance(v, ast.Name)):
-                    keys[v.id] = k.value
+            for kw in call.keywords:
+                if kw.arg != "data" or not isinstance(kw.value, ast.Dict):
+                    continue
+                for k, v in zip(kw.value.keys, kw.value.values):
+                    if (isinstance(k, ast.Constant) and isinstance(k.value, str)
+                            and isinstance(v, ast.Name)):
+                        keys[v.id] = k.value
     return keys
 
 
