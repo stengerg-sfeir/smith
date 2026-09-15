@@ -106,8 +106,265 @@ _REPO_FILL_SYSTEM_RULES = (
 )
 
 
+# --- CRUD-shadow pruning ---------------------------------------------------
+# Every repository file renders the same deterministic CRUD surface:
+# create/get_by_id/get_all/list/update/delete (+ the unique_together lookups).
+# A designed custom method that merely RE-SPELLS one of those on its own entity
+# is a second source of truth for the same table: it is dead (the rendered
+# service calls the CRUD method), it diverges silently, and it bloats every
+# downstream interface enumeration. Measured cases:
+#   library_system  member.add_member / member.list_members / book.list_books
+#   expenses        list_expenses / get_expense_by_id / add_category /
+#                   update_category / delete_category / list_budgets / ...
+# A method that keeps a NON-entity token (search_books, get_overdue_loans,
+# find_books_by_author, get_expenses_for_category) names a capability the CRUD
+# surface does not provide and is left untouched.
+_CRUD_BASE_METHODS = ("create", "get_by_id", "get_all", "list", "update", "delete")
+_CRUD_WRITE_VERBS = {
+    "add": "create", "create": "create", "insert": "create", "new": "create",
+    "register": "create", "save": "create", "store": "create", "make": "create",
+    "delete": "delete", "remove": "delete", "erase": "delete", "drop": "delete",
+    "update": "update", "edit": "update", "modify": "update", "change": "update",
+    "set": "update",
+}
+_CRUD_QUALIFIERS = {
+    "count", "total", "sum", "avg", "average", "number", "nb", "exists", "all",
+}
+
+
+def _entity_stem_variants(ent_snake, model):
+    """Every spelling of the entity token a designed method name may use."""
+    stems = set()
+    for raw in (ent_snake, _snake(model or "")):
+        if not raw:
+            continue
+        stems.add(raw)
+        plural = _plural(raw)
+        stems.add(plural)
+        # Naive singular of the plural (expenses -> expense, categories ->
+        # category, budgets -> budget) so a `get_<entity>_by_id` spelling is
+        # recognised against the singular repository stem.
+        if plural.endswith("ies"):
+            stems.add(plural[:-3] + "y")
+        elif plural.endswith("s"):
+            stems.add(plural[:-1])
+        if raw.endswith("ies"):
+            stems.add(raw[:-3] + "y")
+        elif raw.endswith("s"):
+            stems.add(raw[:-1])
+    return {s for s in stems if s}
+
+
+def _crud_shadow_target(name, ent_snake, model):
+    """The deterministic CRUD method this designed custom merely re-spells.
+
+    ``add_member`` -> create, ``list_expenses`` -> list,
+    ``get_category_by_id`` -> get_by_id, ``update_budget`` -> update.
+    Returns None as soon as a NON-entity token survives (``search_books``,
+    ``get_overdue_loans``, ``find_books_by_author``), so a capability the CRUD
+    surface does not provide is never pruned.
+    """
+    low = (name or "").lower()
+    if not low or low in _CRUD_BASE_METHODS:
+        return None
+    stems = _entity_stem_variants(ent_snake, model)
+    toks = [t for t in low.split("_") if t]
+    if not any(t in stems for t in toks):
+        return None
+    core = [t for t in toks if t not in stems]
+    if not core:
+        return None
+    if core[0] in ("get", "find", "fetch", "load", "read", "retrieve"):
+        return "get_by_id" if core[1:] == ["by", "id"] else None
+    if core[0] in ("list", "all"):
+        return "list" if core[1:] in ([], ["all"]) else None
+    head = _CRUD_WRITE_VERBS.get(core[0])
+    if head is None or core[1:]:
+        return None
+    return head
+
+
+def _qualifier_extension_of(name, other):
+    """True when ``name`` is ``other`` plus trailing scalar-qualifier tokens.
+
+    ``get_overdue_loans_count`` extends ``get_overdue_loans``: the same query
+    answering a different shape, so the count copy is redundant. Restricted to
+    qualifier tokens, so an unrelated longer name (``get_expenses_for_category``
+    beside ``get_expenses``) is never mistaken for a duplicate.
+    """
+    def norm(s):
+        for pre in ("get_", "find_", "list_", "fetch_", "count_", "all_"):
+            if s.startswith(pre):
+                return s[len(pre):]
+        return s
+
+    na, nb = norm(name or ""), norm(other or "")
+    if not na or not nb or na == nb or not na.startswith(nb + "_"):
+        return False
+    extra = [t for t in na[len(nb) + 1:].split("_") if t]
+    return bool(extra) and all(t in _CRUD_QUALIFIERS for t in extra)
+
+
+def _prune_crud_shadow_customs(design, ent_snake, model):
+    """Drop designed repository customs the deterministic surface already covers.
+
+    Pruned IN PLACE so every downstream consumer of the design (the service
+    interface, the fill's method enumeration, the shipped source) agrees: a
+    method pruned here can never be advertised to a service fill. Returns the
+    kept list.
+    """
+    methods = (design or {}).get("methods")
+    if not isinstance(methods, list):
+        return []
+    kept = []
+    for m in methods:
+        if not isinstance(m, dict):
+            continue
+        if _crud_shadow_target(m.get("name") or "", ent_snake, model):
+            continue
+        kept.append(m)
+    names = [m.get("name") or "" for m in kept] + list(_CRUD_BASE_METHODS)
+    final = [
+        m for m in kept
+        if not any(
+            _qualifier_extension_of(m.get("name") or "", other)
+            for other in names if other != (m.get("name") or "")
+        )
+    ]
+    design["methods"] = final
+    return final
+
+
+# --- capability reading + unjustified-extras pruning -----------------------
+# A repository must carry the CRUD surface plus ONLY the capabilities its own
+# specification bullet names. Two measured extras survive the CRUD-shadow
+# prune and are removed here:
+#   library_system  AuthorRepository.get_author_books_count   a count nobody
+#                   asked for; the bullet says "find books by author",
+#                   already satisfied by find_books_by_author.
+#   library_system  AuthorRepository.list_authors_with_books  a redundant
+#                   spelling of find_books_by_author that the schema gate
+#                   REJECTED — it shipped a `return []` stub plus a `reverted`
+#                   log line instead of a working method.
+_STOPWORDS = {
+    "with", "by", "for", "and", "of", "to", "in", "the", "a", "an", "on",
+    "from", "all", "per", "as", "at", "that", "its", "is", "are",
+}
+_READ_VERBS = {
+    "get", "find", "list", "fetch", "load", "read", "retrieve", "search",
+    "query", "show", "count", "total", "sum", "check", "detect", "export",
+}
+
+
+def _capability_tokens(name, ent_snake, model):
+    """(verb, content tokens) of a designed method name.
+
+    The leading verb and the entity stem are removed, so on AuthorRepository
+    ``list_authors_with_books`` reads as ('list', {'books'}) and
+    ``find_books_by_author`` as ('find', {'books'}) — one capability under two
+    spellings. ``get_author_books_count`` reads as ('get', {'books', 'count'}):
+    a count qualifier nobody asked for.
+    """
+    stems = _entity_stem_variants(ent_snake, model)
+    toks = [t for t in (name or "").lower().split("_") if t]
+    verb = ""
+    if toks and (toks[0] in _READ_VERBS or toks[0] in _CRUD_WRITE_VERBS):
+        verb = toks[0]
+        toks = toks[1:]
+    content = {t for t in toks if t not in stems and t not in _STOPWORDS}
+    return verb, content
+
+
+def _stemmed_tokens(text):
+    """Lowercase alphanumeric tokens of a sentence, plural-stemmed."""
+    out = set()
+    for raw in re.split(r"[^a-z0-9]+", (text or "").lower()):
+        if not raw:
+            continue
+        out.add(raw)
+        if raw.endswith("ies") and len(raw) > 3:
+            out.add(raw[:-3] + "y")
+        elif raw.endswith("s") and len(raw) > 1:
+            out.add(raw[:-1])
+    return out
+
+
+def _unjustified_qualifier_customs(customs, spec_bullet, ent_snake, model):
+    """Drop count/total-style customs the repository's own bullet never asks for.
+
+    Applies only when the prompt names the repository (a non-empty bullet), so
+    a specification that does ask for a count — its bullet containing the word
+    — is untouched. ``AuthorRepository.get_author_books_count`` is the measured
+    case: nothing in "CRUD + find books by author" asks for a count.
+    """
+    if not spec_bullet:
+        return customs
+    bullet_tokens = _stemmed_tokens(spec_bullet)
+    kept = []
+    for m in customs:
+        _, content = _capability_tokens(m.get("name") or "", ent_snake, model)
+        qualifiers = content & _CRUD_QUALIFIERS
+        if qualifiers and not (qualifiers & bullet_tokens):
+            continue
+        kept.append(m)
+    return kept
+
+
+def _subsumed_by_sibling(name, sibling_names, ent_snake, model):
+    """True when every content token of ``name`` already appears in a sibling.
+
+    ``list_authors_with_books`` -> {'books'} is subsumed by
+    ``find_books_by_author`` -> {'books'}: the dropped method names no object
+    word its surviving sibling does not also name, so removing it costs no
+    capability. An EMPTY content set (``search_books``) is never subsumed —
+    such a method is the repository's own entity-wide operation.
+    """
+    _, content = _capability_tokens(name, ent_snake, model)
+    if not content:
+        return False
+    for other in sibling_names:
+        if other == name:
+            continue
+        _, other_content = _capability_tokens(other, ent_snake, model)
+        if other_content and content <= other_content:
+            return True
+    return False
+
+
+def _drop_functions(text, names):
+    """Remove the named methods from a source string, in place of a re-render.
+
+    Used instead of re-rendering a repository so the ACCEPTED sibling fills
+    (and any bounded repair the service fill made) survive untouched.
+    """
+    names = {n for n in (names or []) if n}
+    if not names:
+        return text
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return text
+    lines = text.splitlines(keepends=True)
+    ranges = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in names
+        ):
+            start = node.lineno - 1
+            if node.decorator_list:
+                start = min(d.lineno for d in node.decorator_list) - 1
+            ranges.append((start, node.end_lineno))
+    for start, end in sorted(ranges, reverse=True):
+        del lines[start:end]
+        if start < len(lines) and not lines[start].strip():
+            del lines[start]
+    return "".join(lines)
+
+
 def _render_repository_file(ent_snake, design, entities_by_class, exception_names=None,
-                            prompt_text="", verbose=False, models_module="models"):
+                            prompt_text="", verbose=False, models_module="models",
+                            spec_bullet=""):
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
 
     - create/get_by_id/get_all/update/delete are rendered with real bodies.
@@ -149,10 +406,16 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     nonid = [c for c in cols if not c[2]]
     col_names = [c[0] for c in nonid]
     table = table_names.get(model) or _plural(ent_snake)
-    customs = [
-        m for m in ((design or {}).get("methods") or [])
-        if isinstance(m, dict)
-    ]
+    # Prune designed customs the deterministic CRUD surface already covers
+    # (list_expenses / get_expense_by_id / add_category / list_budgets / ...):
+    # a repository never ships two implementations of the same capability. The
+    # design is pruned IN PLACE, so the service interface and the fill read the
+    # same pruned list and nothing can call a method pruned away.
+    customs = _prune_crud_shadow_customs(design, ent_snake, model)
+    customs = _unjustified_qualifier_customs(
+        customs, spec_bullet, ent_snake, model
+    )
+    design["methods"] = customs
     needs_json = any(
         re.search(r"_(?:to|from)_json$", m.get("name") or "")
         for m in customs
@@ -543,6 +806,29 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
                 "        - %s: %s"
                 % (name, "; ".join(violations.get(name, [])))
             )
+    # A rejected custom whose object words are ALREADY named by a sibling that
+    # did ship is a redundant spelling of a capability this repository
+    # provides: keeping it as a `return []` stub is a lie, and its `reverted`
+    # acceptance line is noise (library_system's list_authors_with_books, whose
+    # capability is served by find_books_by_author).
+    dropped = {
+        m.get("name") or "" for m in (design.get("methods") or [])
+    } - set(rejected)
+    droppable = sorted(
+        n for n in rejected
+        if _subsumed_by_sibling(n, sorted(dropped), ent_snake, model)
+    )
+    if droppable:
+        if verbose:
+            print(
+                "    [fill] repository <%s>: dropped redundant %s"
+                % (ent_snake, ", ".join(droppable))
+            )
+        design["methods"] = [
+            m for m in (design.get("methods") or [])
+            if (m.get("name") or "") not in set(droppable)
+        ]
+        merged = _drop_functions(merged, droppable)
     return merged
 
 

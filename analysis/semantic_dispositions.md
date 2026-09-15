@@ -854,9 +854,159 @@ Loi D, re-measured on the frozen tree:
 | `AuthorRepository.list_authors_with_books` | query built then OVERWRITTEN; `include_inactive` had no effect | builds one query incrementally (`base_where +=`), the flag changes the WHERE clause |
 | `ExpenseRepository.export_to_csv` | `start_date.isoformat()` on a `date` parameter that carries a str | `conn.execute(query, (start_date, end_date))`, no re-formatting |
 | `Loan.due_date` annotation | `datetime` (the MODULE, inert only because of `from __future__ import annotations`) | `datetime.datetime` |
-| `LoanRepository.get_overdue_loans_count` | `SELECT COUNT(*) FROM loans` — every loan | **unchanged, and documented as a limit**: uncalled, never named by the prompt, and no deterministic rule can decide that "count" of "overdue loans" is a filtered count without reading the name as language. Rejecting an SQL that omits a name token would reject the CORRECT `get_overdue_loans`, whose faithful body compares `due_date` |
+| `LoanRepository.get_overdue_loans_count` | `SELECT COUNT(*) FROM loans` — every loan | **resolved in the sixth pass**: the method no longer exists. A count the repository's own specification bullet never names is not a capability anyone asked for — see the sixth pass, rules R2/R3c. |
 
-The last row is the honest boundary of the fifth pass: the two live defects
-(the flag with no effect, the crash-on-call) are closed and gated, and the one
-that remains is a dead over-generation with no reachable consequence, recorded
-rather than hidden.
+The last row was the honest boundary of the fifth pass: the two live defects
+(the flag with no effect, the crash-on-call) were closed and gated, and the one
+that remained was a dead over-generation with no reachable consequence. The
+sixth pass closes it too, by removing the method rather than by guessing at its
+body: the repository's own specification bullet is the ownership test, and
+"CRUD + find active loans, overdue loans, member loan history, book loan
+history" owns no count.
+## Sixth pass: the duplicate capability, removed at the design
+
+The fifth pass closed the *bodies*. This pass closes the *definitions*: a
+repository that ships two methods for the same capability is a second source of
+truth for one table, free to diverge, and the user's own audit named it as the
+remaining defect (`list` beside `list_expenses`, `list` beside `list_budgets`,
+`create` beside `add_member`). Measured on the tree before this pass:
+
+| repository | non-CRUD methods shipped | of which nobody asked for |
+|---|---|---|
+| `expense_repository` | 8 | `list_expenses`, `get_expense_by_id`, `export_to_csv`, `detect_recurring` |
+| `category_repository` | 6 | `list_categories`, `get_category_by_id`, `add_category`, `update_category`, `delete_category` |
+| `budget_repository` | 5 | `list_budgets`, `add_budget`, `update_budget`, `delete_budget` |
+| `book_repository` | 2 | `list_books` |
+| `author_repository` | 3 | `get_author_books_count`, `list_authors_with_books` |
+| `member_repository` | 3 | `add_member`, `list_members` |
+| `loan_repository` | 5 | `get_overdue_loans_count` |
+
+Four points about why this is a defect and not cosmetics:
+
+* the RENDERED SERVICE never calls any of them — it uses the deterministic CRUD
+  method (`self.category_repo.list()`, `self.expense_repo.get_by_id(id)`), so
+  every one is unreachable;
+* they DIVERGE. `category_repository.update_category` wrote all four columns
+  unconditionally (`SET name = ?, description = ?, monthly_budget = ?, icon = ?`)
+  where the CRUD `update(id, data)` is PARTIAL, so a caller of the duplicate
+  nulled every field it omitted;
+* one of them was BROKEN and no gate could see it, because nothing calls it:
+  `author_repository.list_authors_with_books` built `SELECT a.id, …` with **no
+  `FROM authors a`** and filtered on an `a.is_active` column its own table does
+  not have — `OperationalError: no such column: a.id` on any call;
+* another was semantically WRONG: `loan_repository.get_overdue_loans_count`
+  answered `SELECT COUNT(*) FROM loans` — 2 — where the canonical
+  `get_overdue_loans` filtered `due_date < date('now') AND return_date IS NULL`
+  and found 0.
+
+### The rules
+
+Five pruners, each keyed on an exact spelling test, never on a domain word list.
+They run at design time except R3g, which runs after the service is rendered.
+
+| rule | where | drops | kept by construction |
+|---|---|---|---|
+| **R1** CRUD shadow | `repo_render._prune_crud_shadow_customs` | a custom that merely re-spells a deterministic CRUD method on its own entity: `add_<e>` → create, `list_<e>(s)`/`all` → list, `get_<e>_by_id` → get_by_id, `update_<e>` → update, `delete_<e>` → delete | any name keeping a NON-entity token (`search_books`, `get_overdue_loans`, `find_books_by_author`, `get_expenses_for_category`) |
+| **R2** qualifier extension | same | `name` = sibling + trailing qualifier tokens (`get_overdue_loans_count` beside `get_overdue_loans`) | an unrelated longer name (`get_expenses_for_category` beside `get_expenses`) |
+| **R3c** unjustified qualifier | `repo_render._unjustified_qualifier_customs` | a count/total/sum custom whose qualifier the repository's own specification bullet never names (`get_author_books_count`; the bullet is "CRUD + find books by author") | inert when the prompt names no repository for that entity, or when the bullet contains the qualifier |
+| **R3e** rejected and subsumed | `repo_render._render_repository_file` | a custom the schema gate REJECTED whose content words are already named by a sibling that shipped (`list_authors_with_books` → {'books'} ⊆ `find_books_by_author` → {'books'}) | any rejected body whose words no sibling carries — the safe stub is kept rather than guessing |
+| **R3g** uncalled and unnamed | `manifest._prune_uncalled_repo_customs` | a custom the SHIPPED SERVICE never calls **and** whose content words the repository's own bullet never names (`export_to_csv`, `detect_recurring`) | every spec-mandated duty however unreachable: `get_monthly_report` / `get_yearly_summary` ("monthly/yearly aggregation queries"), `get_expenses_for_category` ("find expenses for a category"), `check_budget_exceeded` ("check if a category has exceeded its budget"), `get_active_loans` ("find active loans"), `get_member_loan_history` ("member loan history") |
+
+Two properties make the set safe rather than merely aggressive:
+
+**The pruning is a fixpoint on the DESIGN, not on the file.** R1/R2/R3c prune
+`design["methods"]` in place, and `_service_repo_interface` builds the fill's
+legal interface from the SAME object, so a method pruned here can never be
+advertised to a service fill — the service cannot call what no longer exists.
+R3g prunes after the service source is in hand and removes the methods from the
+shipped file with `_drop_functions` (an AST range deletion) rather than
+re-rendering, so the accepted sibling fills and any bounded repair the service
+fill made are preserved byte for byte.
+
+**A duplicate is judged against the SPECIFICATION, not against a notion of
+"used".** The tempting rule — "drop every repository method the service never
+calls" — is WRONG, and measurably so: two methods of the shipped library tree
+are uncalled yet mandated. `get_expenses_for_category` is the prompt's own
+"CategoryRepository — CRUD + find expenses for a category" and
+`get_monthly_report`/`get_yearly_summary` are its "monthly/yearly aggregation
+queries". A repository duty the service realizes inline is still a duty the
+prompt states. R3g therefore requires the bullet to be silent too, and skips
+`export_to_csv`/`detect_recurring` (which the prompt assigns to
+`ExpenseService`, not to the repository) while keeping the aggregation pair.
+
+An earlier candidate rule, "drop a repository custom whose NAME equals a
+designed service method name", was tried and REJECTED on measurement: on the
+regenerated library tree `MemberRepository.get_member_history` IS called by the
+service (`return self.member_repo.get_member_history(member_id)`, the body
+behind `library member history --member-id`), so the name-equality test would
+have deleted a live, spec-implied path. A shared name is evidence of nothing;
+the call site is evidence, and only R3g reads one.
+
+### Measured after the pass
+
+```
+-- library_system.author_repository: 8 methods   (create/get_by_id/get_all/
+   list/update/delete + find_books_by_author)
+-- library_system.book_repository: 7 methods     (+ search_books)
+-- library_system.loan_repository: 10 methods    (+ get_overdue_loans /
+   get_active_loans / get_member_loan_history / get_book_loan_history)
+-- library_system.member_repository: 7 methods    (+ get_member_history)
+-- expenses.budget_repository: 8 methods          (+ get_by_category_and_month,
+   check_budget_exceeded)
+-- expenses.category_repository: 7 methods        (+ get_expenses_for_category)
+-- expenses.expense_repository: 9 methods         (+ get_monthly_report,
+   get_yearly_summary, get_category_spending)
+
+NO DUPLICATE AND NO UNASKED REPOSITORY METHOD
+```
+
+That last line is `verify_nodupes` (a throwaway harness, not a shipped gate): it
+walks every generated repository and asserts, per method, that it is not an R1
+shadow, not an R2 extension, and that every content word of a non-CRUD name
+appears somewhere in the prompt that asked for the project. 0 failures on all
+seven repositories, where the pre-pass tree had 18 offenders.
+
+The predicate tables are pinned by 42 unit cases (`R1` 36 + `R2` 6) covering
+both directions — the shapes that must be dropped and the spec-named shapes
+that must survive (`search_books`, `find_books_by_author`, `get_overdue_loans`,
+`get_active_loans`, `get_member_loan_history`, `get_book_loan_history`,
+`get_expenses_for_category`, `check_budget_exceeded`,
+`get_by_category_and_month`) — plus 12 cases for the capability reader, the
+qualifier prune, the subsumption test and the AST range deletion.
+
+The fifth pass's `SOURCE-FIDELITY` suite drops from 83 checks to 65 on the same
+tree purely because its input shrank: it asserts one property per shipped
+repository method, and 18 duplicate methods no longer exist. The gate is not
+weaker; there is less duplicate surface to assert against.
+
+### Gates re-run on the fresh regeneration
+
+```
+python3 run_cli_conformity.py
+[expenses]       status=pass prompt_commands=14 violations=0
+[inventory]      status=pass prompt_commands=11 violations=0
+[library_system] status=pass prompt_commands=9  violations=0
+
+python3 run_cli_behavior.py
+EXPENSES: PASS (43 ok, 0 fail)   LIBRARY_SYSTEM: PASS (39 ok, 0 fail)
+SOURCE-FIDELITY: PASS (65 ok, 0 fail)   FIDELITY-RULES: PASS (7 ok, 0 fail)
+
+python3 run_semantic_oracle.py
+library_system: 15/15 invariant(s) hold / mutation pass (baseline 15/15)
+expenses: 16/16 invariant(s) hold / mutation pass (baseline 16/16)
+
+python3 run_facade_execution.py --prompt library_system --prompt expenses \
+    --prompt inventory --prompt cli_tool
+[cli_tool] 5/5   [inventory] 12/12   [expenses] 14/14   [library_system] 9/9
+
+markers (reject|dropped|still stubbed|reverted|sanitized|dropped infeasible)
+on both generation logs: 0 — the `reverted list_authors_with_books` line the
+fifth pass produced is gone WITH the method, not silenced.
+```
+
+Every one of the 23 commands the two prompts enumerate was additionally executed
+against a fresh database, once with the required options only and once with
+every option (`verify_surface`, a throwaway harness): 0 non-zero exits, including
+the optional-option path that was defect 1 of the brief —
+`expense add --amount 12.34 --description lunch --category 1`, with no
+`--expense-date`, exits 0 and stores today's ISO date.

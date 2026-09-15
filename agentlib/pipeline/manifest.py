@@ -7,6 +7,7 @@ deterministic render phase, then the LLM fill phase. It never lets the
 inside locked skeletons.
 """
 
+import ast
 import json
 import os
 import re
@@ -72,7 +73,12 @@ from agentlib.generation.money_render import (
     money_field_names,
     render_money_module,
 )
-from agentlib.generation.repo_render import _render_repository_file
+from agentlib.generation.repo_render import (
+    _capability_tokens,
+    _drop_functions,
+    _render_repository_file,
+    _stemmed_tokens,
+)
 from agentlib.pipeline.method_contract import extract_method_contracts
 from agentlib.pipeline.model_defaults import (
     apply_model_defaults,
@@ -271,6 +277,77 @@ def _normalise_design_defaults(entities_by_class):
             default = f.get("default")
             if isinstance(default, dict) and "value" in default:
                 f["default"] = default.get("value")
+
+
+def _repo_called_methods(service_src, repo_attr):
+    """Method names called on ``self.<repo_attr>`` in a rendered service."""
+    if not service_src:
+        return None
+    try:
+        tree = ast.parse(service_src)
+    except SyntaxError:
+        return None
+    called = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == repo_attr
+            and isinstance(node.func.value.value, ast.Name)
+            and node.func.value.value.id == "self"
+        ):
+            called.add(node.func.attr)
+    return called
+
+
+def _prune_uncalled_repo_customs(repo_paths, designs, files, service_src,
+                                 prompt_text):
+    """Drop repository customs the service never calls and the spec never names.
+
+    A repository method nobody can reach is a second source of truth for the
+    same table, free to diverge: expenses' repository-level ``export_to_csv``
+    and ``detect_recurring`` duplicate the SERVICE methods of the same name,
+    which build their result from ``list()``. The repository's own
+    specification bullet keeps genuinely spec-mandated duties alive however
+    unreachable they look — ``get_monthly_report`` / ``get_yearly_summary``
+    ("monthly/yearly aggregation queries"), ``get_expenses_for_category``
+    ("find expenses for a category"), ``check_budget_exceeded`` ("check if a
+    category has exceeded its budget"). Pruning is skipped for any repository
+    the prompt does not name, so an unspecified project is left alone.
+    """
+    for rp in repo_paths:
+        design = next((d for p, k, d in designs if p == rp), None)
+        if not isinstance(design, dict):
+            continue
+        methods = design.get("methods") or []
+        if not methods:
+            continue
+        stem = Path(rp).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        called = _repo_called_methods(service_src, ent_snake + "_repo")
+        if called is None:
+            continue
+        bullet = repo_spec_constraint(prompt_text, ent_snake)
+        if not bullet:
+            continue
+        bullet_tokens = _stemmed_tokens(bullet)
+        kept, dropped = [], []
+        for m in methods:
+            name = m.get("name") or ""
+            if not name or name in called:
+                kept.append(m)
+                continue
+            _, content = _capability_tokens(name, ent_snake, _camel(ent_snake))
+            if not content or (content & bullet_tokens):
+                kept.append(m)
+                continue
+            dropped.append(name)
+        if dropped:
+            design["methods"] = kept
+            files[rp] = _drop_functions(files[rp], dropped)
 
 
 def _service_is_complex(cli_surface, entities_by_class):
@@ -1213,6 +1290,7 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             ent_snake, repo_design, entities_by_class, exception_names,
             prompt_text=prompt_text, verbose=verbose,
             models_module=models_module,
+            spec_bullet=repo_spec_constraint(prompt_text, ent_snake),
         )
 
     # 5.2 service file: deterministic contract bodies; LLM fills only extras
@@ -1233,6 +1311,12 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         for p in repo_paths:
             if repo_srcs.get(p) != files.get(p):
                 files[p] = repo_srcs[p]
+        # (#4) A repository custom the shipped service never calls, and the
+        # repository's own specification bullet never names, is unreachable
+        # duplicate machinery: drop it from the shipped file and the design.
+        _prune_uncalled_repo_customs(
+            repo_paths, designs, files, body, prompt_text
+        )
 
     # 5.3 CLI fallback: when the CLI design failed, keep the deterministic
     # pipeline and generate cli.py via the per-file path instead of
