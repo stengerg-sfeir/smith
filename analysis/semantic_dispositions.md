@@ -1010,3 +1010,65 @@ every option (`verify_surface`, a throwaway harness): 0 non-zero exits, includin
 the optional-option path that was defect 1 of the brief —
 `expense add --amount 12.34 --description lunch --category 1`, with no
 `--expense-date`, exits 0 and stores today's ISO date.
+### The duplicate-capability gate
+
+`run_repo_conformity.py` + `behavior_tests/repo_conformity.py` are the shipped
+regression test for this pass — the layer-below counterpart of
+`run_cli_conformity.py`, deterministic and LLM-free. For each generated
+repository they assert, per method, that it does not re-spell the deterministic
+CRUD surface, that it does not merely extend a sibling with a scalar qualifier,
+and that every content word of its name appears in the prompt that asked for the
+project at all.
+
+It is not decorative: run against the tree BEFORE `inventory` was regenerated it
+reported exactly the duplicates that stale artifact still carried
+(`category_repository.add_category` / `list_category` / `update_category` /
+`delete_category`, `product_repository.list_products`), and against the
+regenerated tree it reports 0. Measured on all three enumerating prompts:
+
+```
+python3 run_repo_conformity.py
+[expenses]       status=pass repositories=3 violations=0
+[inventory]      status=pass repositories=2 violations=0
+[library_system] status=pass repositories=4 violations=0
+[repo-conformity] failures=0/3
+```
+
+## Seventh pass: the pruners re-measured on a fresh four-project tree
+
+`inventory` and `cli_tool` were regenerated with the sixth-pass generator so the
+non-regression claim rests on fresh artifacts rather than on files from two days
+earlier (the stale `generated/inventory` was exactly what the new gate flagged).
+
+```
+== markers (reject / dropped (unknown target) / dropped (no designed service
+   method) / still stubbed / reverted / sanitized / dropped infeasible):
+library_system 0   expenses 0   inventory 0   cli_tool 0
+
+== CLI surface conformity (both directions):
+[expenses]       status=pass prompt_commands=14 violations=0
+[inventory]      status=pass prompt_commands=11 violations=0
+[library_system] status=pass prompt_commands=9  violations=0
+
+== repository capability conformity:
+[expenses]       status=pass repositories=3 violations=0
+[inventory]      status=pass repositories=2 violations=0
+[library_system] status=pass repositories=4 violations=0
+
+== body fidelity + declared values:
+EXPENSES: PASS (43 ok, 0 fail)         LIBRARY_SYSTEM: PASS (39 ok, 0 fail)
+SOURCE-FIDELITY: PASS (65 ok, 0 fail)  FIDELITY-RULES: PASS (7 ok, 0 fail)
+
+== oracle:
+library_system: 15/15 invariant(s) hold / mutation pass (baseline 15/15)
+expenses: 16/16 invariant(s) hold / mutation pass (baseline 16/16)
+
+== facade, four freshly regenerated projects:
+[cli_tool] 5/5   [inventory] 12/12   [expenses] 14/14   [library_system] 9/9
+```
+
+The four-project regeneration is what proves the pruners are not specific to the
+two target prompts: `inventory`'s `category_repository` shipped the same
+`add_/list_/update_/delete_category` duplicate family and `product_repository`
+shipped `list_products`, and all five are gone on the fresh tree with the
+project's façade holding at 12/12.

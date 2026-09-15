@@ -1,0 +1,104 @@
+"""Prompt -> repository surface conformity: one method per capability.
+
+A repository that ships two methods for one capability holds a second source of
+truth for a single table, free to diverge. Measured on the tree before the
+pruners: expenses' repository-level ``update_category`` wrote all four columns
+unconditionally where the CRUD ``update(id, data)`` is PARTIAL, so a caller of
+the duplicate nulled every field it omitted; library's
+``list_authors_with_books`` shipped a ``SELECT`` with no ``FROM`` and filtered
+on a column its own table does not have; ``get_overdue_loans_count`` counted
+every loan where the canonical ``get_overdue_loans`` filtered the overdue ones.
+
+This module is the regression test for the pruners in
+``agentlib.generation.repo_render`` (R1/R2/R3c/R3e) and
+``agentlib.pipeline.manifest`` (R3g). It reads the SHIPPED repository sources
+and asserts, per method, that
+
+* it is not a re-spelling of the deterministic CRUD surface
+  (``add_member`` beside ``create``, ``list_expenses`` beside ``list``,
+  ``get_category_by_id`` beside ``get_by_id``);
+* it is not a sibling plus a scalar qualifier
+  (``get_overdue_loans_count`` beside ``get_overdue_loans``);
+* every content word of its name appears in the prompt that asked for the
+  project at all — the prompt, never the design, is the ownership test, so a
+  specification that asks for an aggregation query keeps it even though the
+  rendered service realizes it inline.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+from pathlib import Path
+
+from agentlib.generation.repo_render import (
+    _CRUD_BASE_METHODS,
+    _capability_tokens,
+    _crud_shadow_target,
+    _qualifier_extension_of,
+)
+
+# The names ``_render_repository_file`` renders deterministically; a designed
+# custom may never duplicate one of them.
+_DETERMINISTIC = set(_CRUD_BASE_METHODS) | {"find_by_id"}
+
+
+def prompt_tokens(prompt_text: str) -> set[str]:
+    """Lowercase alphanumeric tokens of a prompt, plural-stemmed."""
+    out: set[str] = set()
+    for raw in re.split(r"[^a-z0-9]+", (prompt_text or "").lower()):
+        if not raw:
+            continue
+        out.add(raw)
+        if raw.endswith("ies") and len(raw) > 3:
+            out.add(raw[:-3] + "y")
+        elif raw.endswith("s") and len(raw) > 1:
+            out.add(raw[:-1])
+    return out
+
+
+def _method_names(path: Path) -> list[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return []
+    return [
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name != "__init__"
+    ]
+
+
+def repository_conformity_violations(prompt_text: str,
+                                     project_dir: Path | str) -> list[str]:
+    """Every duplicate / unasked repository method of one generated project."""
+    stems = prompt_tokens(prompt_text)
+    violations: list[str] = []
+    for path in sorted(Path(project_dir).glob("*_repository.py")):
+        ent_snake = path.stem[: -len("_repository")]
+        model = "".join(part.capitalize() for part in ent_snake.split("_"))
+        names = _method_names(path)
+        for name in names:
+            shadow = _crud_shadow_target(name, ent_snake, model)
+            if shadow:
+                violations.append(
+                    "%s.%s re-spells the deterministic %s()"
+                    % (path.name, name, shadow)
+                )
+                continue
+            for other in names:
+                if other != name and _qualifier_extension_of(name, other):
+                    violations.append(
+                        "%s.%s merely extends %s() with a scalar qualifier"
+                        % (path.name, name, other)
+                    )
+                    break
+            if name in _DETERMINISTIC:
+                continue
+            _, content = _capability_tokens(name, ent_snake, model)
+            missing = sorted(tok for tok in content if tok not in stems)
+            if missing:
+                violations.append(
+                    "%s.%s names %s, which appear nowhere in the prompt"
+                    % (path.name, name, ", ".join(missing))
+                )
+    return violations
