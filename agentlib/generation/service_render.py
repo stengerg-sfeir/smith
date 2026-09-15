@@ -20,6 +20,8 @@ from ..kernel.service.common import (
     _filter_params,
     _resolve_filter_args,
     fk_parent_guards,
+    not_found_exception,
+    not_found_message,
 )
 from ..kernel.repo.finder import _render_simple_finder, _simple_finder_spec
 from ..kernel.repo.threshold_compare import _flag_threshold_spec
@@ -1249,7 +1251,7 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                     f for f in fields if f.endswith("_id") and f != "id"
                 ):
                     ref_cls = _camel(fk[: -len("_id")])
-                    not_found = "%sNotFoundError" % ref_cls
+                    not_found = not_found_exception(ref_cls, exception_names)
                     if (
                         ref_cls in entities_by_class
                         and not_found in exception_names
@@ -1261,8 +1263,13 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                             % (_snake(ref_cls), data_param, fk)
                         )
                         lines.append(
-                            "                raise %s(%s.get(%r))"
-                            % (not_found, data_param, fk)
+                            "                raise %s(%s)"
+                            % (
+                                not_found,
+                                not_found_message(
+                                    ref_cls, "%s.get(%r)" % (data_param, fk)
+                                ),
+                            )
                         )
                 field_names = ", ".join(repr(f) for f in sorted(fields))
                 lines.append(
@@ -1322,15 +1329,25 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 lines.append("            %s = False" % _bp)
             # Generic FK validation: for any designed param that is a
             # foreign-key column of this entity (<x>_id), when the referenced
-            # entity <X> exists AND a <X>NotFoundError was designed, emit a
-            # deterministic existence check. Fully design-driven.
+            # entity <X> exists AND the design declared any not-found class
+            # for it, emit a deterministic existence check. The class name is
+            # RESOLVED by name against the design's own declarations
+            # (not_found_exception: <X>NotFoundError, Invalid<X>IdError, the
+            # project-wide NotFoundError) instead of being assumed to be
+            # <X>NotFoundError — that assumption silently skipped the guard
+            # whenever a design named its exception differently, and the
+            # caller then met a raw
+            # `sqlite3.IntegrityError: FOREIGN KEY constraint failed`
+            # (library book add --author-id 999). Design-driven, never
+            # invented: an entity with no declared class still yields no
+            # guard.
             fk_params = [
                 (p, bound[p]) for p in param_names
                 if p in bound and bound[p].endswith("_id") and bound[p] != "id"
             ]
             for fk, fk_field in fk_params:
                 ref_cls = _camel(fk_field[: -len("_id")])
-                not_found = "%sNotFoundError" % ref_cls
+                not_found = not_found_exception(ref_cls, exception_names)
                 if (
                     ref_cls in entities_by_class
                     and not_found in exception_names
@@ -1341,7 +1358,10 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                         "            if self.%s_repo.get_by_id(%s) is None:"
                         % (_snake(ref_cls), fk)
                     )
-                    lines.append("                raise %s(%s)" % (not_found, fk))
+                    lines.append(
+                        "                raise %s(%s)"
+                        % (not_found, not_found_message(ref_cls, fk))
+                    )
             lines.append("        %s = %s(%s)" % (var, ent_name, ", ".join(kwargs)))
             if limit_check is None:
                 lines.append(
@@ -1530,7 +1550,7 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             value_param = next((p for p in param_names[1:] if p == col), None)
             if value_param is None:
                 return None
-            not_found = "%sNotFoundError" % ent_name
+            not_found = not_found_exception(ent_name, exception_names)
             rows = [
                 "        int_ids = [int(x.strip()) for x in %s.split(',')]" % idp,
                 "        if not int_ids:",
@@ -1578,7 +1598,7 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             target = _STATE_TARGETS.get(verb)
             if target is not None:
                 idp = param_names[0]
-                not_found = "%sNotFoundError" % ent_name
+                not_found = not_found_exception(ent_name, exception_names)
                 rows = [
                     "        row = self.%s_repo.get_by_id(%s)" % (var, idp),
                 ]
@@ -1605,7 +1625,7 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # been caught summing a date column (prompt 26's check_book did
             # results.get(...) + row.loan_date -> int + str TypeError).
             idp = param_names[0]
-            not_found = "%sNotFoundError" % ent_name
+            not_found = not_found_exception(ent_name, exception_names)
             rows = [
                 "        row = self.%s_repo.get_by_id(%s)" % (var, idp),
             ]

@@ -344,6 +344,19 @@ def _resolve_filter_args(m, ent):
 # Missing-row reporting
 # ---------------------------------------------------------------------------
 
+def not_found_message(entity_cls, id_expr):
+    """A python expression: the MESSAGE of a missing-row error.
+
+    ``'<entity> %s not found' % (<id>,)``. The CLI reports an error as
+    ``Error: <str(exc)>``, and every not-found raise carried the raw id as its
+    only argument — the user read ``Error: 99``, which names nothing (which
+    entity? which argument?). The message names the entity the DESIGN declared
+    and the id the caller typed, so the error is exploitable instead of
+    opaque. Every raise site builds it here, so the wording cannot drift.
+    """
+    return "'%s %%s not found' %% (%s,)" % (_snake(entity_cls or "row"), id_expr)
+
+
 def not_found_exception(entity_cls, exception_names):
     """The DESIGNED exception to raise when an ``<entity_cls>`` row is missing.
 
@@ -398,7 +411,8 @@ def missing_row_guard(entity_cls, id_expr, exception_names, indent="        "):
     if exc:
         return [
             indent + "if row is None:",
-            indent + "    raise %s(%s)" % (exc, id_expr),
+            indent + "    raise %s(%s)"
+            % (exc, not_found_message(entity_cls, id_expr)),
         ]
     return [indent + "if row is None:", indent + "    return False"]
 
@@ -422,7 +436,8 @@ def fk_parent_check(parent_cls, param, parent_var, exception_names,
         return []
     return [
         indent + "if self.%s_repo.get_by_id(%s) is None:" % (parent_var, param),
-        indent + "    raise %s(%s)" % (exc, param),
+        indent + "    raise %s(%s)"
+        % (exc, not_found_message(parent_cls, param)),
     ]
 
 

@@ -47,6 +47,46 @@ def _field_expr(recv, field, effect):
     return None
 
 
+def _already_state_guard(impl, idp, exception_names):
+    """The guard refusing an operation already in its TARGET state, or [].
+
+    ``return_book`` sets ``status = 'returned'``, and the design declares
+    ``LoanAlreadyReturnedError``. Nothing read the state first, so
+    ``library return --loan-id 1`` run three times incremented
+    ``available_copies`` 1 -> 2 -> 3 — the declared exception was unreachable
+    and the counter drifted further from the truth at every call. The guard is
+    built from the design's OWN two declarations (the status effect, which
+    names the field and the value, and the exception class), never from domain
+    vocabulary: an exception whose NAME contains "already" AND the value the
+    effect writes is exactly the class that describes this refusal. No such
+    class, no guard — nothing is invented.
+    """
+    names = [n for n in (exception_names or []) if isinstance(n, str)]
+    for eff in impl.get("effects") or []:
+        if eff.get("kind") != "status_set" or eff.get("target") != "self":
+            continue
+        field = eff.get("field")
+        value = eff.get("value")
+        # A three-letter value is the shortest that can identify a state
+        # ("ok" is too generic to match an exception name against).
+        if not field or not isinstance(value, str) or len(value) < 3:
+            continue
+        low_value = value.lower()
+        for name in sorted(names):
+            low = name.lower()
+            if "already" in low and low_value in low:
+                return [
+                    "        if row.%s == %r:" % (field, value),
+                    "            raise %s(%s)"
+                    % (
+                        name,
+                        "'%s %%s is already %s' %% (%s,)"
+                        % (_snake(impl["entity"]), value, idp),
+                    ),
+                ]
+    return []
+
+
 def _h_contract_effects(m, impl, ent, entities_by_class, exception_names=None):
     """Load the anchor row, then apply the contract's effects."""
     anchor_var = _snake(impl["entity"])
@@ -60,6 +100,7 @@ def _h_contract_effects(m, impl, ent, entities_by_class, exception_names=None):
     # named after the CamelCase class (InvalidLoanIdError), so resolve through
     # _camel before looking a class up by name.
     lines += missing_row_guard(_camel(impl["entity"]), idp, exception_names)
+    lines += _already_state_guard(impl, idp, exception_names)
     for eff in impl.get("effects") or []:
         target = eff.get("target")
         field = eff.get("field")

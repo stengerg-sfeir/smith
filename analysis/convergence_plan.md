@@ -71,14 +71,20 @@ Risque connu : un alias option→champ par radical est **ambigu** sur `expenses`
 sinon refus explicite** (jamais de drop muet).
 
 ### Loi B — Garde applicative déclarée mais non générée
-Toute exception déclarée par le design doit être levée sur un chemin atteignable, avec un
-message exploitable ; sinon elle est trompeuse.
+Formulation retenue (plus étroite que « toute exception déclarée ») : **sur tout chemin
+énoncé par le prompt, un refus est levé comme la classe du design, avec un message
+exploitable — jamais comme une erreur de stockage brute, jamais avec un message vide.**
+Une exception déclarée par le design dont le prompt n'énonce **aucune** condition n'est
+**pas** un chemin à inventer (règle « aucune garde non énoncée ») : elle reste déclarée,
+non levée, et l'inventaire l'assume (voir §5quinquies).
 
 | Instance | Statut |
 |---|---|
-| **N3** `library return --loan-id L` non idempotent : `available_copies` 1→2→3, `LoanAlreadyReturnedError` déclarée jamais levée | **ouvert** |
-| **N7** messages vides (`Error: 99`, `Error: 2`) et erreur sqlite brute qui fuit (`FOREIGN KEY constraint failed` sur membre inexistant) | **ouvert** |
-| `MemberNotActiveError`, `InvalidMemberIdError`, `DuplicateEmailError`, `ValidationError`… non levées | à mesurer par l'inventaire |
+| **N3** `library return --loan-id L` non idempotent : `available_copies` 1→2→3, `LoanAlreadyReturnedError` déclarée jamais levée | **corrigé, prouvé** (§5quinquies) |
+| **N7** messages vides (`Error: 99`, `Error: 2`) et erreur sqlite brute qui fuit (`FOREIGN KEY constraint failed` sur membre inexistant) | **corrigé, prouvé** (§5quinquies) |
+| **N7bis** fuite FK à la **création** (`library book add --author-id 999` → `FOREIGN KEY constraint failed`) : la garde existait mais était verrouillée sur la forme stricte `<X>NotFoundError` | **corrigé, prouvé** (§5quinquies) |
+| `MemberNotActiveError`, `DuplicateEmailError`, `InvalidQueryError`, `InvalidLoanStatusError`, `OverdueLoanError`, `ValidationError` : déclarées, jamais levées | **assumé** — le prompt n'énonce pour elles aucune condition ; les lever serait inventer une garde |
+| `InvalidBookIdError`, `InvalidMemberIdError`, `InvalidLoanIdError`, `LoanAlreadyReturnedError`, `BookNotAvailableError`, `NotFoundError` | **levées, avec message** |
 
 ### Loi C — Convention de valeur non propagée jusqu'au rendu
 Money, énumérations, booléens tri-état, défauts DDL : la convention est connue du design
@@ -139,7 +145,7 @@ donnant l'illusion d'un échec). Donc, pour chaque loi :
 | 14/09 | Balayage exhaustif de surface | — | **fait** | §8 : library 0 trace / expenses 1 trace (N1) |
 | 14/09 | **Loi A / A1** conversion monétaire None-préservante | A | **corrigé, prouvé** | §5ter |
 | 15/09 | Loi A / A2 paramètre sans champ (`copies`) | A | **corrigé, prouvé** | §5quater |
-| — | Loi B : gardes déclarées | B | ouvert | — |
+| 15/09 | **Loi B** gardes déclarées (N3, N7, N7bis) | B | **corrigé, prouvé** | §5quinquies |
 | — | Loi C : conventions de valeur | C | ouvert | — |
 | — | Loi D : inventaire mort | D | ouvert | — |
 | — | Stabilisation K = 10 régénérations | — | à faire | identité octet-pour-octet |
@@ -281,6 +287,90 @@ corps qui passe des kwargs inexistants. Aucune autre régression de rendu.
 **9 commandes du prompt, 0 violation** ; aucun marqueur interdit dans le journal de run
 (`grep -nE "reject|dropped …|still stubbed|reverted|sanitized|dropped infeasible|law A/2"`
 = aucun résultat).
+
+## 5quinquies. Loi B — un refus énoncé est levé comme la classe du design, avec un message (corrigé, prouvé)
+
+**Règle ajoutée** : sur tout chemin que le prompt énonce, un refus est levé comme la
+classe d'exception que le **design** a déclarée, avec un message qui **nomme l'entité et
+l'identifiant** ; jamais comme une erreur de stockage brute, jamais avec un message vide.
+Le nom de la classe est **résolu** dans les déclarations du design, jamais supposé.
+
+Trois volets, tous dans `agentlib/` :
+
+1. **Message** (`kernel/service/common.py`) — `not_found_message(entity_cls, id_expr)`
+   produit l'expression `'<entité> %s not found' % (<id>,)`. `missing_row_guard` et
+   `fk_parent_check` l'utilisent ; les deux sites de `raise` FK de
+   `generation/service_render.py` et `create_child_row._guard_lines` aussi. Le libellé est
+   donc construit à un seul endroit et ne peut plus dériver.
+2. **Garde déjà dans l'état cible** (`kernel/service/contract_effects.py`) —
+   `_already_state_guard` : pour un effet `status_set` sur `self`, si le design déclare une
+   exception dont le nom contient « already » **et** que la valeur écrite y correspond
+   (`LoanAlreadyReturnedError` + `'returned'`), émet
+   `if row.status == 'returned': raise LoanAlreadyReturnedError(...)`.
+3. **Garde FK du child** (`kernel/service/create_child_row.py`) — `_child_fk_guards` +
+   `_id_expr_for` : pour chaque colonne FK du child alimentée par un paramètre
+   (`borrow_book` → `Loan.member_id` ← `--member-id`), la ligne parente est vérifiée **avant**
+   l'INSERT. L'id de l'ancre est exclu (sa ligne est déjà chargée et gardée), et une classe
+   que le design ne modélise pas ne produit aucune garde.
+
+4. **N7bis — le verrou qui rendait la garde inerte** (`generation/service_render.py`) : les
+   cinq sites qui décidaient « quelle exception lever ? » testaient l'appartenance à la
+   forme **stricte** `"%sNotFoundError" % <Entité>`. Un design qui nomme son exception
+   autrement n'obtenait donc **aucune** garde et l'utilisateur rencontrait
+   `sqlite3.IntegrityError: FOREIGN KEY constraint failed` (`library book add --author-id
+   999`). Les cinq sites utilisent désormais `not_found_exception(...)`, le résolveur
+   partagé (ordre : `<X>NotFoundError`, `<X>NotFoundException`, `<X>NotFound`,
+   `Invalid<X>IdError`, `<X>IdError`, `Invalid<X>Error`, puis le `NotFoundError` global).
+   Aucune classe n'est inventée : le résolveur ne renvoie que des noms **déclarés**.
+
+**Observation centrale du chantier** : « une exception déclarée mais jamais levée » n'est
+pas, à elle seule, un défaut à corriger. Il faut distinguer
+(a) un refus que le prompt **énonce** — il doit être levé (N3, N7, N7bis) ;
+(b) une classe que le design a déclarée **sans condition énoncée** — la lever serait
+inventer une garde, ce que la règle `_NO_UNSTATED_GUARD_RULE` interdit.
+C'est ce qui empêche de viser naïvement « 0 exception non levée ».
+
+**Preuve 1 — test de bout en bout par CLI réel** (`/tmp/b_e2e.py` : sous-processus
+`main.py` + lecture SQLite directe), sur régénération fraîche de `library_system` :
+```
+OK  author 1 missing rejected      Error: author 1 not found        (plus de FOREIGN KEY)
+OK  ... not a raw sqlite leak      Error: author 1 not found
+OK  borrow unknown member fails    Error: member 999 not found
+OK  ... copies untouched           2
+OK  return unknown loan fails      Error: loan 999 not found
+OK  double return rejected         Error: loan 1 is already returned
+OK  ... copies unchanged on double return   2
+OK  overdue return accepted        True        (un prêt en retard reste retournable)
+OK  overdue increments copies      3
+LAW B E2E: PASS   (21/21 assertions)
+```
+
+**Preuve 2 — inventaire statique après correction** (`/tmp/inv_b.py`, AST, sans LLM) :
+
+| Section Loi B | library (avant → après) | expenses (avant → après) |
+|---|---|---|
+| `raise` sans message | 11 → **0** | 3 → **0** |
+| exception déclarée jamais levée | 8 → 6 | 0 → 0 |
+
+Les 6 restantes (`MemberNotActiveError`, `DuplicateEmailError`, `InvalidQueryError`,
+`InvalidLoanStatusError`, `OverdueLoanError`, `ValidationError`) relèvent du cas (b) : le
+prompt n'énonce pour elles aucune condition. Les 6 désormais levées sont
+`InvalidBookIdError`, `InvalidMemberIdError`, `InvalidLoanIdError`,
+`LoanAlreadyReturnedError`, `BookNotAvailableError`, `NotFoundError`.
+
+**Preuve 3 — non-régression, régénération fraîche des deux projets, 15/09** :
+- `python3 run_cli_conformity.py --prompt library_system --prompt expenses` →
+  `library_system status=pass prompt_commands=9 violations=0` ;
+  `expenses status=pass prompt_commands=14 violations=0` ; `failures=0/2`.
+- `python3 run_semantic_oracle.py` → `library_system 15/15` + mutation pass ;
+  `expenses 16/16` + mutation pass ; `ALL SEMANTIC CHECKS PASS`.
+- `python3 run_facade_execution.py --prompt library_system --prompt expenses --prompt
+  inventory --prompt cli_tool` → `cli_tool 5/5`, `inventory 12/12`, `expenses 14/14`,
+  `library_system 9/9`, tous `unmapped=0`.
+- `python3 -m compileall -q agentlib behavior_tests` → OK.
+- Aucun marqueur interdit dans les deux journaux de run
+  (`grep -nE "reject|dropped \(unknown target\)|dropped \(no designed service method\)|
+  still stubbed|reverted|sanitized|dropped infeasible"` → aucun résultat).
 
 ## 6. Risques de régression croisée (à vérifier à chaque loi)
 

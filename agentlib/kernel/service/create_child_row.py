@@ -34,7 +34,7 @@ from the contract, which is closed against the specification.
 """
 from ...naming import _camel, _snake
 from ..recipe_types import Recipe
-from .common import missing_row_guard
+from .common import fk_parent_check, missing_row_guard
 
 # Exception-name families the DESIGN may have declared for a refused
 # operation. Resolution is by name against the project's own classes, never
@@ -58,6 +58,57 @@ def _guard_exception(cls, exception_names, tokens):
             if token in name.lower():
                 return name
     return ""
+
+
+def _id_expr_for(cls, impl, idp):
+    """The method parameter holding ``cls``'s id.
+
+    The anchor's own id for the anchor entity, otherwise the child column that
+    references ``cls`` — so a refusal names the id the caller actually typed
+    (``borrow --member-id 9 --book-id 1`` refusing the MEMBER must quote 9, not
+    1).
+    """
+    if cls and _snake(cls) == _snake(impl.get("entity") or ""):
+        return idp
+    for spec in impl.get("child_fields") or []:
+        if not isinstance(spec, dict):
+            continue
+        if cls and spec.get("name") == _snake(cls) + "_id" and spec.get("param"):
+            return spec["param"]
+    return idp
+
+
+def _child_fk_guards(impl, idp, entities_by_class, exception_names):
+    """Existence guards for the child row's parameter-filled FOREIGN KEYS.
+
+    `borrow_book` inserts a Loan whose `member_id` comes straight from the
+    caller. Nothing verified that member, so `library borrow --member-id 999
+    --book-id 1` reached the INSERT and aborted with a raw
+    `sqlite3.IntegrityError: FOREIGN KEY constraint failed`, which the CLI
+    printed to the user verbatim. The design declares `InvalidMemberIdError`
+    for exactly this; the guard renders it. The anchor's own id is skipped —
+    its row was loaded (and guarded) by the caller — and a class the design
+    models without a not-found exception yields no guard at all, so nothing is
+    ever invented.
+    """
+    lines = []
+    emitted = set()
+    for spec in impl.get("child_fields") or []:
+        if not isinstance(spec, dict):
+            continue
+        param = spec.get("param")
+        if not isinstance(param, str) or not param.endswith("_id"):
+            continue
+        if param == idp or param == "id" or param in emitted:
+            continue
+        parent_cls = _camel(param[: -len("_id")])
+        if parent_cls not in (entities_by_class or {}):
+            continue
+        emitted.add(param)
+        lines += fk_parent_check(
+            parent_cls, param, _snake(parent_cls), exception_names
+        )
+    return lines
 
 
 def _counter_lines(impl, idp, indent="        "):
@@ -109,7 +160,18 @@ def _guard_lines(impl, idp, exception_names, returns_bool, indent="        "):
             return None
         lines.append("%sif %s:" % (indent, cond))
         if exc:
-            lines.append("%s    raise %s(%s)" % (indent, exc, idp))
+            _idv = _id_expr_for(cls, impl, idp)
+            _word = "is not active" if kind == "reject_inactive" else "is not available"
+            lines.append(
+                "%s    raise %s(%s)"
+                % (
+                    indent,
+                    exc,
+                    "'%s %%s %s' %% (%s,)"
+                    % (_snake(cls or impl.get("entity") or "row"), _word, _idv),
+                )
+            )
+            del _idv, _word
         elif returns_bool:
             lines.append("%s    return False" % indent)
         else:
@@ -153,6 +215,7 @@ def _h_create_child_row(m, impl, ent, entities_by_class,
     anchor_var = _snake(impl["entity"])
     lines = ["        row = self.%s_repo.get_by_id(%s)" % (anchor_var, idp)]
     lines += missing_row_guard(_camel(impl["entity"]), idp, exception_names)
+    lines += _child_fk_guards(impl, idp, entities_by_class, exception_names)
     ret = (m.get("returns") or "").strip().lower()
     returns_bool = (not ret) or "bool" in ret
     guard_lines = _guard_lines(impl, idp, exception_names, returns_bool)
