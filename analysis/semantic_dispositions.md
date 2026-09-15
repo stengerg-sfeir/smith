@@ -1096,3 +1096,61 @@ python3 run_surface_smoke.py
 the gate side-effect free: it mutates only its own temporary tree, never
 `generated/`, so it can run between the other suites without disturbing the
 fixtures they seed.
+## Eighth pass: the FINAL measurement, on a fresh regeneration of both targets
+
+The generator was touched after the seventh pass (R1 gained the
+`get_all_<e>`/`find_all_<e>` spelling, found by the new unit test), so
+`expenses` and `library_system` were regenerated once more from scratch with
+the final revision, and every gate re-run against those artifacts.
+
+```
+== unit: the pruner predicates, both directions
+REPO PRUNERS: PASS (71 case(s))
+
+== markers (reject / dropped (unknown target) / dropped (no designed service
+   method) / still stubbed / reverted / sanitized / dropped infeasible):
+expenses 0   library_system 0   (and inventory 0, cli_tool 0)
+
+== CLI surface conformity (both directions):
+[expenses]       status=pass prompt_commands=14 violations=0
+[inventory]      status=pass prompt_commands=11 violations=0
+[library_system] status=pass prompt_commands=9  violations=0
+
+== repository capability conformity:
+[expenses]       status=pass repositories=3 violations=0
+[inventory]      status=pass repositories=2 violations=0
+[library_system] status=pass repositories=4 violations=0
+
+== surface smoke (no command may crash):
+[expenses]       status=pass commands=14 runs=42 violations=0
+[inventory]      status=pass commands=11 runs=33 violations=0
+[library_system] status=pass commands=9  runs=27 violations=0
+
+== body fidelity + declared values:
+EXPENSES: PASS (43 ok, 0 fail)         LIBRARY_SYSTEM: PASS (39 ok, 0 fail)
+SOURCE-FIDELITY: PASS (65 ok, 0 fail)  FIDELITY-RULES: PASS (7 ok, 0 fail)
+
+== oracle:
+library_system: 15/15 invariant(s) hold / mutation pass (baseline 15/15)
+expenses: 16/16 invariant(s) hold / mutation pass (baseline 16/16)
+ALL SEMANTIC CHECKS PASS
+
+== every prompt command executed, required-only AND with every option:
+ALL SURFACE COMMANDS OK (required-only and all options)
+
+== facade, four projects (two regenerated in this pass):
+[cli_tool] 5/5   [inventory] 12/12   [expenses] 14/14   [library_system] 9/9
+```
+
+The two objectives of the brief, restated against that measurement:
+
+* **zero crash on every path the prompt authorizes** — the surface smoke
+  exercises every enumerated command three ways (102 invocations) with 0
+  tracebacks, and the execution sweep drives all 23 prompt commands with the
+  required options only and with every option, exit 0 throughout, including
+  the optional-option path that was the brief's first defect
+  (`expense add --amount 12.34 --description lunch --category 1`, no
+  `--expense-date`, stores today's ISO date);
+* **the prompt's own CLI surface and nothing else** — 0 conformity violations
+  in both directions on the three enumerating prompts, and 0 duplicate or
+  unasked repository methods on all seven repositories.
