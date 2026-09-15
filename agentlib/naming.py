@@ -154,9 +154,16 @@ def _generate_database_file(model_classes, db_filename="app.db"):
     Uses a list-based template to guarantee clean line indentation --
     no dedent/tab pitfalls. DDL is emitted via cursor.executescript()
     with a triple-quoted string, so column/table lines never become
-    bare statements inside the function body. `db_filename` is the spec's
-    own SQLite filename (declared in the layout design) used as the
-    init_database() default — nothing is hardcoded here.
+    bare statements inside the function body.
+
+    The module emits EXACTLY the surface a generated project needs: the
+    ``Database`` class (the only entry point the repositories, the service and
+    main.py construct) and ``create_tables`` (called by ``Database._init_tables``).
+    Three helpers used to be emitted beside them — ``get_db_connection``,
+    ``get_connection`` and ``init_database`` — and NOTHING in any generated
+    project, harness or specification ever called them: three spellings of one
+    connection, over-generated exactly like an unrequested CLI command. The
+    spec's own SQLite filename still reaches the file, as its module docstring.
     """
     ddl = _generate_ddl_from_models(model_classes)
 
@@ -165,6 +172,7 @@ def _generate_database_file(model_classes, db_filename="app.db"):
                              for line in ddl.split("\n"))
 
     lines = [
+        '"""SQLite storage layer. Canonical database file: %s."""' % db_filename,
         "import sqlite3",
         "from contextlib import contextmanager",
         "from pathlib import Path",
@@ -173,7 +181,7 @@ def _generate_database_file(model_classes, db_filename="app.db"):
         "class Database:",
         '    """SQLite database wrapper with automatic table creation."""',
         "",
-        '    def __init__(self, db_path: str = ":memory:"):',
+        '    def __init__(self, db_path: str = "%s"):' % db_filename,
         '        """Initialize connection path and create tables."""',
         "        self.db_path = db_path",
         '        if db_path != ":memory:":',
@@ -203,28 +211,6 @@ def _generate_database_file(model_classes, db_filename="app.db"):
         "            create_tables(conn)",
         "",
         "",
-        'def get_db_connection(db_path: str = ":memory:") -> sqlite3.Connection:',
-        '    """Create a new database connection with foreign keys enabled."""',
-        "    conn = sqlite3.connect(db_path)",
-        "    conn.row_factory = sqlite3.Row",
-        '    conn.execute("PRAGMA foreign_keys = ON")',
-        "    return conn",
-        "",
-        "",
-        '@contextmanager',
-        'def get_connection(db_path: str = ":memory:"):',
-        '    """Context manager for database connection."""',
-        "    conn = get_db_connection(db_path)",
-        "    try:",
-        "        yield conn",
-        "        conn.commit()",
-        "    except Exception:",
-        "        conn.rollback()",
-        "        raise",
-        "    finally:",
-        "        conn.close()",
-        "",
-        "",
         "def create_tables(conn: sqlite3.Connection) -> None:",
         '    """Create all required tables."""',
         "    cursor = conn.cursor()",
@@ -233,12 +219,5 @@ def _generate_database_file(model_classes, db_filename="app.db"):
         '        """' + indented_ddl + '"""',
         "    )",
         "    conn.commit()",
-        "",
-        "",
-        'def init_database(db_path: str = "%s") -> sqlite3.Connection:' % db_filename,
-        '    """Initialize database with tables and return connection."""',
-        "    conn = get_db_connection(db_path)",
-        "    create_tables(conn)",
-        "    return conn",
     ]
     return "\n".join(lines)

@@ -101,4 +101,25 @@ def repository_conformity_violations(prompt_text: str,
                     "%s.%s names %s, which appear nowhere in the prompt"
                     % (path.name, name, ", ".join(missing))
                 )
+        # ONE capability, two methods: a repository that keeps two spellings of
+        # a single duty (AuthorRepository's ``find_books_by_author`` beside
+        # ``list_authors_with_books``, both reading as the capability
+        # {'books'}) holds two implementations of one query. Compared on the
+        # content tokens alone, so the verb a method happens to use is not the
+        # test; empty content (the entity-wide ``search_books``) is never a
+        # duplicate, since it names no object word to share.
+        by_capability: dict[frozenset, list[str]] = {}
+        for name in names:
+            if name in _DETERMINISTIC:
+                continue
+            _, content = _capability_tokens(name, ent_snake, model)
+            if content:
+                by_capability.setdefault(frozenset(content), []).append(name)
+        for content, group in sorted(by_capability.items()):
+            if len(group) > 1:
+                violations.append(
+                    "%s ships %s — one capability (%s), two implementations"
+                    % (path.name, " and ".join(sorted(group)),
+                       ", ".join(sorted(content)))
+                )
     return violations

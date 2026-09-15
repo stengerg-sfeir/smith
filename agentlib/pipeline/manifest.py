@@ -301,6 +301,35 @@ def _repo_called_methods(service_src, repo_attr):
     return called
 
 
+def _ordered_tokens(text):
+    """The lowercase alphanumeric tokens of a sentence, IN ORDER (no stemming).
+
+    Used for the contiguity test below, where the stemmed SET would blur the
+    boundary the test needs: ``_stemmed_tokens`` doubles every plural into its
+    singular, so "find books by author" reads as [.., find, books, book, by,
+    author] and no method name is ever contiguous in it.
+    """
+    return [raw for raw in re.split(r"[^a-z0-9]+", (text or "").lower()) if raw]
+
+
+def _spelled_in_bullet(name, bullet_seq):
+    """True when the method's own name tokens appear CONTIGUOUSLY in the bullet.
+
+    The specification bullet "SQLite storage with CRUD + find books by author"
+    spells ``find_books_by_author`` ([find, books, by, author]) and does NOT
+    spell ``list_authors_with_books`` ([list, authors, with, books]): the
+    spelling the specification wrote is the spelling it asked for, so between
+    two unreached methods naming the same capability the spelled one survives.
+    """
+    toks = [t for t in (name or "").lower().split("_") if t]
+    if not toks or len(toks) > len(bullet_seq):
+        return False
+    for i in range(len(bullet_seq) - len(toks) + 1):
+        if bullet_seq[i:i + len(toks)] == toks:
+            return True
+    return False
+
+
 def _prune_uncalled_repo_customs(repo_paths, designs, files, service_src,
                                  prompt_text):
     """Drop repository customs the service never calls and the spec never names.
@@ -315,6 +344,15 @@ def _prune_uncalled_repo_customs(repo_paths, designs, files, service_src,
     ("find expenses for a category"), ``check_budget_exceeded`` ("check if a
     category has exceeded its budget"). Pruning is skipped for any repository
     the prompt does not name, so an unspecified project is left alone.
+
+    ONE capability stated by the bullet, spelled TWICE by two unreached
+    methods, is a single duty implemented twice — and the intersection test
+    above is too weak to see it, because the bullet names the capability's
+    OBJECT word ("find books by author" carries 'books') and both spellings
+    therefore pass. Between them, the one the bullet itself SPELLS survives:
+    AuthorRepository is the measured case, where the bullet keeps
+    ``find_books_by_author`` and drops ``list_authors_with_books`` (both read
+    as the capability {'books'}).
     """
     for rp in repo_paths:
         design = next((d for p, k, d in designs if p == rp), None)
@@ -334,20 +372,43 @@ def _prune_uncalled_repo_customs(repo_paths, designs, files, service_src,
         if not bullet:
             continue
         bullet_tokens = _stemmed_tokens(bullet)
-        kept, dropped = [], []
+        bullet_seq = _ordered_tokens(bullet)
+        dropped = []
+        # Unreached customs the bullet's wording keeps alive, grouped by the
+        # capability they name ({'books'} under both spellings of
+        # AuthorRepository's find-books duty).
+        by_capability: dict[frozenset, list] = {}
         for m in methods:
             name = m.get("name") or ""
             if not name or name in called:
-                kept.append(m)
                 continue
             _, content = _capability_tokens(name, ent_snake, _camel(ent_snake))
             if not content or (content & bullet_tokens):
-                kept.append(m)
+                if content:
+                    by_capability.setdefault(frozenset(content), []).append(m)
                 continue
             dropped.append(name)
+        # One capability, two unreached spellings: keep the spelling the bullet
+        # writes (its name tokens contiguous in the bullet), drop the other.
+        # A capability named ONCE is left alone — the bullet asked for it.
+        for content, group in by_capability.items():
+            if len(group) < 2:
+                continue
+            spelled = [
+                m for m in group
+                if _spelled_in_bullet(m.get("name") or "", bullet_seq)
+            ]
+            keep = spelled[0] if spelled else group[0]
+            for m in group:
+                if m is not keep:
+                    dropped.append(m.get("name") or "")
         if dropped:
-            design["methods"] = kept
-            files[rp] = _drop_functions(files[rp], dropped)
+            dropped_set = set(dropped)
+            design["methods"] = [
+                m for m in methods
+                if (m.get("name") or "") not in dropped_set
+            ]
+            files[rp] = _drop_functions(files[rp], dropped_set)
 
 
 def _service_is_complex(cli_surface, entities_by_class):

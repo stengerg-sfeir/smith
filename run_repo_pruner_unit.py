@@ -11,6 +11,9 @@ specification names, nor stop dropping a duplicate:
 * ``_capability_tokens``    — the (verb, content tokens) reader both rely on;
 * ``_unjustified_qualifier_customs`` — R3c, bullet-guarded count/total extras;
 * ``_subsumed_by_sibling``  — R3e, a rejected body whose words a sibling names;
+* ``_spelled_in_bullet``    — R3h, which of two spellings of ONE capability the
+  repository's own specification bullet names, so the unspelled one is dropped
+  (``list_authors_with_books`` beside ``find_books_by_author``);
 * ``_drop_functions``       — the AST range deletion that removes them.
 
 Usage: python3 run_repo_pruner_unit.py
@@ -31,6 +34,12 @@ from agentlib.generation.repo_render import (  # noqa: E402
     _stemmed_tokens,
     _subsumed_by_sibling,
     _unjustified_qualifier_customs,
+)
+from agentlib.pipeline.cli_surface import repo_spec_constraint  # noqa: E402
+from agentlib.pipeline.manifest import (  # noqa: E402
+    _ordered_tokens,
+    _prune_uncalled_repo_customs,
+    _spelled_in_bullet,
 )
 
 _FAILURES: list[str] = []
@@ -188,6 +197,79 @@ def main() -> int:
            _subsumed_by_sibling("get_active_loans", ["get_overdue_loans"],
                                 "loan", "Loan"), False)
 
+    # R3h — the bullet's own spelling decides between two unreached methods
+    # that name the SAME capability.
+    author_seq = _ordered_tokens(_AUTHOR_BULLET)
+    _check("R3h ordered tokens keep the phrase",
+           author_seq[author_seq.index("find"):][:4],
+           ["find", "books", "by", "author"])
+    _check("R3h spells find_books_by_author",
+           _spelled_in_bullet("find_books_by_author", author_seq), True)
+    _check("R3h does not spell list_authors_with_books",
+           _spelled_in_bullet("list_authors_with_books", author_seq), False)
+    _check("R3h does not spell search_books",
+           _spelled_in_bullet("search_books", author_seq), False)
+    _check("R3h never spells the empty name",
+           _spelled_in_bullet("", author_seq), False)
+
+    # R3h end-to-end: the two spellings of AuthorRepository's find-books duty,
+    # neither called by the shipped service, with the REAL prompt bullet.
+    author_prompt = (Path("prompts") / "prompt_library_system.txt").read_text(
+        encoding="utf-8")
+    _check("R3h the prompt yields a bullet",
+           bool(repo_spec_constraint(author_prompt, "author")), True)
+    author_src = (
+        "class AuthorRepository:\n"
+        "    def find_books_by_author(self, author_id):\n"
+        "        return []\n"
+        "\n"
+        "    def list_authors_with_books(self, include_inactive):\n"
+        "        return []\n"
+    )
+    author_designs = [(
+        "author_repository.py", "repositories",
+        {"methods": [{"name": "find_books_by_author"},
+                     {"name": "list_authors_with_books"}]},
+    )]
+    author_files = {"author_repository.py": author_src}
+    _prune_uncalled_repo_customs(
+        ["author_repository.py"], author_designs, author_files,
+        "class S:\n    def m(self):\n        return None\n", author_prompt,
+    )
+    _check("R3h keeps only the spelled method",
+           [m["name"] for m in author_designs[0][2]["methods"]],
+           ["find_books_by_author"])
+    _check("R3h drops the unspelled body",
+           "list_authors_with_books" in author_files["author_repository.py"],
+           False)
+    _check("R3h keeps the spelled body",
+           "find_books_by_author" in author_files["author_repository.py"], True)
+
+    # The negative direction: two DISTINCT capabilities are both kept.
+    expense_prompt = (Path("prompts") / "prompt_expenses.txt").read_text(
+        encoding="utf-8")
+    expense_src = (
+        "class ExpenseRepository:\n"
+        "    def get_monthly_report(self, month):\n"
+        "        return {}\n"
+        "\n"
+        "    def get_yearly_summary(self, year):\n"
+        "        return {}\n"
+    )
+    expense_designs = [(
+        "expense_repository.py", "repositories",
+        {"methods": [{"name": "get_monthly_report"},
+                     {"name": "get_yearly_summary"}]},
+    )]
+    expense_files = {"expense_repository.py": expense_src}
+    _prune_uncalled_repo_customs(
+        ["expense_repository.py"], expense_designs, expense_files,
+        "class S:\n    def m(self):\n        return None\n", expense_prompt,
+    )
+    _check("R3h keeps two distinct capabilities",
+           [m["name"] for m in expense_designs[0][2]["methods"]],
+           ["get_monthly_report", "get_yearly_summary"])
+
     # _drop_functions — removes exactly the named method, keeps the siblings,
     # leaves a parseable file, and no-ops on an empty set.
     out = _drop_functions(_DROP_SOURCE, ["drop_me"])
@@ -202,7 +284,7 @@ def main() -> int:
            True)
 
     n_cases = (len(_SHADOWS) + len(_KEPT) + len(_BASE)
-               + len(_QUALIFIER_EXTENSIONS) + len(_CAPABILITIES) + 11)
+               + len(_QUALIFIER_EXTENSIONS) + len(_CAPABILITIES) + 21)
     if _FAILURES:
         print("FAILURES: %d" % len(_FAILURES))
         for f in _FAILURES:

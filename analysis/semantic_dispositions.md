@@ -1154,3 +1154,92 @@ The two objectives of the brief, restated against that measurement:
 * **the prompt's own CLI surface and nothing else** — 0 conformity violations
   in both directions on the three enumerating prompts, and 0 duplicate or
   unasked repository methods on all seven repositories.
+## Tenth pass: what remained BELOW the CLI, measured then closed
+
+The ninth pass closed the CLI surface. Re-measuring the whole tree afterwards
+(same gates, plus two throwaway probes over the shipped sources) answered the
+question "what is still non-conformant?" with three findings, all *below* the
+command line where no earlier gate looked.
+
+### Finding 1 — `AuthorRepository.list_authors_with_books`: an unrequested method
+
+`find_books_by_author` and `list_authors_with_books` both read as the
+capability `{'books'}` (verb + entity stem + stopwords removed), and the
+prompt's bullet — "SQLite storage with CRUD + find books by author" — names
+the object word `books`, so the existing intersection test in
+`_prune_uncalled_repo_customs` kept BOTH, although the service calls neither.
+
+The intersection test was too weak: the bullet names the *object* of the duty,
+and an over-generated second spelling also names that object. The rule is
+sharpened (R3h): among unreached customs that name the SAME capability, the
+one the bullet itself SPELLS survives — its own name tokens appearing
+contiguously in the bullet's token sequence (`find books by author` spells
+`find_books_by_author`; it does not spell `list_authors_with_books`). A
+capability the bullet names exactly once is left alone, so
+`get_expenses_for_category`, `check_budget_exceeded`, `get_monthly_report` and
+`get_yearly_summary` are untouched — each names a capability no sibling shares.
+
+`behavior_tests/repo_conformity.py` gained the matching check — two shipped
+methods with identical non-empty capability tokens are a violation — and it
+FAILED on the tree before regeneration
+(`author_repository.py ships find_books_by_author and list_authors_with_books
+— one capability (books), two implementations`), which is what makes it
+load-bearing rather than decorative. `run_repo_pruner_unit.py` grew from 71 to
+81 cases, pinning the new predicate in both directions against the REAL prompt
+bullets.
+
+### Finding 2 — `database.py` shipped three unused connection helpers
+
+`get_db_connection`, `get_connection` and `init_database` were emitted on every
+project and called by NOTHING — no generated repository, service, `main.py`,
+harness or specification (verified by a reference count over the whole tree,
+and by grepping every prompt and bench file). Three spellings of one
+connection: over-generation of exactly the kind the brief forbids for
+commands, one layer lower. The template now emits the surface a project
+actually uses — `Database` and `create_tables` — and the specification's own
+database filename reaches the file as its module docstring, so the parameter
+stays meaningful instead of dangling.
+
+Adjacent and latent: the generated `Database.__init__` defaulted to
+`:memory:`, while `connect()` opens a FRESH connection per call — so the tables
+created in `__init__` were discarded and the default constructor could never
+work. The CLI always passed a real path (`Database(DB_PATH)`), so no
+prompt-authorized path ever hit it; the default now names the specification's
+own file, which is both reachable and coherent with the spec.
+
+### Finding 3 — the service layer re-implements what the repository was asked to provide (kept, documented)
+
+The prompt asks `BudgetRepository` to "check if a category has exceeded its
+budget" and `ExpenseRepository` for "monthly/yearly aggregation queries", and
+both exist — but `ExpenseService.add_expense` performs the budget comparison
+inline and `get_monthly_report` / `get_yearly_summary` recompute their
+aggregates from `list()` rather than calling the repository method. Likewise
+`LoanRepository.get_member_loan_history` is unreached because
+`MemberRepository.get_member_history` serves `library member history`.
+
+This is NOT a conformity violation and is deliberately NOT pruned: every
+capability the specification names EXISTS and every prompt-authorized path
+works, and dropping `get_member_loan_history` would remove a method the
+LoanRepository bullet explicitly asks for. It is recorded as a fidelity limit —
+the prompt asks for the capability, not for delegation — and the earlier
+remedy would be worse than the disease.
+
+### Measurement on a fresh regeneration of all four projects
+
+All four were regenerated with the final generator (markers clean on every log,
+exit 1 for the official forbidden pattern):
+
+| gate | result |
+|---|---|
+| `compileall` (agentlib, behavior_tests, gates) | OK |
+| `run_repo_pruner_unit.py` | PASS (81 cases) |
+| `run_cli_conformity.py` | 0 violations — expenses 14, inventory 11, library_system 9 |
+| `run_repo_conformity.py` | 0 violations — 3 + 2 + 4 repositories |
+| `run_surface_smoke.py` | 102 invocations, 0 tracebacks |
+| `run_cli_behavior.py` | PASS (43 / 39 / 64 / 7) |
+| `list_authors_with_books` in the tree | 0 occurrences |
+| `init_database` + `get_connection` + `get_db_connection` | 0 occurrences in any `database.py` |
+
+`SOURCE-FIDELITY` moves 65 → 64 because one of its checks asserted a property
+of the method that no longer exists; the check left WITH the method rather
+than being silenced.
