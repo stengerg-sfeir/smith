@@ -61,8 +61,8 @@ des paramètres non reconnus.
 | Instance | Statut |
 |---|---|
 | `expense add` sans `--expense-date` → crash `NOT NULL` (défaut d'origine 1) | **corrigé** (repli `date.today()`) — reste à prouver au titre de la loi |
-| **N1** `budget update` sans `--amount` → `decimal.InvalidOperation`, trace exposée | **ouvert** |
-| **N2** `library book add --copies N` silencieusement ignoré (`available_copies` reste 1) | **ouvert** |
+| **N1** `budget update` sans `--amount` → `decimal.InvalidOperation`, trace exposée | **corrigé, prouvé** (§5ter) |
+| **N2** `library book add --copies N` silencieusement ignoré (`available_copies` reste 1) | **corrigé, prouvé** (§5quater) |
 | défaut d'origine 1 (repli bool `is_recurring`) | corrigé, même loi |
 | défauts d'origine 2/3/4 (surface, noms/groupes/options) | corrigés, hors loi (surface) |
 
@@ -138,7 +138,7 @@ donnant l'illusion d'un échec). Donc, pour chaque loi :
 | 14/09 | Inventaire exhaustif (statique) | A-D | **fait** | §8 : chiffres mesurés sur les 2 projets |
 | 14/09 | Balayage exhaustif de surface | — | **fait** | §8 : library 0 trace / expenses 1 trace (N1) |
 | 14/09 | **Loi A / A1** conversion monétaire None-préservante | A | **corrigé, prouvé** | §5ter |
-| 14/09 | Loi A / A2 paramètre sans champ (`copies`) | A | **en cours** | inventaire §2 = 1 (`add_book: copies`) |
+| 15/09 | Loi A / A2 paramètre sans champ (`copies`) | A | **corrigé, prouvé** | §5quater |
 | — | Loi B : gardes déclarées | B | ouvert | — |
 | — | Loi C : conventions de valeur | C | ouvert | — |
 | — | Loi D : inventaire mort | D | ouvert | — |
@@ -228,6 +228,59 @@ budget update --category-id 99 ... (sans/avec --amount) → exit 1 « Error: 99 
 **Non-régression** : `compileall` OK ; conformité 0 violation sur les 3 prompts énumérés
 (expenses 14, library 9, inventory 11) ; oracle `library 15/15` + `expenses 16/16` avec
 **tous les mutants tués** ; façade `expenses 14/14`, `library_system 9/9`, 0 unmapped.
+
+## 5quater. Loi A / A2 — un paramètre de create sans champ n'est plus perdu en silence (corrigé, prouvé)
+
+**Règle ajoutée** (`agentlib/generation/service_render.py`) : la branche `add_<entité>` ne
+garde plus seulement les paramètres qui **épellent** un champ (`if p in fields`). Chaque
+paramètre est lié au champ qu'il désigne, par `_create_field_binding` :
+
+- correspondance **exacte** d'abord ;
+- sinon **variante morphologique unique** (`<champ>_<param>` ou `<param>_<champ>`) :
+  `copies` → `available_copies` — le mot de l'appelant pour UNE colonne ;
+- sinon **refus explicite** : plusieurs candidats (une paramètre `amount` face à
+  `amount_cents` ET `amount_limit_cents`) ou aucun (« names no field of this entity »).
+  Dans les deux cas le corps déterministe n'est PAS rendu (`return None`), et
+  `_report_create_refusal` l'inscrit dans le journal du run. Une valeur fournie par
+  l'appelant n'est donc jamais jetée en silence et jamais écrite dans la mauvaise colonne.
+
+Le même liage est propagé aux trois autres usages de la branche : `covered` (colonnes
+réellement alimentées), les replis de date/bool (classés sur le **champ**, émis sur le
+**paramètre**), la validation de clé étrangère, et la branche data-dict (un paramètre non
+porté par le dict refuse aussi le corps).
+
+**Preuve 1 — test unitaire du renderer** (`/tmp/a2_unit.py`, appel direct de
+`_generic_service_delegation`, sans LLM) :
+```
+alias      → book = Book(title=title, isbn=isbn, available_copies=(copies if copies is not None else 1))
+ambigu     → None (refus)   + message « ambiguous - could be amount_cents or amount_limit_cents »
+aucun champ→ None (refus)   + message « names no field of this entity »
+exact      → x = X(amount_cents=amount_cents)   (comportement inchangé)
+```
+
+**Preuve 2 — ligne générée** (régénération fraîche, `generated/library_system/library_service.py:64`) :
+`Book(..., available_copies=(copies if copies is not None else 1))`.
+
+**Preuve 3 — réévaluation indépendante de bout en bout** (`/tmp/a2_e2e.py` : vrai
+sous-processus CLI + lecture SQLite directe, chemin différent du test unitaire) :
+```
+library book add --title T --isbn IS1 --author-id 1 --published-year 2000 --copies 5 → exit 0, base [(5,)]
+library book add --title T2 --isbn IS2 --author-id 1 --published-year 2001 --copies 1 → exit 0, base [(1,)]
+RESULT: PASS
+```
+(Avant la correction, les deux lignes valaient 1 : le paramètre était ignoré.)
+
+**Portée mesurée** (les 60 projets de `generated/`, `/tmp/a2_all.py`) : **une seule**
+méthode de create non résolue sur tout le corpus — `generated/59.add_discount`, dont les
+paramètres `discount_type`/`min_order_total` ne nomment aucun champ de `Discount`
+(les colonnes sont `type` et `min_order_amount`). Elle était déjà rendue par le fill LLM
+avant la loi ; la loi la rend simplement **visible** au lieu de la laisser produire un
+corps qui passe des kwargs inexistants. Aucune autre régression de rendu.
+
+**Non-régression** : `compileall` OK ; `run_cli_conformity.py --prompt library_system` →
+**9 commandes du prompt, 0 violation** ; aucun marqueur interdit dans le journal de run
+(`grep -nE "reject|dropped …|still stubbed|reverted|sanitized|dropped infeasible|law A/2"`
+= aucun résultat).
 
 ## 6. Risques de régression croisée (à vérifier à chaque loi)
 

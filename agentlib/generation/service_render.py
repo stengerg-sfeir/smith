@@ -1037,6 +1037,53 @@ def _render_parent_name_lookup(binding):
     ]
 
 
+def _create_field_binding(param, fields):
+    """The entity field a create parameter feeds, or the reason it cannot.
+
+    Returns ``(field, None)`` when the parameter names a column of the
+    entity — EXACTLY, or as the UNIQUE morphological variant of one
+    (``copies`` -> ``available_copies``: the caller's own word for one
+    column must not be thrown away) — and ``(None, reason)`` otherwise.
+
+    The two failure modes are distinct and both are reported:
+      * several candidates is a genuine ambiguity (a ``amount`` parameter
+        facing both ``amount_cents`` and ``amount_limit_cents``), so binding
+        either one would write the wrong column;
+      * no candidate means the parameter names no column of this entity at
+        all (a value the caller supplies that the model has nowhere to
+        keep).
+    The caller REFUSES the deterministic body in both cases (see the add_
+    branch), so a supplied value is never dropped in silence and never
+    written to a column the specification did not name.
+    """
+    if param in fields:
+        return param, None
+    cands = sorted(
+        f for f in fields
+        if f != "id" and (f.endswith("_" + param) or f.startswith(param + "_"))
+    )
+    if len(cands) == 1:
+        return cands[0], None
+    if not cands:
+        return None, "names no field of this entity"
+    return None, "ambiguous - could be %s" % " or ".join(cands)
+
+
+def _report_create_refusal(method_name, unbound):
+    """Make a REFUSED deterministic create visible in the run log.
+
+    A refusal is a deliberate degradation (the method keeps its locked stub
+    and travels to the LLM fill), not a silent success. Without this the
+    caller cannot tell a create that bound every value from one that gave up
+    on a parameter, and a body that quietly ignores an argument looks
+    identical to a correct one.
+    """
+    print(
+        "    [law A/2] %s: deterministic create refused - %s"
+        % (method_name, "; ".join("%s %s" % (p, w) for p, w in unbound))
+    )
+
+
 def _generic_service_delegation(m, entities_by_class, exception_names=None, repo_bulk_updates=None, repo_search_targets=None, repo_signatures=None):
     """Tier-2 deterministic CRUD delegation for any entity.
 
@@ -1084,15 +1131,40 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 )
                 if coerced is not None:
                     field_defaults[f["name"]] = coerced
+            # LAW A/2 — the word a caller uses and the COLUMN it feeds can
+            # differ: the specification writes `library book add --copies`
+            # while the Book model declares `available_copies`. The old body
+            # kept only `if p in fields`, so `copies` was discarded in
+            # silence and the row took the dataclass default (1) whatever the
+            # caller asked for. Bind each param to the ONE field it names —
+            # exactly, or as the unique `<field>_<param>` / `<param>_<field>`
+            # variant — and REFUSE the whole body as soon as a param names no
+            # field, several fields, or a field another param already feeds:
+            # a supplied value is never dropped and never written to the
+            # wrong column (see _create_field_binding).
+            bound, unbound = {}, []
+            for p in param_names:
+                field, why = _create_field_binding(p, fields)
+                if why is None and field in bound.values():
+                    why = "already fed by %s" % next(
+                        q for q, f2 in bound.items() if f2 == field
+                    )
+                if why is None:
+                    bound[p] = field
+                else:
+                    unbound.append((p, why))
+            if bound and unbound:
+                _report_create_refusal(name, unbound)
+                return None
             kwargs = [
                 (
                     "%s=(%s if %s is not None else %r)"
-                    % (p, p, p, field_defaults[p])
-                    if p in field_defaults
-                    else "%s=%s" % (p, p)
+                    % (bound[p], p, p, field_defaults[bound[p]])
+                    if bound[p] in field_defaults
+                    else "%s=%s" % (bound[p], p)
                 )
                 for p in param_names
-                if p in fields
+                if p in bound
             ]
             # A NON-NULLABLE date/datetime field whose CLI option is OPTIONAL
             # arrives as None: click hands the callback None when the option is
@@ -1117,10 +1189,14 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                 if isinstance(f, dict) and f.get("name")
                 and (f.get("nullable") or f.get("default") is not None)
             }
+            # Classified on the FIELD the parameter feeds and emitted on the
+            # PARAMETER the caller named: `copies -> available_copies` means
+            # the resolution must happen on `copies`, the name the
+            # constructor call below actually uses.
             date_fallback = sorted(
-                p for p in param_names
-                if p in fields and p not in _nullable_or_defaulted
-                and _field_types.get(p) in ("date", "datetime")
+                (p, bound[p]) for p in param_names
+                if p in bound and bound[p] not in _nullable_or_defaulted
+                and _field_types.get(bound[p]) in ("date", "datetime")
             )
             # The SAME failure mode as the date above, one step down the call
             # chain: a NON-NULLABLE bool field whose CLI option is optional.
@@ -1140,10 +1216,10 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # got one).
             bool_fallback = sorted(
                 p for p in param_names
-                if p in fields and p not in _nullable_or_defaulted
-                and _is_bool_param_type(_field_types.get(p))
+                if p in bound and bound[p] not in _nullable_or_defaulted
+                and _is_bool_param_type(_field_types.get(bound[p]))
             )
-            if not kwargs:
+            if not bound:
                 if limit_spec is not None:
                     # The limit check needs the field params; a data-dict
                     # create declines to the fill rather than omitting it.
@@ -1158,6 +1234,15 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                     None,
                 )
                 if data_param is None:
+                    return None
+                # The same law one branch over: a data-dict create that ALSO
+                # declares a parameter the dict cannot carry would ignore it,
+                # so it is refused for the same reason.
+                if [pu for pu, _w in unbound if pu != data_param]:
+                    _report_create_refusal(
+                        name,
+                        [(pu, w) for pu, w in unbound if pu != data_param],
+                    )
                     return None
                 lines = []
                 for fk in sorted(
@@ -1189,7 +1274,10 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # Required (non-nullable, non-id) fields not covered by params:
             # only fields DECLARED auto:"now" are stamped deterministically;
             # anything else means real business logic -> leave a stub.
-            covered = {p for p in param_names if p in fields}
+            # The columns this create actually fills are the ones its params
+            # BOUND to, aliases included (`copies` fills `available_copies`),
+            # not merely the params that happen to spell a field name.
+            covered = set(bound.values())
             # Only date/datetime-typed non-id fields may be stamped at
             # creation: stamping an id or a bool/str field with a timestamp
             # corrupts the row (the 4B model declares auto:"now" on random
@@ -1214,15 +1302,15 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # Constants baked by bounded CLI propagation (bool is_* fields
             # whose default the spec itself declares).
             for dk, dv in (m.get("defaults") or {}).items():
-                if dk in fields:
+                if dk in fields and dk not in covered:
                     kwargs.append("%s=%r" % (dk, dv))
             lines = []
             # Resolve an omitted optional date/datetime ONCE, into the
             # parameter itself, before any read of it.
-            for _dp in date_fallback:
+            for _dp, _dfield in date_fallback:
                 _stamp = (
                     "datetime.datetime.now().isoformat()"
-                    if _field_types.get(_dp) == "datetime"
+                    if _field_types.get(_dfield) == "datetime"
                     else "datetime.date.today().isoformat()"
                 )
                 lines.append("        if %s is None:" % _dp)
@@ -1237,11 +1325,11 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # entity <X> exists AND a <X>NotFoundError was designed, emit a
             # deterministic existence check. Fully design-driven.
             fk_params = [
-                p for p in param_names
-                if p.endswith("_id") and p != "id" and p in fields
+                (p, bound[p]) for p in param_names
+                if p in bound and bound[p].endswith("_id") and bound[p] != "id"
             ]
-            for fk in fk_params:
-                ref_cls = _camel(fk[: -len("_id")])
+            for fk, fk_field in fk_params:
+                ref_cls = _camel(fk_field[: -len("_id")])
                 not_found = "%sNotFoundError" % ref_cls
                 if (
                     ref_cls in entities_by_class
