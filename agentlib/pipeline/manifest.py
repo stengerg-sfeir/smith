@@ -45,6 +45,7 @@ from agentlib.pipeline.cli_spec import (
     build_prompt_cli_surface,
     surface_command_paths,
 )
+from agentlib.pipeline.value_vocab import spec_enum_values
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.pipeline.service_contract import (
     extract_service_contract,
@@ -57,7 +58,9 @@ from agentlib.generation.service_render import (
     _apply_filter_floors,
     _apply_impl_floors,
     _render_service_file,
+    attach_contract_impls,
 )
+from agentlib.kernel.service import declared_money_keys
 from agentlib.generation.model_render import (
     _render_exceptions_file,
     _render_models_file,
@@ -66,6 +69,7 @@ from agentlib.generation.cli_render import _render_cli_file, _render_main_file
 from agentlib.generation.money_render import (
     MONEY_MODULE,
     money_display_enabled,
+    money_field_names,
     render_money_module,
 )
 from agentlib.generation.repo_render import _render_repository_file
@@ -641,6 +645,34 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if prompt_surface is not None and verbose:
         print("      - spec-enumerated CLI surface: %d command(s)"
               % len(prompt_surface.get("commands") or []))
+    # The option NAMES the specification wrote. An option it named is
+    # rendered exactly as named — a bool it wrote as `[--recurring]` never
+    # gains a synthesized `--no-recurring` twin, which is a command-line
+    # name the specification never asked for. Read from the spec surface,
+    # never from a domain word list.
+    spec_option_names = sorted({
+        o.get("name")
+        for c in ((prompt_surface or {}).get("commands") or [])
+        for o in (c.get("options") or [])
+        if isinstance(o, dict) and isinstance(o.get("name"), str)
+    })
+    # Value vocabularies the specification declares for a FIELD
+    # (``payment_method (cash/card/transfer)``), restricted to fields the
+    # DESIGNED entities actually carry — a parenthesised slash-list in prose
+    # must not constrain an unrelated option.
+    _field_names = {
+        f.get("name")
+        for ent in (entities_by_class or {}).values()
+        if isinstance(ent, dict)
+        for f in (ent.get("fields") or [])
+        if isinstance(f, dict) and f.get("name")
+    }
+    enum_values = {
+        k: v for k, v in spec_enum_values(prompt_text).items()
+        if k in _field_names
+    }
+    if enum_values and verbose:
+        print("    [cli] spec value vocabularies: %r" % (enum_values,))
     cli_surface = None
     if prompt_surface is not None:
         cli_surface = prompt_surface
@@ -1113,6 +1145,44 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # for the conversion AND the design actually carries a ``*_cents`` field,
     # so every other project keeps a byte-identical CLI.
     money_display = money_display_enabled(prompt_text, entities_by_class)
+    # Every name that carries cents — the DESIGN's ``*_cents`` columns plus
+    # the fields the SPECIFICATION marks "stored as cents" (monthly_budget).
+    # One set drives all three halves of the convention: the display helper,
+    # the CLI option type, and the boundary conversion.
+    money_fields = (
+        money_field_names(entities_by_class, prompt_text)
+        if money_display else []
+    )
+    # Money display of a REPORT: the recipe that builds the dict declares
+    # which RESULT keys hold money ("total", "per_category"). The CLI file is
+    # rendered BEFORE the service bodies (this loop), so a table a recipe
+    # stamps only WHILE rendering its body is invisible to the CLI renderer —
+    # the report then printed raw cents. Attach the specification's
+    # deterministic contract impls HERE (they are otherwise compiled while the
+    # service bodies render, later) and stamp the declared table on every
+    # method the CLI sees, so the report prints through the converter.
+    for _p, _k, _d in designs:
+        if _k == "services" and isinstance(_d, dict):
+            attach_contract_impls(_d, entities_by_class, method_contracts,
+                                  prompt_text)
+    _report_money = {}
+    for _p, _k, _d in designs:
+        if _k != "services" or not isinstance(_d, dict):
+            continue
+        for _m in _d.get("methods") or []:
+            if not isinstance(_m, dict) or not _m.get("name"):
+                continue
+            _impl = _m.get("impl")
+            if isinstance(_impl, dict):
+                _mk = declared_money_keys(_impl)
+                if _mk:
+                    _m["money_keys"] = _mk
+                    _report_money[_m["name"]] = _mk
+    # The CLI renderer reads the RECONCILED method list, which may carry
+    # copies of the design dicts; stamp by NAME so the two agree.
+    for _sm in service_methods or []:
+        if isinstance(_sm, dict) and _sm.get("name") in _report_money:
+            _sm["money_keys"] = _report_money[_sm["name"]]
     for path, kind, data in designs:
         if kind == "exceptions":
             files[path] = _render_exceptions_file(data)
@@ -1122,10 +1192,11 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             files[path] = _render_cli_file(
                 data, svc_class, entities_by_class, service_methods,
                 verbose, db_path=db_file, money=money_display,
-                exception_names=exception_names,
+                exception_names=exception_names, money_fields=money_fields,
+                spec_options=spec_option_names, enums=enum_values,
             )
     if money_display:
-        files[MONEY_MODULE] = render_money_module()
+        files[MONEY_MODULE] = render_money_module(money_fields)
 
     # ---- Fill phase (LLM, locked skeletons; deterministic contract bodies) ----
     if verbose:

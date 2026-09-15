@@ -166,6 +166,7 @@ python3 -m compileall -q agentlib behavior_tests
 python3 run_semantic_oracle.py            # invariants + mutation testing
 python3 run_facade_execution.py --prompt library_system --prompt expenses
 python3 run_cli_conformity.py             # prompt surface == shipped CLI
+python3 run_cli_behavior.py               # declared values, flags, workflows
 ```
 
 `run_cli_conformity.py` is the new deterministic gate for (a)+(b): for every
@@ -608,3 +609,254 @@ generator itself had dropped), and its output is the measured equality between
 each prompt's own command list and the shipped CLI — every prompt command
 present with the prompt's own group path and option names, and **nothing the
 prompt did not ask for**.
+## Fourth pass: the specification's own value vocabulary, flag names and defaults
+
+Three further generator defects surfaced by exercising the freshly regenerated
+projects against the prompt text itself rather than against the design.
+
+**(q) A value vocabulary the specification declares is part of the CLI
+contract.** — `agentlib/pipeline/value_vocab.py` (new), wired into
+`agentlib/generation/cli_render.py` and `agentlib/pipeline/manifest.py`.
+`expenses`'s spec line reads `payment_method (cash/card/transfer)` — a
+DECLARED set of allowed values. The generated CLI accepted any string, so a
+caller could store `payment_method='bitcoin'` and every later report grouped on
+a value the specification never defined. The vocabulary is read from the prompt
+alone and only for a FIELD a designed entity actually carries, so a
+parenthesised slash-list in prose cannot constrain an unrelated option; a name
+whose occurrences DISAGREE (`status` written differently in two places) is
+REFUSED rather than guessed. The renderer then emits
+`type=click.Choice(['cash', 'card', 'transfer'])`, so the CLI refuses an
+out-of-vocabulary value with exit 2 and a one-line message.
+
+The TESTER had to learn the same contract: `facade_discovery._choice_values`
+records the declared values, `facade_mapping._facade_context` lists them
+(`OPTION --method (str, one of: cash|card|transfer)`) and `_build_plan` binds an
+option to a declared value whenever the LLM proposed one outside the set.
+Measured: with the discovery but without the mapper floor, the façade's two
+payment-method intentions FAILED with
+`Invalid value for '--method': 'credit_card' is not one of 'cash', 'card',
+'transfer'` — the CLI was RIGHT and the test input was wrong. Both intentions
+now pass and the façade is 14/14. Measured on the generated CLI:
+`--method bitcoin` exits 2, `--method card` exits 0.
+
+**(r) A flag the specification names is emitted alone, never with a
+synthesized twin.** — `agentlib/generation/cli_render.py`, driven by the option
+NAMES the prompt wrote (`manifest.py` passes `spec_option_names`). The spec
+writes `expense add … [--recurring]`; the renderer used to emit the boolean as
+the click dual form `--recurring/--no-recurring`, which is a command-line NAME
+the specification never asked for (a user following the prompt cannot know it,
+and a name the prompt never wrote has no place in the shipped surface). The
+option is now rendered as the single flag the spec named; a non-spec-named
+boolean keeps its dual form. Measured: `--recurring` is accepted and stores
+`is_recurring = 1`; `--no-recurring` exits 2 (`No such option`).
+
+**(s) A default the specification declares reaches the DDL, not only the
+dataclass.** — `agentlib/generation/model_render.py`, using the defaults
+transcribed by `agentlib/pipeline/model_defaults.py`. The declared defaults were
+applied to the domain model (`is_recurring: bool = False`) but the CREATE TABLE
+rendered a bare `is_recurring BOOLEAN NOT NULL`, so any INSERT path that is not
+the generated service (a direct SQL seed, a future migration, a user's own
+script) met `NOT NULL constraint failed`. The column now carries the same
+default the specification declares. Measured in the regenerated DDL:
+
+```sql
+payment_method TEXT NOT NULL DEFAULT 'cash',
+is_recurring   BOOLEAN NOT NULL DEFAULT 0,
+available_copies INTEGER NOT NULL DEFAULT 1,
+is_active      BOOLEAN NOT NULL DEFAULT 1,
+status         TEXT NOT NULL DEFAULT 'active',
+```
+
+These three are properties of the RENDERER reading the specification, and each
+is verified by executing the shipped CLI (`expense add` without
+`--expense-date`, `--recurring` / `--no-recurring`, `--method` in and out of
+vocabulary) rather than by reading generated code.
+## Fifth pass: repository body fidelity, and an approach the oracle REFUTED
+
+This pass targets the *body* of a repository custom method — the fill the LLM
+writes inside a locked signature. Three of the defects below were shipped code
+that no crash filter could see, because the method was never called on the
+paths the other gates exercise. Each is now a rule read off the body's own
+syntax, plus a preventive line in the fill's system prompt. One approach was
+tried, measured, and rejected; it is recorded here because the rejection is
+the most useful evidence in this section.
+
+**(a) A declared parameter the body never reads.** `list_authors_with_books(
+include_inactive)` shipped a body that built a query, patched it with the
+flag, then assigned a FRESH query over it — the flag ended up with no effect
+whatsoever. The order-aware reading lives in
+`agentlib/generation/repo_render.py::_dead_store_names` / `_repo_fidelity_violations`
+and fires on a local that is REASSIGNED before its earlier value was ever
+read. `x += ...` reads `x` and is never flagged, so the legitimate incremental
+build (`query = query + " AND ..."`) passes untouched. Verified by a six-case
+unit check (three defective bodies rejected, three legitimate shapes accepted).
+
+**(b) A date value the body re-formats.** `ExpenseRepository.export_to_csv(
+file_path, start_date: date, end_date: date)` called `start_date.isoformat()`.
+Values reach a repository as ISO strings — the same convention the service
+fill already states — so the call is an `AttributeError` waiting for a caller.
+The rule rejects `.isoformat()`/`.strftime()`/`.date()` called on a *parameter*
+(never on a locally built `datetime.datetime.now()`, whose receiver is a call
+and not a name).
+
+**(c) A datetime annotation naming the MODULE.** `models.py` imported
+`import datetime` and then annotated `due_date: datetime` —
+`agentlib/generation/model_render.py::_annotation` now emits
+`datetime.datetime` for a `datetime` column (`date` stays bare, because the
+module also imports `from datetime import date`). `from __future__ import
+annotations` made the defect inert, which is exactly why only a reading of the
+annotation could find it.
+
+Each rule is stated to the model BEFORE it writes, in
+`_REPO_FILL_SYSTEM_RULES`, so the validator is the backstop rather than the
+normal path. Measured on a fresh `expenses` regeneration:
+`export_to_csv` now ships `conn.execute(query, (start_date, end_date))` and a
+`csv.DictWriter`, with no `.isoformat()` anywhere.
+
+### An approach the oracle refuted: pruning "uncalled" repository customs
+
+The first attempt at "no dead method" was to drop every designed repository
+custom whose name appears in no `<x>_repo.<name>(` call site of the shipped
+service, re-rendering the repository from the pruned design
+(`_prune_dead_repo_customs`). It removed `get_overdue_loans_count`,
+`list_authors_with_books` and `export_to_csv` — all genuinely uncalled — and
+the semantic oracle immediately FAILED:
+
+```
+FAIL [spec] repository budget status compares the limit to spending
+     -> AssertionError: no budget-status method found: the specification
+        requires BudgetRepository to 'check if a category has exceeded its budget'
+expenses: 14/16 invariant(s) hold
+```
+
+`check_budget_exceeded` is a repository DUTY the specification states in
+prose and no CLI command reaches; the whole purpose of
+`repo_spec_constraint` is to keep the design covering it. A method can
+therefore be uncalled and still REQUIRED. Any reachability prune needs the
+spec's prose as its oracle, which is a semantic judgement, not a
+deterministic one — so the prune was abandoned and the helpers removed.
+Reachability is not deadness.
+
+The two defects this leaves are real and BOTH concern the same shape: a body
+whose SQL does not match its own name.
+
+* `LoanRepository.get_overdue_loans_count()` still runs `SELECT COUNT(*) FROM
+  loans` — every loan, not the overdue ones. The prompt enumerates
+  `get_overdue_loans()` (which is shipped, faithful, and drives `library
+  overdue`) but never `get_overdue_loans_count`, so this is an
+  over-generation. It is never called, so it cannot crash the delivered CLI —
+  but it is wrong code in the tree, and no deterministic rule catches it.
+  Rejecting it by name token ("overdue" must appear in the SQL) would reject
+  the CORRECT `get_overdue_loans`, whose faithful SQL compares `due_date`.
+  Deciding whether `SELECT COUNT(*) FROM loans` "means" counting overdue loans
+  requires reading the name as language. This is the boundary of what this
+  generator validates without a domain word list, and it is stated as a
+  known limit rather than papered over.
+
+### A logging convention the fill shared with the service path
+
+`agentlib/llm/fill.py` printed `output rejected (attempt N)` on EVERY failed
+attempt of its two-attempt compile retry. A transient failure that the retry
+then repaired left a marker in the log that reads as a shipped defect. The
+service fill path already states the opposite convention, in its own comment:
+log a rejection only when the method ultimately failed, "positive-first".
+`fill.py` now does the same — a rejection is printed once, after both attempts
+have failed — so the marker means exactly what it says.
+
+### The gate that keeps the display convention honest
+
+`run_cli_behavior.py` gained seven assertions on the report path: the monthly
+and yearly reports must print `Decimal` totals while `SUM(amount_cents)` in
+SQLite still returns integer cents. Both halves are checked (console path and
+stored column), so a regression on either side of the "store cents, display
+decimals" convention fails the gate. It runs with no LLM, on a fresh database,
+and is the cheapest regression net for the renderer.
+### Frozen-state verification (fifth pass, both projects regenerated from scratch)
+
+Generator frozen, `generated/library_system` and `generated/expenses` regenerated
+from scratch, then every gate re-run. No log marker in either generation:
+
+```
+== marqueurs (reject / dropped / still stubbed / reverted / sanitized):
+library_system 0   expenses 0
+
+== compile:
+python3 -m compileall -q agentlib behavior_tests   -> OK
+
+== conformite prompt -> surface (les DEUX directions):
+[expenses]       status=pass prompt_commands=14 violations=0
+[inventory]      status=pass prompt_commands=11 violations=0
+[library_system] status=pass prompt_commands=9  violations=0
+[cli-conformity] failures=0/3
+
+== comportement (CLI reelle, base fraiche, sans LLM):
+EXPENSES:         PASS (43 ok, 0 fail)
+LIBRARY_SYSTEM:   PASS (39 ok, 0 fail)
+SOURCE-FIDELITY:  PASS (83 ok, 0 fail)
+
+== oracle semantique:
+library_system: 15/15 invariant(s) hold  + mutation pass
+expenses:       16/16 invariant(s) hold  + mutation pass
+ALL SEMANTIC CHECKS PASS
+
+== facade (invocations reelles):
+[cli_tool]       pass 5   [inventory] pass 12
+[expenses]       pass 14  [library_system] pass 9
+
+== preuve brute des quatre defauts (24 commandes, arbre fige):
+mismatches = 0 / 24
+```
+
+The 24 raw rows are the four defects of the task, observed rather than
+asserted. Every path the specification enumerates exits 0 — including
+`expense add --amount 12.50 --description lunch --category 1` with **no**
+`--expense-date` (defect 1), `expense category add` (defect 3, the missing
+`expense` group), `expense report monthly --month` (the `report` sub-group),
+`expense recurring detect`, `budget add --amount`, `expense add --method
+card --recurring`, `library book add --copies`, `library overdue`,
+`library member history`, `library borrow`. Every path the specification never
+asked for exits 2 with click's "No such command" / "No such option" —
+`--amount-cents`, `--available-copies`, `--term`, `--amount-limit-cents`,
+a bare `category add` without its `expense` group, `expense monthly` for
+`expense report monthly`, a bare `expense recurring`, `expense update`,
+`expense get`, `expense report --id`, `budget check`, `library loan add`,
+`library loan cancel`, and the dead `library member borrow --id` (S14).
+
+### `source-fidelity`: a gate that found a defect in a DETERMINISTIC body
+
+`run_cli_behavior.py` grew a third suite that re-runs the generator's own
+`_repo_fidelity_violations` over the SHIPPED repository sources (83 assertions
+on the two projects). It exists because the fill-time rule only ever sees LLM
+FILLS — a deterministically rendered body never passes through the validator,
+and the suite immediately found one:
+
+* `BudgetRepository.check_budget_exceeded` opens `limit = None`, refines
+  `limit` inside the `for` loop, and reads it AFTER the loop. The first
+  version of the dead-store rule walked nested blocks with a SHARED liveness
+  set, so it read that refinement as "assigned then overwritten" — a false
+  positive on the sentinel idiom, invisible at generation time because the
+  method is a recipe, not a fill.
+
+The rule now decides WITHIN one statement list and recurses into each nested
+list as its own scope: a value assigned before a branch is legitimately
+replaced inside it, while a read INSIDE a branch does not consume the outer
+value on every path — which is exactly why `query` patched conditionally
+(`if flag: query += ...`) and then overwritten unconditionally is still a dead
+store. Seven unit cases pin both directions: three defective shapes rejected
+(the overwritten query, `.isoformat()` on a parameter, a parameter never read)
+and four legitimate ones accepted (incremental `query = query + ...`, `query +=
+...`, `.isoformat()` on a locally built datetime, the sentinel-in-loop above).
+
+Loi D, re-measured on the frozen tree:
+
+| instance | before | frozen |
+|---|---|---|
+| `AuthorRepository.list_authors_with_books` | query built then OVERWRITTEN; `include_inactive` had no effect | builds one query incrementally (`base_where +=`), the flag changes the WHERE clause |
+| `ExpenseRepository.export_to_csv` | `start_date.isoformat()` on a `date` parameter that carries a str | `conn.execute(query, (start_date, end_date))`, no re-formatting |
+| `Loan.due_date` annotation | `datetime` (the MODULE, inert only because of `from __future__ import annotations`) | `datetime.datetime` |
+| `LoanRepository.get_overdue_loans_count` | `SELECT COUNT(*) FROM loans` — every loan | **unchanged, and documented as a limit**: uncalled, never named by the prompt, and no deterministic rule can decide that "count" of "overdue loans" is a filtered count without reading the name as language. Rejecting an SQL that omits a name token would reject the CORRECT `get_overdue_loans`, whose faithful body compares `due_date` |
+
+The last row is the honest boundary of the fifth pass: the two live defects
+(the flag with no effect, the crash-on-call) are closed and gated, and the one
+that remains is a dead over-generation with no reachable consequence, recorded
+rather than hidden.

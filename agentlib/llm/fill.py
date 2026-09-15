@@ -66,7 +66,9 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False,
     # the server completed it untruncated. 4x with a 30k floor keeps catching
     # degenerate repetition loops while leaving real large files headroom.
     max_output_chars = max(len(skeleton) * 4, 30000)
+    attempts_run = 0
     for attempt in range(2):
+        attempts_run = attempt + 1
         # temp=0 on the primary attempt (reproducible); a retry raises temp
         # so the model explores a different sample instead of re-emitting the
         # same broken body. A caller already on a retry passes temperature>0
@@ -86,8 +88,13 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False,
         body = _extract_code_block(raw) if raw else None
         if body and _compiles(body):
             return body + "\n"
-        if verbose and raw is not None:
-            print("    [fill] %s: output rejected (attempt %d)" % (path, attempt + 1))
+        # A rejection is logged ONLY once EVERY attempt has failed. A
+        # transient failure followed by a successful retry — the norm, since a
+        # small model regularly truncates or mis-indents its first attempt —
+        # must not leave a banned "output rejected (attempt 1)" marker in the
+        # log when the fill ultimately SUCCEEDED and shipped. Positive-first:
+        # a fill that never compiles still reports its rejection below. Same
+        # convention as the service fill path.
         # No-accumulate retry: rebuild the conversation fresh so the prompt
         # never grows with the model's own (large) previous output — retry
         # prompts used to balloon to ~6k tokens and blow past the call
@@ -104,4 +111,9 @@ def _llm_fill(path, instruction, skeleton, prompt_text, verbose=False,
                 "in the skeleton.",
             },
         ]
+    if verbose:
+        print(
+            "    [fill] %s: output rejected (all %d attempts)"
+            % (path, attempts_run)
+        )
     return None

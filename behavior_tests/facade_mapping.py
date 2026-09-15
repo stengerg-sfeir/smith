@@ -54,8 +54,13 @@ def _facade_context(facade: dict) -> str:
             flag = _opt_flag_name(opt)
             req = ", required" if opt.get("required") else ""
             isf = ", flag" if opt.get("flag") else ""
-            lines.append("  OPTION %s (%s%s%s)" % (
-                flag, opt.get("type", "str"), req, isf))
+            # A declared vocabulary (click.Choice) is part of the contract: the
+            # CLI must REFUSE any other value, so the mapper is told the allowed
+            # values and never invents one the app is required to reject.
+            choices = opt.get("choices") or []
+            one_of = (", one of: " + "|".join(choices)) if choices else ""
+            lines.append("  OPTION %s (%s%s%s%s)" % (
+                flag, opt.get("type", "str"), req, isf, one_of))
         if cmd.get("target"):
             lines.append("  TARGET %s" % cmd["target"])
     return "\n".join(lines)
@@ -494,6 +499,14 @@ def _build_plan(intent: dict, m: dict, facade: dict, design: dict | None = None)
                 # _validate_mapping's required-missing check.
                 if not value.strip():
                     continue
+                # Respect a declared vocabulary: an option the CLI restricts
+                # with click.Choice rejects any other value BY DESIGN (the
+                # specification declared the allowed set). Feeding an invented
+                # value would exercise a rejection the spec mandates, not the
+                # behaviour the intention describes — so bind to a declared one.
+                choices = opt.get("choices") or []
+                if choices and value not in choices:
+                    value = choices[0]
                 option_pairs.append([_opt_flag_name(opt), value])
         elif flag.lstrip("-") in arg_by_name or flag in arg_by_name:
             positional_values.append(value)

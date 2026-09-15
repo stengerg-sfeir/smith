@@ -11,9 +11,31 @@ from ..naming import _camel, _snake
 from .model_render import _coerce_field_default
 
 
+def _method_money_keys(target, service_methods):
+    """The result keys a recipe declared as money for this service method.
+
+    A report builds its values by SUMMING a money column, so the key it
+    stores them under ("total", "per_category", "monthly_totals",
+    "average_monthly_spend") is not a column name and the display helper
+    cannot recognise it. The recipe that built the dict declared them
+    (``money_keys``), so the CLI prints through the converter with that
+    table. A method that declared nothing prints exactly as before.
+    """
+    for m in service_methods or []:
+        if isinstance(m, dict) and m.get("name") == target:
+            keys = m.get("money_keys")
+            if isinstance(keys, dict):
+                return {
+                    k: v for k, v in keys.items()
+                    if isinstance(k, str) and v in ("scalar", "map")
+                }
+    return {}
+
+
 def _render_cli_file(design, svc_class, entities_by_class, service_methods,
                      verbose=False, db_path="app.db", money=False,
-                     exception_names=()):
+                     exception_names=(), money_fields=(), spec_options=(),
+                     enums=None):
     """Deterministic click CLI: one flat top-level command per command.
 
     A designed command `group=["item"], name="add"` becomes
@@ -21,6 +43,24 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
     `cli` group, wired to the designed service method with option->param
     mapping. No LLM involvement.
     """
+    money_field_set = {
+        n for n in (money_fields or ()) if isinstance(n, str)
+    }
+    # Option names the SPECIFICATION itself wrote. An option it named is
+    # rendered EXACTLY as named: a bool option it wrote as `[--recurring]`
+    # must not gain a synthesized `--no-recurring` twin, because that twin is
+    # a command-line name the specification never asked for.
+    spec_option_set = {
+        n for n in (spec_options or ()) if isinstance(n, str)
+    }
+    # Field -> allowed values, declared by the specification itself
+    # (``payment_method (cash/card/transfer)``). A str option bound to such a
+    # field is restricted with click.Choice, so a value outside the declared
+    # vocabulary is rejected instead of silently stored.
+    enum_map = {
+        k: list(v) for k, v in (enums or {}).items()
+        if isinstance(k, str) and v
+    }
     commands = design.get("commands") or []
     svc_snake = _snake(svc_class)
     used_cmds = set()
@@ -176,8 +216,15 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
                 # conversion could run. Bounded to the ``*_cents`` params the
                 # money convention covers, so every other int option (an id, a
                 # cent-count field with no conversion) stays an int.
+                # The DECLARED money fields, not a suffix guess: the
+                # specification marks ``monthly_budget (optional int, stored
+                # as cents)``, so its option must read a decimal amount too.
                 _money_opt = bool(
-                    money and resolved and resolved.endswith("_cents")
+                    money and resolved
+                    and (
+                        resolved in money_field_set
+                        or resolved.endswith("_cents")
+                    )
                 )
                 lines.append(
                     "@click.option(%r, type=%s%s)"
@@ -198,7 +245,16 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
                 # flag is None, so the designed default still applies (and a
                 # partial update never writes a column the caller omitted).
                 opt_fields = (opt_key, resolved)
-                if any(f and f in default_fields for f in opt_fields):
+                if oname in spec_option_set:
+                    # The specification wrote this ONE option name. Render it
+                    # as written, in its tri-state form: absent is None (so a
+                    # designed default still applies and a partial update
+                    # never writes a column the caller omitted), present is
+                    # True. Never a second name.
+                    lines.append(
+                        "@click.option(%r, is_flag=True, default=None)" % oname
+                    )
+                elif any(f and f in default_fields for f in opt_fields):
                     lines.append(
                         "@click.option(%r, default=None)"
                         % ("%s/--no-%s" % (oname, oname.lstrip("-")))
@@ -208,14 +264,22 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
                         "@click.option(%r, is_flag=True, default=False)" % oname
                     )
             else:
-                lines.append("@click.option(%r%s)"
-                             % (oname, (", " + req) if req else ""))
+                _key = resolved if isinstance(resolved, str) else opt_key
+                _choices = enum_map.get(_key) if _key else None
+                if _choices:
+                    lines.append(
+                        "@click.option(%r, type=click.Choice(%r)%s)"
+                        % (oname, list(_choices), (", " + req) if req else "")
+                    )
+                else:
+                    lines.append("@click.option(%r%s)"
+                                 % (oname, (", " + req) if req else ""))
         pvars = ", ".join(_optvar(o) for o in opts if o.get("name"))
         lines.append("def %s(%s):" % (flat_ident, pvars))
         lines.append('    """%s"""' % "/".join(group + [name]))
         call = _build_service_call(
             target, opts, service_methods, money=money,
-            default_fields=default_fields,
+            default_fields=default_fields, money_fields=money_field_set,
         )
         # The service __init__ takes a Database object, not a path string.
         lines.append("    svc = %s(Database(DB_PATH))" % svc_class)
@@ -240,8 +304,16 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         if money:
             # Display through the cents->decimal helper: the value stays an
             # integer cent count in the database, and only its PRINTED form
-            # is a decimal amount.
-            lines.append("        click.echo(format_result(result))")
+            # is a decimal amount. Aggregate keys the method's recipe declared
+            # as money are passed along, so a report's "total" or
+            # "per_category" is converted like a named column.
+            _mkeys = _method_money_keys(target, service_methods)
+            if _mkeys:
+                lines.append(
+                    "        click.echo(format_result(result, %r))" % (_mkeys,)
+                )
+            else:
+                lines.append("        click.echo(format_result(result))")
         else:
             lines.append("        click.echo(result)")
         lines.append("")
@@ -369,7 +441,7 @@ def _optional_cli_option(o, default_fields):
 
 
 def _build_service_call(target, opts, service_methods, money=False,
-                        default_fields=None):
+                        default_fields=None, money_fields=()):
     """Wire click options to a service method call, passing ONLY options
     that map to real parameters of the target's designed signature.
 
@@ -379,6 +451,8 @@ def _build_service_call(target, opts, service_methods, money=False,
     amount as integer cents. The helper returns an ``int`` UNCHANGED, so a
     cents input is never rescaled and a decimal amount is converted.
     """
+    _money_names = {n for n in (money_fields or ()) if isinstance(n, str)}
+
     def _money_arg(param, var, optional=False):
         # A conversion at the boundary FORMATS a supplied value; it never
         # validates an absent one. An optional money option arrives as None
@@ -388,7 +462,9 @@ def _build_service_call(target, opts, service_methods, money=False,
         # raw ``decimal.InvalidOperation`` traceback, because
         # ``Decimal(str(None))`` is not a number. Keep None as None so every
         # downstream ``is not None`` guard and default applies.
-        if money and isinstance(param, str) and param.endswith("_cents"):
+        if money and isinstance(param, str) and (
+            param in _money_names or param.endswith("_cents")
+        ):
             if optional:
                 return "None if %s is None else from_decimal(%s)" % (var, var)
             return "from_decimal(%s)" % var

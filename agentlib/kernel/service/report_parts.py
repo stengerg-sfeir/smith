@@ -121,6 +121,29 @@ def _budget_block(impl, entities_by_class, pp):
     ]
 
 
+def declared_money_keys(impl):
+    """Result keys a report impl declares as money, from the impl ALONE.
+
+    Pure: no design, no rendering. The CLI file is rendered BEFORE the service
+    bodies, so a table a recipe only stamped while rendering is invisible to
+    the CLI renderer. Declaring it as a standalone function lets the pipeline
+    compute it from the impl up front and stamp it on the method dict.
+    """
+    parts = list((impl or {}).get("parts") or [])
+    keys = {}
+    if "total" in parts:
+        keys[(impl or {}).get("result_key") or "total"] = "scalar"
+    if "per_category" in parts:
+        keys["per_category"] = "map"
+    if "monthly_totals" in parts:
+        keys["monthly_totals"] = "map"
+    if "top_categories" in parts:
+        keys["total"] = "scalar"
+    if "average_monthly" in parts:
+        keys["average_monthly_spend"] = "scalar"
+    return keys
+
+
 def _h_report_parts(m, impl, ent, entities_by_class):
     """Render the contract's parts over the entity's declared period filters."""
     var = _snake(impl["entity"])
@@ -213,7 +236,17 @@ def _h_report_parts(m, impl, ent, entities_by_class):
     if "budget_status" in parts:
         out.append("        result['budget_status'] = budget_status")
     out.append("        return result")
+    # The money half of the specification's convention: a report's values are
+    # SUMS of the entity's declared money column, so their KEY is not a column
+    # name and the display helper cannot recognise them by name. This recipe
+    # built them, so it declares them: 'scalar' for one money value, 'map' for
+    # a mapping whose every value is money. The CLI prints the report through
+    # the converter with exactly this table.
+    money_keys = declared_money_keys(impl)
+    if money_keys:
+        m["money_keys"] = money_keys
     return lines + out
 
 
-RECIPES = [Recipe("report_parts", 15, _h_report_parts)]
+RECIPES = [Recipe("report_parts", 15, _h_report_parts,
+                  money_keys=declared_money_keys)]

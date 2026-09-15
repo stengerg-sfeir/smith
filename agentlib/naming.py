@@ -64,15 +64,37 @@ def _python_type_to_sql(type_hint):
     return "TEXT"
 
 
+def _sql_literal(value):
+    """A SQL literal for a model field's declared default, or None.
+
+    Only a literal the dataclass actually declared reaches here, and SQLite
+    stores booleans as 0/1, so ``is_active: bool = True`` becomes ``DEFAULT 1``
+    — the same value the dataclass constructor would apply.
+    """
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return "'%s'" % value.replace("'", "''")
+    return None
+
+
 def _generate_ddl_from_models(model_classes):
     """Generate CREATE TABLE DDL from model class definitions.
 
     Model class names become table names (lowercase pluralized).
     Fields become columns. 'id' fields get PRIMARY KEY AUTOINCREMENT.
     Table-level UNIQUE pairs come from the models' UNIQUE_TOGETHER constant.
+    A field carrying a declared literal default ALSO gets that default in the
+    column (``available_copies INTEGER NOT NULL DEFAULT 1``, ``is_active
+    BOOLEAN NOT NULL DEFAULT 1``): the specification states the default, the
+    dataclass applies it, and a plain INSERT that omits the column must land
+    on the same value instead of failing the NOT NULL constraint.
     """
     unique_map = model_classes.pop("__unique_together__", {})
     table_map = model_classes.pop("__table_names__", {})
+    default_map = model_classes.pop("__field_defaults__", {})
     tables = []
 
     for class_name, fields in model_classes.items():
@@ -96,6 +118,13 @@ def _generate_ddl_from_models(model_classes):
                 pass
             else:
                 col_def += " NOT NULL"
+
+            if field_name != "id":
+                literal = _sql_literal(
+                    (default_map.get(class_name) or {}).get(field_name)
+                )
+                if literal is not None:
+                    col_def += " DEFAULT %s" % literal
 
             columns.append(col_def)
 

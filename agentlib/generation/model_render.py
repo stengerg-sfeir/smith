@@ -59,6 +59,20 @@ def _render_exceptions_file(design):
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _annotation(ftype):
+    """The annotation text for a declared date/datetime field type.
+
+    The models module imports the ``datetime`` MODULE (its ``__post_init__``
+    stamps ``datetime.datetime.now()``), so a datetime column written as the
+    bare word ``datetime`` annotated THE MODULE, not the class — an incoherent
+    annotation (S-inventory "annotation naming a module"). A ``date`` column
+    stays bare, because the module also imports ``from datetime import date``.
+    """
+    if ftype == "datetime":
+        return "datetime.datetime"
+    return ftype
+
+
 def _render_models_file(design):
     """dataclasses from the entities design.
 
@@ -119,12 +133,20 @@ def _render_models_file(design):
                 needs_datetime = True
             else:
                 req.append((fname, f.get("type", "str")))
-        parts = ["    %s: %s" % (fname, ftype) for fname, ftype in req]
+        parts = [
+            "    %s: %s" % (fname, _annotation(ftype))
+            for fname, ftype in req
+        ]
         for fname, ftype, dflt, nullable in defaulted:
-            ann = "Optional[%s]" % _bare(ftype) if nullable else ftype
+            ann = (
+                "Optional[%s]" % _bare(_annotation(ftype))
+                if nullable else _annotation(ftype)
+            )
             parts.append("    %s: %s = %r" % (fname, ann, dflt))
-        parts += ["    %s: Optional[%s] = None" % (fname, _bare(ftype))
-                  for fname, ftype in opt]
+        parts += [
+            "    %s: Optional[%s] = None" % (fname, _bare(_annotation(ftype)))
+            for fname, ftype in opt
+        ]
         body = "\n".join(parts)
         if auto_now:
             body += "\n\n    def __post_init__(self):\n"

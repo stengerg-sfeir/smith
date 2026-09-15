@@ -4289,6 +4289,71 @@ def _unwrap_swallowed_raises(cand):
         return cand
 
 
+def attach_contract_impls(svc_design, entities_by_class, method_contracts,
+                          prompt_text, verbose=False):
+    """Attach the specification's deterministic recipe impl to each method.
+
+    Prompt-derived contracts (stage 2/3). The contract is attached to the
+    design method so the fill validator can reach it through ``svc_design``,
+    and the exactly-renderable part is compiled into a deterministic recipe
+    impl. A method whose contract is not exactly renderable keeps its LLM fill.
+
+    Factored out of ``_render_service_file`` so the pipeline can run it BEFORE
+    the render phase: the CLI file is rendered AHEAD of the service bodies, and
+    a report declares its money result keys on that impl. Without running this
+    first, the CLI saw no impl and printed a report's totals as raw cents.
+    """
+    for m in (svc_design or {}).get("methods") or []:
+        if not isinstance(m, dict) or not m.get("name"):
+            continue
+        contract = (method_contracts or {}).get(m["name"])
+        # An ABSENT contract is not the end of the story: the analyst's
+        # evidence closure drops a line the specification states plainly
+        # ("borrow_book(member_id, book_id): checks availability, creates loan,
+        # decrements copies" — rejected on all three retries), and a method
+        # with no contract then fell to the fill, which shipped it as a dead
+        # stub. Pass the specification text down so ``compile_contract_impl``
+        # can read the method's OWN line literally.
+        literal = not contract
+        if literal:
+            contract = {"name": m["name"]}
+        impl = compile_contract_impl(
+            contract,
+            entities_by_class,
+            params=[
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ],
+            returns=m.get("returns") or "",
+            prompt_text=prompt_text or "",
+        )
+        if impl is None:
+            continue
+        if not literal:
+            m["contract"] = contract
+        else:
+            m.pop("contract", None)
+        # The contract impl WINS over a design-supplied impl. Both describe
+        # the same method, but the contract is closed against a verbatim span
+        # of the SPECIFICATION while a design ``impl`` is the design model's
+        # own guess at the body. Keeping the design impl meant a stated filter
+        # was silently dropped: expenses' get_monthly_report carried a
+        # sum-by-category impl with no month predicate, so it summed every row
+        # and S1 shipped. Overriding is narrow — ``compile_contract_impl``
+        # returns None unless the contract is exactly renderable.
+        if m.get("impl") is not None and verbose:
+            print(
+                "    [contract] %s: overrides design impl (%s)"
+                % (m["name"], (m.get("impl") or {}).get("kind"))
+            )
+        m["impl"] = impl
+        if verbose:
+            print(
+                "    [contract] %s: deterministic effects from the "
+                "spec" % m["name"]
+            )
+
+
 def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                          prompt_text, exception_names=None, verbose=False,
                          repo_sources=None, models_module="models",

@@ -66,6 +66,36 @@ def _flag_type_keyword(dec: ast.Call) -> tuple[str, bool, bool]:
     return vtype, required, is_flag
 
 
+def _choice_values(dec: ast.Call) -> list[str]:
+    """The allowed values of a ``type=click.Choice([...])`` option.
+
+    The generated CLI restricts a spec-declared vocabulary (``payment_method
+    (cash/card/transfer)``) with ``click.Choice``. A caller that feeds a value
+    outside that list is rejected by click — correctly. The facade tester must
+    therefore know the declared values so it never invents one the CLI is
+    required to refuse. Returns [] when the option declares no Choice.
+    """
+    for kw in dec.keywords:
+        if kw.arg != "type":
+            continue
+        text = ast.unparse(kw.value)
+        if "Choice" not in text:
+            return []
+        try:
+            node = ast.parse(text, mode="eval").body
+        except SyntaxError:
+            continue
+        for sub in ast.walk(node):
+            if not isinstance(sub, (ast.List, ast.Tuple)):
+                continue
+            vals = [str(el.value) for el in sub.elts
+                    if isinstance(el, ast.Constant)
+                    and isinstance(el.value, str)]
+            if vals:
+                return vals
+    return []
+
+
 def _read_option_arg(dec: ast.Call) -> tuple[list[str], str | None]:
     """Return (raw names, destination). Raw names include '-f' and '--flag'."""
     names: list[str] = []
@@ -172,6 +202,9 @@ def _parse_click_command(node: ast.FunctionDef) -> dict | None:
                 "required": required,
                 "flag": is_flag,
             }
+            choices = _choice_values(dec)
+            if choices:
+                opt["choices"] = choices
             if dest in data_keys:
                 opt["field"] = data_keys[dest]  # real field name inside the data dict
             opts.append(opt)

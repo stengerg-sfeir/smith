@@ -7,6 +7,11 @@ import ast
 import re
 from pathlib import Path
 
+# Sentinel for "this default could not be read as a literal": distinct from a
+# legitimate `None` default, which means "optional" and is not written to the
+# schema.
+_UNSET = object()
+
 
 def _extract_defined_names(source):
     try:
@@ -271,6 +276,25 @@ def _extract_model_ast(files, paths=None):
                                 except Exception:
                                     type_hint = "ANY"
                             fields.append((child.target.id, type_hint))
+                            # A declared literal default belongs in the DDL too:
+                            # the dataclass says `available_copies: int = 1` and
+                            # `is_active: bool = True`, so a plain INSERT that
+                            # omits the column must land on the SAME value. A
+                            # non-literal default (a call, a name) is skipped —
+                            # only a value the schema can state verbatim is
+                            # recorded. `None` is the dataclass's "optional"
+                            # marker, not a default, so it is skipped too.
+                            if child.value is not None:
+                                try:
+                                    literal = ast.literal_eval(child.value)
+                                except Exception:
+                                    literal = _UNSET
+                                if literal is not _UNSET and literal is not None:
+                                    result.setdefault(
+                                        "__field_defaults__", {}
+                                    ).setdefault(node.name, {})[
+                                        child.target.id
+                                    ] = literal
                     # plain assignment: name = None -> ast.Assign
                     elif isinstance(child, ast.Assign):
                         for target in child.targets:

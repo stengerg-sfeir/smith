@@ -22,6 +22,7 @@ class Recipe:
     name: str
     priority: int
     fn: Callable[..., Optional[List[str]]]
+    money_keys: Optional[Callable[..., dict]] = None
 
 
 # Repository recipe callbacks receive this expanded context to avoid forcing

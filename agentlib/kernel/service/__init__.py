@@ -55,3 +55,21 @@ def dispatch_impl_body(m, impl, ent, entities_by_class, exception_names=None):
                                  exception_names=exception_names)
             return recipe.fn(m, impl, ent_design, entities_by_class)
     return None
+
+
+def declared_money_keys(impl):
+    """Money RESULT keys a recipe declares for an impl, computed from the impl
+    ALONE — or ``{}`` when the kind declares none.
+
+    A recipe may stamp a display table on the method while rendering, but the
+    CLI file is rendered BEFORE the service bodies, so the CLI renderer cannot
+    read it. Exposing the table as a pure function of the impl lets the
+    pipeline compute it up front and stamp the method before the CLI runs.
+    """
+    kind = impl.get("kind") if isinstance(impl, dict) else None
+    if not kind:
+        return {}
+    for recipe in load_recipes_for(__package__):
+        if recipe.name == kind and recipe.money_keys is not None:
+            return recipe.money_keys(impl) or {}
+    return {}

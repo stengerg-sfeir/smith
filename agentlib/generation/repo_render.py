@@ -85,6 +85,27 @@ def _repo_requirement_context(stub_methods, ent_snake, ent):
     return "\n".join(lines)
 
 
+# System-side rules for a repository fill, in the primacy slot so a small
+# model attends to them. Every rule states a property the validator below
+# also enforces, so the fill usually complies and the rejection (which
+# reverts the method to a safe empty body) stays a backstop, not the norm.
+_REPO_FILL_SYSTEM_RULES = (
+    "REPOSITORY BODY RULES\n"
+    "- PARAMETERS  every declared parameter must reach the SQL: bind it as a "
+    "query parameter in the WHERE clause. Never accept a parameter and ignore "
+    "it.\n"
+    "- DATE VALUES  a date/datetime parameter arrives as an ISO-format "
+    "STRING, never as a datetime object. Pass it straight into the SQL; never "
+    "call .isoformat(), .strftime() or .date() on it.\n"
+    "- QUERY BUILDING  build ONE query variable INCREMENTALLY (query += "
+    "\"...\"), and never assign a fresh query to a variable that already "
+    "holds one before the old value has been used — the conditions you "
+    "patched in would be discarded.\n"
+    "- Emit only the methods listed, each complete, returning the designed "
+    "model/dict rows; never invent helper methods."
+)
+
+
 def _render_repository_file(ent_snake, design, entities_by_class, exception_names=None,
                             prompt_text="", verbose=False, models_module="models"):
     """Deterministic CRUD repo over a Database object (database.py owns DDL).
@@ -464,6 +485,7 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
             "repository", instruction, mini, req_ctx,
             verbose=verbose,
             temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
+            extra_system=_REPO_FILL_SYSTEM_RULES,
         )
         if not filled:
             break
@@ -573,6 +595,155 @@ def _inject_stdlib_imports(text, names):
         insert_at = 0
     lines.insert(insert_at, "\n".join(to_add) + "\n\n")
     return "".join(lines)
+
+
+def _loads(node):
+    """The NAMES a node READS (Load context)."""
+    return {
+        n.id for n in ast.walk(node)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+    }
+
+
+def _assign_targets(node):
+    """The names an assignment target binds."""
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, (ast.Tuple, ast.List)):
+        out = []
+        for e in node.elts:
+            out.extend(_assign_targets(e))
+        return out
+    return []
+
+
+_COMPOUND = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncWith)
+
+
+def _compound_children(st):
+    """The statement lists nested inside a compound statement."""
+    out = []
+    for attr in ("body", "orelse", "finalbody"):
+        v = getattr(st, attr, None)
+        if v:
+            out.append(v)
+    for h in getattr(st, "handlers", None) or []:
+        out.append(h.body)
+    return out
+
+
+def _compound_header_reads(st):
+    """Names a compound statement reads UNCONDITIONALLY, before any branch is
+    taken: the ``if``/``while`` test, the ``for`` iterable, a ``with`` item."""
+    reads = set()
+    for attr in ("test", "iter"):
+        v = getattr(st, attr, None)
+        if v is not None:
+            reads |= _loads(v)
+    for item in getattr(st, "items", None) or []:
+        reads |= _loads(item.context_expr)
+    return reads
+
+
+def _dead_store_names(seq, dead):
+    """Names a single statement list assigns twice with the earlier value
+    never read in between.
+
+    Deliberately LOCAL to one list, and never inheriting the enclosing scope's
+    liveness, because both halves of that boundary matter:
+
+      * a value assigned BEFORE a branch or a loop is legitimately replaced
+        INSIDE it — ``limit = None`` … ``for _row in …: limit =
+        int(_row.amount_limit_cents)`` … ``if limit is None:`` reads the value
+        after the loop, so flagging it would be a false positive;
+      * a read INSIDE a branch does not consume the outer value on every path,
+        so ``query`` patched conditionally (``if flag: query += …``) and then
+        overwritten unconditionally IS a dead store, which is the defect this
+        rule exists for.
+
+    Deciding within the list and recursing into each nested list as its own
+    scope keeps both readings exact. ``x += …`` reads ``x`` and is never a
+    discard; a subscript or attribute target binds nothing.
+    """
+    live = set()
+    for st in seq:
+        if isinstance(st, ast.Assign):
+            reads = _loads(st)
+            for t in [n for tgt in st.targets for n in _assign_targets(tgt)]:
+                if t in live and t not in reads:
+                    dead.append(t)
+                live.add(t)
+            live -= reads
+        elif isinstance(st, ast.AugAssign):
+            names = _assign_targets(st.target)
+            live -= _loads(st)
+            live.update(names)
+        elif isinstance(st, ast.AnnAssign):
+            if st.value is not None:
+                reads = _loads(st)
+                for t in _assign_targets(st.target):
+                    if t in live and t not in reads:
+                        dead.append(t)
+                    live.add(t)
+                live -= reads
+        elif isinstance(st, _COMPOUND):
+            live -= _compound_header_reads(st)
+            for child in _compound_children(st):
+                _dead_store_names(child, dead)
+        else:
+            live -= _loads(st)
+
+
+def _repo_fidelity_violations(fn):
+    """Order-aware fidelity checks on a filled repository method body.
+
+    Three exact readings of the body — never a name or domain-word guess:
+      * a DECLARED parameter the body never reads (a value the caller supplies
+        is silently dropped instead of reaching the query);
+      * a local REASSIGNED before its earlier value was ever read (the
+        specification-duty ``list_authors_with_books`` built a query, patched
+        it with its ``include_inactive`` flag, then assigned a FRESH query
+        over it — the flag ended up with no effect at all);
+      * ``.isoformat()``/``.strftime()``/``.date()`` called on a PARAMETER,
+        which arrives as an ISO string, not a datetime (the shipped
+        ``export_to_csv``).
+    """
+    params = [a.arg for a in (fn.args.args + fn.args.kwonlyargs)]
+    param_set = {p for p in params if p != "self"}
+    violations = []
+    read = _loads(fn)
+    unused = sorted(p for p in param_set if p not in read)
+    if unused:
+        violations.append(
+            "never reads declared parameter(s) %s — a value the caller "
+            "supplies must reach the query, not be dropped"
+            % ", ".join(unused)
+        )
+    dead = []
+    _dead_store_names(fn.body, dead)
+    if dead:
+        violations.append(
+            "assigns %s then overwrites it before reading it — the earlier "
+            "value (the query or params it built) is discarded, so any "
+            "condition that patched it has no effect"
+            % ", ".join(sorted(set(dead)))
+        )
+    stamped = sorted({
+        n.func.attr
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr in ("isoformat", "strftime", "date")
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id in param_set
+    })
+    if stamped:
+        violations.append(
+            "calls .%s() on a date/datetime PARAMETER — values reach a "
+            "repository as ISO strings; pass them through as-is"
+            % ", .".join(stamped)
+        )
+    return violations
 
 
 def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
@@ -685,6 +856,7 @@ def _merge_repo_fill(deterministic, filled, stub_names, schema_ctx,
                 "calls self.%s() which does not exist on this repository — "
                 "never invent helper methods" % ", ".join(bad_self)
             )
+        violations.extend(_repo_fidelity_violations(fn))
         # Model-construction contract: Model(**kwargs) may only use the
         # DESIGNED fields of that model. Extra kwargs (author_name,
         # book_title, ...) are guaranteed runtime TypeErrors and usually
