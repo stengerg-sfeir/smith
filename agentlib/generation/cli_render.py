@@ -214,7 +214,8 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         lines.append("def %s(%s):" % (flat_ident, pvars))
         lines.append('    """%s"""' % "/".join(group + [name]))
         call = _build_service_call(
-            target, opts, service_methods, money=money
+            target, opts, service_methods, money=money,
+            default_fields=default_fields,
         )
         # The service __init__ takes a Database object, not a path string.
         lines.append("    svc = %s(Database(DB_PATH))" % svc_class)
@@ -353,7 +354,22 @@ def _resolve_option_param(o, params):
     return None
 
 
-def _build_service_call(target, opts, service_methods, money=False):
+def _optional_cli_option(o, default_fields):
+    """True when the rendered click option may be ABSENT (None) at runtime.
+
+    An option is optional either because the design did not mark it required,
+    or because its field carries a spec-declared default (the renderer then
+    drops ``required=True`` so the default can apply). In BOTH cases the
+    callback receives None, so any conversion at the call boundary must be
+    None-preserving.
+    """
+    if not o.get("required"):
+        return True
+    return (o.get("field") or _optvar(o)) in (default_fields or set())
+
+
+def _build_service_call(target, opts, service_methods, money=False,
+                        default_fields=None):
     """Wire click options to a service method call, passing ONLY options
     that map to real parameters of the target's designed signature.
 
@@ -363,8 +379,18 @@ def _build_service_call(target, opts, service_methods, money=False):
     amount as integer cents. The helper returns an ``int`` UNCHANGED, so a
     cents input is never rescaled and a decimal amount is converted.
     """
-    def _money_arg(param, var):
+    def _money_arg(param, var, optional=False):
+        # A conversion at the boundary FORMATS a supplied value; it never
+        # validates an absent one. An optional money option arrives as None
+        # (the designed parameter is ``Optional[int] = None``), and calling
+        # from_decimal(None) turned `budget update --category-id 1 --month
+        # 2024-03` — ``--amount`` is optional in the specification — into a
+        # raw ``decimal.InvalidOperation`` traceback, because
+        # ``Decimal(str(None))`` is not a number. Keep None as None so every
+        # downstream ``is not None`` guard and default applies.
         if money and isinstance(param, str) and param.endswith("_cents"):
+            if optional:
+                return "None if %s is None else from_decimal(%s)" % (var, var)
             return "from_decimal(%s)" % var
         return var
 
@@ -391,7 +417,11 @@ def _build_service_call(target, opts, service_methods, money=False):
             for o in opts:
                 if (o.get("name")
                         and _resolve_option_param(o, params) == p):
-                    parts.append("%s=%s" % (p, _money_arg(p, _optvar(o))))
+                    parts.append("%s=%s" % (
+                        p,
+                        _money_arg(p, _optvar(o),
+                                   _optional_cli_option(o, default_fields)),
+                    ))
                     used.add(o.get("field") or _optvar(o))
                     break
         for o in opts:
@@ -411,7 +441,10 @@ def _build_service_call(target, opts, service_methods, money=False):
                 # is_recurring to 0 on a row that was marked recurring.
                 packed.append("'%s': (%s if %s else None)" % (k, var, var))
             else:
-                packed.append("'%s': %s" % (k, _money_arg(k, var)))
+                packed.append("'%s': %s" % (
+                    k,
+                    _money_arg(k, var, _optional_cli_option(o, default_fields)),
+                ))
         if packed:
             # A PARTIAL update must not write the options the user did not
             # supply: click hands the callback None for an absent option, and
@@ -438,7 +471,11 @@ def _build_service_call(target, opts, service_methods, money=False):
             continue  # option does not map to the target signature
         used.add(key)
         kwargs.append(
-            "%s=%s" % (match, _money_arg(match, _optvar(o)))
+            "%s=%s" % (
+                match,
+                _money_arg(match, _optvar(o),
+                           _optional_cli_option(o, default_fields)),
+            )
         )
     return "result = svc.%s(%s)" % (target, ", ".join(kwargs))
 
