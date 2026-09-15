@@ -175,7 +175,12 @@ def _crud_shadow_target(name, ent_snake, model):
     if not core:
         return None
     if core[0] in ("get", "find", "fetch", "load", "read", "retrieve"):
-        return "get_by_id" if core[1:] == ["by", "id"] else None
+        if core[1:] == ["by", "id"]:
+            return "get_by_id"
+        # get_all_<e> / find_all_<e> re-spell the deterministic get_all().
+        if core[1:] == ["all"]:
+            return "get_all"
+        return None
     if core[0] in ("list", "all"):
         return "list" if core[1:] in ([], ["all"]) else None
     head = _CRUD_WRITE_VERBS.get(core[0])

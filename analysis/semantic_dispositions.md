@@ -1072,3 +1072,27 @@ two target prompts: `inventory`'s `category_repository` shipped the same
 `add_/list_/update_/delete_category` duplicate family and `product_repository`
 shipped `list_products`, and all five are gone on the fresh tree with the
 project's façade holding at 12/12.
+### The surface-smoke gate
+
+`run_surface_smoke.py` is the executable form of the third objective — *no
+command the prompt authorizes may crash*. For every command each enumerating
+prompt lists it invokes the shipped CLI three ways (`--help`, with NO option,
+and with every option given a placeholder value) inside a SCRATCH COPY of the
+project, and asserts that stderr never carries a Python traceback and that the
+exit code is 0 (worked), 1 (a reported domain error) or 2 (click refused the
+arguments). A stack dump is precisely the defect disposition (l) fixed, where
+`CategoryNotFoundError` and `sqlite3.IntegrityError` used to reach the user as
+a traceback.
+
+```
+python3 run_surface_smoke.py
+[expenses]       status=pass commands=14 runs=42 violations=0
+[inventory]      status=pass commands=11 runs=33 violations=0
+[library_system] status=pass commands=9  runs=27 violations=0
+[surface-smoke] failures=0/3
+```
+
+102 invocations across the three prompts, 0 tracebacks. The scratch copy keeps
+the gate side-effect free: it mutates only its own temporary tree, never
+`generated/`, so it can run between the other suites without disturbing the
+fixtures they seed.
