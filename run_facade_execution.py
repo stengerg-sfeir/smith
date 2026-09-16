@@ -23,6 +23,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import shutil
+import tempfile
 import json
 import sys
 from datetime import datetime, timezone
@@ -78,6 +80,15 @@ def main(argv: list[str] | None = None) -> int:
             print("[%s] no generated project %s" % (ident, proj), file=sys.stderr)
             summary["results"].append({"ident": ident, "status": "no_generated"})
             continue
+        # Run against a SCRATCH copy. The executor drives the real CLI, which
+        # writes its SQLite database and any output file (cli_tool wrote
+        # output.json into generated/cli_tool/) and start_fresh_project()
+        # deletes *.db. A test must never mutate generated/, so the prompt's
+        # tree is copied and the copy is discarded at the end of the loop.
+        scratch = Path(tempfile.mkdtemp(prefix="facade_%s_" % ident))
+        work = scratch / ident
+        shutil.copytree(proj, work)
+        proj = work
         facade = discover_facade(proj)  # re-discover (picks up data-dict field keys)
 
         design = extract_design(proj) if proj.is_dir() else None
@@ -149,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             "pass": outcome.get("pass", 0),
             "fail": outcome.get("fail", 0),
         })
+        shutil.rmtree(scratch, ignore_errors=True)
 
     summary["finished_at"] = datetime.now(timezone.utc).isoformat()
     summary_path = out_dir / "summary.json"

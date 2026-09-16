@@ -1136,9 +1136,16 @@ def _negative_create_fallback(intent: dict, facade: dict,
 # input that triggers the error, expecting a NON-ZERO exit (cli_tool's I4/I5).
 
 _ERROR_HANDLING_RE = re.compile(
-    r"\b(get|receive|see|encounter)\s+an\s+error\s+(if|when)\b"
-    r"|\berror\s+if\b"
-    r"|\b(raise[sd]?|return[sd]?|produce[sd]?|throw[sd]?)\s+an?\s+error\b",
+    # "I get an error if", and the equally common plural/noun form "I get
+    # error messages if" / "an error message when" (cli_tool I5 said "I can
+    # get error messages if the input CSV file is missing or malformed" —
+    # the old pattern required the article AND the word "error" adjacent to
+    # "if", so it matched neither and the intention kept the mapper's
+    # default `exit_code: 0`, failing a behaviour the tool implements).
+    r"\b(get|receive|see|encounter|show|display|report)\s+(an?\s+)?error"
+    r"(\s+messages?)?\s+(if|when)\b"
+    r"|\berror(\s+messages?)?\s+(if|when)\b"
+    r"|\b(raise[sd]?|return[sd]?|produce[sd]?|throw[sd]?|report[sd]?)\s+an?\s+error\b",
     re.IGNORECASE,
 )
 

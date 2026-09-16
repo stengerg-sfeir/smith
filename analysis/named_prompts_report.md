@@ -9,7 +9,7 @@ mur de `agent.py --prompt <nom>`.
 | `cli_tool` | 14.2 | propre | OK | **PASS** | **PASS** | pass 5/5 |
 | `expenses` | 402.0 | propre | OK | **PASS** | **PASS** | pass 14/14 |
 | `hello_world` | 2.0 | propre | OK | **PASS** | **PASS** | no_mapped 0/0 |
-| `inventory` | 244.8 | propre | OK | **PASS** | **PASS** | pass 12/12 |
+| `inventory` | 244.8 | propre | OK | **PASS** | **PASS** | pass 11/11 |
 | `library_system` | 220.2 | propre | OK | **PASS** | **PASS** | pass 9/9 |
 | `multi_module` | 141.6 | propre | OK | **PASS** | **PASS** | pass 5/5 |
 
@@ -53,7 +53,7 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=pass pass=12/12
+- façade (contrôle indépendant, piloté par LLM) : status=pass pass=11/11
 
 ## `library_system`
 
@@ -76,4 +76,4 @@ mur de `agent.py --prompt <nom>`.
 - **conforme** : PASS
 - façade (contrôle indépendant, piloté par LLM) : status=pass pass=5/5
 
-_Généré le 2026-09-16T13:43:13.439381+00:00._
+_Généré le 2026-09-16T14:09:33.679236+00:00._

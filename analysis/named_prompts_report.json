@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T13:43:13.435832+00:00",
+  "generated_at": "2026-09-16T14:09:33.676172+00:00",
   "records": [
     {
       "ident": "cli_tool",
@@ -77,8 +77,8 @@
       "compile_failures": [],
       "facade": {
         "status": "pass",
-        "mapped": "12",
-        "pass": "12",
+        "mapped": "11",
+        "pass": "11",
         "fail": "0"
       },
       "functional_failures": [],
