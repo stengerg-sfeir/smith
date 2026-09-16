@@ -24,8 +24,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from behavior_tests.conformity import prompt_surface_paths
-from behavior_tests.repo_conformity import repository_conformity_violations
+from agentlib.bench.conformity import prompt_surface_paths
+from agentlib.bench.repo_conformity import repository_conformity_violations
 
 PROMPTS_DIR = Path("prompts")
 GENERATED_ROOT = Path("generated")

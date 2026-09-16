@@ -29,7 +29,7 @@ from agentlib.config import LLM_MAX_TOKENS_LONG
 from agentlib.llm.client import _json_complete
 from agentlib.naming import _camel, _snake
 
-from behavior_tests.fixtures import fixture_listing
+from agentlib.bench.fixtures import fixture_listing
 
 
 # ---------------------------------------------------------------------------

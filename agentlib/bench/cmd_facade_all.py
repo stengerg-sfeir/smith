@@ -28,7 +28,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from run_facade_intents import NAMED as INTENT_NAMED
+from agentlib.bench.cmd_facade_intents import NAMED as INTENT_NAMED
 
 ALL_IDENTS = [alias for alias, _pf, _gd in INTENT_NAMED]
 
@@ -65,13 +65,13 @@ def main(argv: list[str] | None = None) -> int:
             start // batch_size + 1, ", ".join(batch)), flush=True)
 
         # Stage A: intents + facade discovery
-        a_cmd = [sys.executable, "run_facade_intents.py"]
+        a_cmd = [sys.executable, "bench.py", "facade-intents"]
         for ident in batch:
             a_cmd += ["--prompt", ident]
         a = subprocess.run(a_cmd, check=False)
 
         # Stage C+D: map + execute
-        e_cmd = [sys.executable, "run_facade_execution.py"]
+        e_cmd = [sys.executable, "bench.py", "facade-exec"]
         for ident in batch:
             e_cmd += ["--prompt", ident]
         e = subprocess.run(e_cmd, check=False)

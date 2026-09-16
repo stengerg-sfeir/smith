@@ -76,4 +76,4 @@ mur de `agent.py --prompt <nom>`.
 - **conforme** : PASS
 - façade (contrôle indépendant, piloté par LLM) : status=pass pass=5/5
 
-_Généré le 2026-09-16T14:09:33.679236+00:00._
+_Généré le 2026-09-16T15:46:44.224102+00:00._

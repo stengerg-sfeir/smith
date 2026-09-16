@@ -16,7 +16,7 @@ Mutations are derived from the oracle's own invariant list, never from the
 implementation, so a mutation cannot have been "known" to the code.
 
 Usage:
-    python3 -m behavior_tests.mutate_semantic --project library_system
+    python3 bench.py semantic --project library_system
 """
 
 from __future__ import annotations
@@ -190,11 +190,11 @@ def _run_oracle(root, project):
     out = Path(tempfile.mktemp(suffix=".json"))
     proc = subprocess.run(
         [
-            sys.executable, "-m", "behavior_tests.semantic_oracle",
+            sys.executable, "-m", "agentlib.bench.semantic_oracle",
             "--project", project, "--generated", str(root), "--json", str(out),
         ],
         capture_output=True, text=True,
-        cwd=str(Path(__file__).resolve().parent.parent),
+        cwd=str(Path(__file__).resolve().parent.parent.parent),
     )
     if not out.exists():
         return {"status": "error", "stderr": proc.stderr[-500:]}

@@ -20,7 +20,8 @@ import time
 import traceback
 from pathlib import Path
 
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+# The repository root: this module lives in agentlib/bench/.
+PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
 _call_log = []
 
@@ -140,11 +141,11 @@ def profile_prompt(ident):
     return _print_report(ident, patched, time.time() - started)
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prompt", action="append", required=True,
                         help="prompt ident, repeatable (e.g. --prompt expenses)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     profiles = [profile_prompt(ident) for ident in args.prompt]
 
     print("\n=== summary ===")

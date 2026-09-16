@@ -24,7 +24,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# The repository root (agentlib/bench -> agentlib -> root) so `import agentlib`
+# resolves when this module is run as a script.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from agentlib.generation.repo_render import (  # noqa: E402
     _capability_tokens,
@@ -147,7 +149,7 @@ _DROP_SOURCE = (
 )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     for name, ent, model, want in _SHADOWS:
         _check("R1 shadow %s" % name,
                _crud_shadow_target(name, ent, model), want)

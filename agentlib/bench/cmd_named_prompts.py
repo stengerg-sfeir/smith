@@ -4,7 +4,7 @@
 For each named prompt this runner answers the two questions of the brief and
 records the third piece of data asked for — the generation time:
 
-1. **does the generated code work** (``behavior_tests.named_prompt_suite``:
+1. **does the generated code work** (``agentlib.bench.named_prompt_suite``:
    the prompt's own commands swept for crashes, plus the prompt's minimal
    workflow executed for real; the LLM-driven facade is run as an independent
    second opinion);
@@ -32,7 +32,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from behavior_tests.named_prompt_suite import (
+from agentlib.bench.named_prompt_suite import (
     NAMED_PROMPTS,
     conformity_failures,
     enumerated_command_names,
@@ -92,7 +92,7 @@ def compile_failures(project: Path) -> list[str]:
 def facade_status(ident: str) -> dict:
     """The LLM-driven facade, as an independent execution check."""
     proc = subprocess.run(
-        [sys.executable, "run_facade_execution.py", "--prompt", ident],
+        [sys.executable, "bench.py", "facade-exec", "--prompt", ident],
         capture_output=True, text=True,
     )
     text = (proc.stdout or "") + (proc.stderr or "")

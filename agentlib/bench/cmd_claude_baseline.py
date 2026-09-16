@@ -4,7 +4,7 @@
 Runs `claude -p` (non-interactive) once per named prompt with the prompt file
 VERBATIM, materialises whatever it writes into a working directory, then
 subjects that directory to the *same* gates the generator is held to:
-`behavior_tests.named_prompt_suite.functional_failures` and
+`agentlib.bench.named_prompt_suite.functional_failures` and
 `conformity_failures`, plus a compile check.
 
 Two things this harness is deliberately honest about:
@@ -35,7 +35,9 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+# The repository root: this module lives in agentlib/bench/, so the root is
+# three levels up (agentlib/bench -> agentlib -> root).
+ROOT = Path(__file__).resolve().parent.parent.parent
 PROMPTS_DIR = ROOT / "prompts"
 WORK_ROOT = Path("/tmp/claude_baseline")
 BASELINE_DIR = ROOT / "baseline"
@@ -256,7 +258,7 @@ def _compile_failures(project: Path) -> list[str]:
 
 
 def _gates(ident: str, project: Path) -> dict:
-    from behavior_tests.named_prompt_suite import (
+    from agentlib.bench.named_prompt_suite import (
         conformity_failures,
         functional_failures,
     )
@@ -344,7 +346,7 @@ def _render_report(records: list[dict]) -> str:
         "Claude Code), in an empty directory, with one imperative tail asking for",
         "the full runnable implementation. The output is then subjected to the",
         "SAME gates as the generator: `functional_failures` and",
-        "`conformity_failures` from `behavior_tests.named_prompt_suite`.",
+        "`conformity_failures` from `agentlib.bench.named_prompt_suite`.",
         "",
         "**No prompt names an entry-point file**, yet the gates invoke",
         "`python cli.py ...` (and `hello.py` / `csv_to_json.py`) by construction.",
@@ -411,7 +413,7 @@ def _render_report(records: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", action="append", default=None,
                         help="restrict to one prompt ident (repeatable)")
@@ -421,9 +423,9 @@ def main():
                         help="sub-directory and report suffix for this run")
     parser.add_argument("--reuse", action="store_true",
                         help="re-run the gates on the persisted output only")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    from behavior_tests.named_prompt_suite import NAMED_PROMPTS
+    from agentlib.bench.named_prompt_suite import NAMED_PROMPTS
 
     destination_root = (
         BASELINE_DIR if args.label is None else BASELINE_DIR / args.label

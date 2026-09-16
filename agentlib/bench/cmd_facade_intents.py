@@ -2,7 +2,7 @@
 """Extract user intentions + discover the CLI facade for the named prompts.
 
 This is the first slice of the NEW "facade" tester, built ALONGSIDE the
-existing internal tester (``run_behavior_tests.py``). It does NOT replace or
+existing internal tester (``bench behavior``). It does NOT replace or
 touch the existing runner; it only:
 
 1. extracts USER INTENTIONS from each named prompt (``intents.extract_intentions``),
@@ -16,9 +16,9 @@ reference artifact that tells us, per prompt, which intentions are
 explicitly/partially/vaguely specified and what the actual CLI surface is.
 
 Usage:
-    python3 run_facade_intents.py                 # all named prompts + 20
-    python3 run_facade_intents.py --prompt inventory
-    python3 run_facade_intents.py --prompt cli_tool --prompt hello_world
+    python3 bench.py facade-intents                 # all named prompts + 20
+    python3 bench.py facade-intents --prompt inventory
+    python3 bench.py facade-intents --prompt cli_tool --prompt hello_world
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from behavior_tests.facade_discovery import discover_facade
-from behavior_tests.intents import extract_intentions
+from agentlib.bench.facade_discovery import discover_facade
+from agentlib.bench.intents import extract_intentions
 
 # Named prompts the generator ships. Numeric prompts 01-40 are appended below
 # (each maps to prompts/prompt_XX.txt and generated/XX).

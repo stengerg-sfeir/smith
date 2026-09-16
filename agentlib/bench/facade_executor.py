@@ -25,8 +25,8 @@ import sys
 from collections import deque
 from pathlib import Path
 
-from behavior_tests.facade_mapping import _make_sql_seed_plan
-from behavior_tests.fixtures import materialize_fixtures
+from agentlib.bench.facade_mapping import _make_sql_seed_plan
+from agentlib.bench.fixtures import materialize_fixtures
 
 
 def run_cli(invocation: str, cwd: Path, timeout: int = 30) -> dict:

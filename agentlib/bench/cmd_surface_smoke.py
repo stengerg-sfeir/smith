@@ -30,7 +30,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from behavior_tests.conformity import prompt_surface_paths
+from agentlib.bench.conformity import prompt_surface_paths
 
 PROMPTS_DIR = Path("prompts")
 GENERATED_ROOT = Path("generated")

@@ -6,10 +6,10 @@ LLM pass) and runs them against a previously generated project, reporting
 per-test pass/fail and a coverage matrix.
 
 Usage:
-    python3 run_behavior_tests.py --prompt 27
-    python3 run_behavior_tests.py --start 21 --end 30
-    python3 run_behavior_tests.py --all
-    python3 run_behavior_tests.py --prompt 27 --use-cached-spec
+    python3 bench.py behavior --prompt 27
+    python3 bench.py behavior --start 21 --end 30
+    python3 bench.py behavior --all
+    python3 bench.py behavior --prompt 27 --use-cached-spec
 
 The generated snapshot is frozen under ``behavior_runs/NNN/generated``, the
 test spec under ``behavior_runs/NNN/test_spec.json`` and the deterministic
@@ -19,7 +19,7 @@ reproducible.
 
 from __future__ import annotations
 
-from behavior_tests.runner import main
+from agentlib.bench.runner import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

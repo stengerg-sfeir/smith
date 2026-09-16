@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from behavior_tests.conformity import (
+from agentlib.bench.conformity import (
     prompt_surface_paths,
     surface_conformity_violations,
 )

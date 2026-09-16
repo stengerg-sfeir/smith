@@ -30,12 +30,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from behavior_tests.conformity import prompt_surface_paths
-from behavior_tests.design_extract import extract_design
-from behavior_tests.facade_discovery import discover_facade
-from behavior_tests.facade_executor import execute_prompt
-from behavior_tests.facade_mapping import map_intentions
-from behavior_tests.fixtures import FIXTURES
+from agentlib.bench.conformity import prompt_surface_paths
+from agentlib.bench.design_extract import extract_design
+from agentlib.bench.facade_discovery import discover_facade
+from agentlib.bench.facade_executor import execute_prompt
+from agentlib.bench.facade_mapping import map_intentions
+from agentlib.bench.fixtures import FIXTURES
 
 NAMED = [
     "hello_world", "cli_tool", "inventory", "expenses",

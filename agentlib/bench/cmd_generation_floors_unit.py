@@ -115,7 +115,9 @@ def _check_entry_point_cases():
     return failures
 
 
-def main():
+def main(argv: list[str] | None = None):
+    # This suite takes no options; the argument exists so bench.py can dispatch
+    # to every suite uniformly.
     annotation_failures = _check_annotation_cases()
     entry_point_failures = _check_entry_point_cases()
 

@@ -567,7 +567,7 @@ def surface_conformity_violations(prompt_text: str,
     exposes: the prompt must have asked for it. A missing command, a missing
     option, or a generated extra is a violation.
     """
-    from behavior_tests.facade_discovery import discover_facade
+    from agentlib.bench.facade_discovery import discover_facade
 
     wanted = prompt_surface_paths(prompt_text)
     if not wanted:

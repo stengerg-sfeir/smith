@@ -9,8 +9,8 @@ deterministically and without an LLM:
   minimal workflow (add a row, list it) is executed end to end and must exit 0
   and surface what was just written.
 * **conformant** — the shipped project says what the specification asked for:
-  the command surface (``behavior_tests.conformity``), the repository surface
-  (``behavior_tests.repo_conformity``), and — for the two script-like prompts
+  the command surface (``agentlib.bench.conformity``), the repository surface
+  (``agentlib.bench.repo_conformity``), and — for the two script-like prompts
   — the properties the specification states in prose (a ``main()`` with type
   hints and the ``__main__`` guard; header-driven CSV keys, an optional output
   path, and no hard-coded column names).
@@ -30,11 +30,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from behavior_tests.conformity import (
+from agentlib.bench.conformity import (
     prompt_surface_paths,
     surface_conformity_violations,
 )
-from behavior_tests.repo_conformity import repository_conformity_violations
+from agentlib.bench.repo_conformity import repository_conformity_violations
 from agentlib.pipeline.cli_spec import extract_prompt_cli_commands, parse_prompt_command
 
 NAMED_PROMPTS = (
