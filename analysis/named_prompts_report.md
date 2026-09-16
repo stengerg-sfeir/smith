@@ -6,16 +6,16 @@ mur de `agent.py --prompt <nom>`.
 
 | prompt | génération (s) | marqueurs | compile | **fonctionnel** | **conforme** | façade |
 |---|---|---|---|---|---|---|
-| `cli_tool` | 11.3 | propre | OK | **PASS** | **PASS** | pass 5/5 |
-| `expenses` | 402.6 | propre | OK | **PASS** | **PASS** | pass 14/14 |
+| `cli_tool` | 14.2 | propre | OK | **PASS** | **PASS** | pass 5/5 |
+| `expenses` | 418.4 | propre | OK | **PASS** | **PASS** | pass 14/14 |
 | `hello_world` | 2.0 | propre | OK | **PASS** | **PASS** | no_mapped 0/0 |
-| `inventory` | 241.1 | propre | OK | **PASS** | **PASS** | pass 12/12 |
-| `library_system` | 244.0 | propre | OK | **PASS** | **PASS** | pass 9/9 |
-| `multi_module` | 128.8 | propre | OK | **PASS** | **PASS** | pass 5/5 |
+| `inventory` | 244.8 | propre | OK | **PASS** | **PASS** | pass 12/12 |
+| `library_system` | 223.3 | propre | OK | **PASS** | **PASS** | pass 9/9 |
+| `multi_module` | 141.6 | propre | OK | **PASS** | **PASS** | pass 5/5 |
 
 ## `cli_tool`
 
-- génération : **11.3 s** (exit 0)
+- génération : **14.2 s** (exit 0)
 - le prompt n'énumère pas de ligne de commande
 - marqueurs interdits : aucun
 - compile : OK
@@ -25,7 +25,7 @@ mur de `agent.py --prompt <nom>`.
 
 ## `expenses`
 
-- génération : **402.6 s** (exit 0)
+- génération : **418.4 s** (exit 0)
 - commandes énumérées par le prompt : 14 — `expense category add`, `expense category list`, `expense category update`, `expense category delete`, `budget list`, `budget add`, `budget update`, `budget delete`, `expense add`, `expense list`, `expense report monthly`, `expense report yearly`, `expense export`, `expense recurring detect`
 - balayage de surface : 42 invocations
 - marqueurs interdits : aucun
@@ -46,7 +46,7 @@ mur de `agent.py --prompt <nom>`.
 
 ## `inventory`
 
-- génération : **241.1 s** (exit 0)
+- génération : **244.8 s** (exit 0)
 - commandes énumérées par le prompt : 11 — `product add`, `product list`, `product update`, `product delete`, `product restock`, `product report low-stock`, `product report value`, `category add`, `category list`, `category update`, `category delete`
 - balayage de surface : 33 invocations
 - marqueurs interdits : aucun
@@ -57,7 +57,7 @@ mur de `agent.py --prompt <nom>`.
 
 ## `library_system`
 
-- génération : **244.0 s** (exit 0)
+- génération : **223.3 s** (exit 0)
 - commandes énumérées par le prompt : 9 — `library book add`, `library book list`, `library book search`, `library member add`, `library member list`, `library borrow`, `library return`, `library overdue`, `library member history`
 - balayage de surface : 27 invocations
 - marqueurs interdits : aucun
@@ -68,7 +68,7 @@ mur de `agent.py --prompt <nom>`.
 
 ## `multi_module`
 
-- génération : **128.8 s** (exit 0)
+- génération : **141.6 s** (exit 0)
 - le prompt n'énumère pas de ligne de commande
 - marqueurs interdits : aucun
 - compile : OK
@@ -76,4 +76,4 @@ mur de `agent.py --prompt <nom>`.
 - **conforme** : PASS
 - façade (contrôle indépendant, piloté par LLM) : status=pass pass=5/5
 
-_Généré le 2026-09-16T05:20:48.624069+00:00._
+_Généré le 2026-09-16T06:42:13.252117+00:00._
