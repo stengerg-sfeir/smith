@@ -2,7 +2,7 @@
 
 **Agent Smith** est un agent de génération de code conçu pour produire des applications Python complètes, testées et robustes à partir de **petits modèles locaux (4B de paramètres)**.
 
-Au lieu de reposer sur de gros LLM propriétaires en SaaS et sur des boucles lentes de correction après-coup (*post-hooks*), Agent Smith s'appuie sur une **architecture neurosymbolique** : il contraint strictly le LLM via un pipeline déterministe, des grammaires JSON (GBNF) et des validations AST dès la phase de génération.
+Au lieu de reposer sur de gros LLM propriétaires en SaaS et sur des boucles lentes de correction après-coup (*post-hooks*), Agent Smith s'appuie sur une **architecture neurosymbolique** : il contraint strictement le LLM via un pipeline déterministe, des grammaires JSON (GBNF) et des validations AST dès la phase de génération.
 
 ---
 
@@ -32,21 +32,49 @@ Agent Smith utilise le LLM uniquement pour la compréhension sémantique et la l
 
 ### Prérequis
 
-* Python 3.10+
-* Un serveur LLM local compatible OpenAI (ex. `llama-server` ou `vLLM`) accessible sur `http://localhost:8000/v1`.
+**Python.** ≥ 3.10 pour le testeur (`bench.py`), ≥ 3.9 pour le générateur (`agent.py`).
+Développé et mesuré sur CPython 3.14.5. Le détail des raisons est en commentaire dans les
+deux fichiers de dépendances.
+
+**Paquets.**
+
+* `ruff` — le générateur exécute `ruff check --fix --select E,F,I,W` sur chaque projet
+  produit. Dépendance *souple* (l'appel est protégé par un `try/except`), mais sans lui le
+  code généré garde ses défauts d'ordre d'imports et d'imports inutilisés. Installé par
+  `requirements.txt`.
+* `click` — le testeur *exécute* les CLI générés (chacun étant une application click) dans
+  le même interpréteur, donc l'environnement du testeur doit l'avoir. Installé par
+  `requirements-dev.txt`.
+
+**Serveur LLM local**, compatible OpenAI, accessible sur `http://localhost:8000/v1`
+(`llama-server`, `vLLM`, …). Version mesurée : **llama.cpp build `9430`** (commit
+`d48a56eff`), installé par Homebrew sur macOS arm64, backend **Metal** activé :
+
+```bash
+brew install llama.cpp
+llama-server --version      # version: 9430 (d48a56eff)
+                            # built with AppleClang 21.0.0.21000099 for Darwin arm64
+```
+
+`server.sh` lance ce serveur (le modèle `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` est attendu à
+la racine du dépôt) ; sur macOS il passe par `caffeinate`. Toutes les options qu'il utilise
+(`--ctx-checkpoints`, `--cache-ram`, `--parallel`, `--log-file`, `--host`, `-sps`, `-ngl`,
+`-ub`, `-c`, `-b`) sont acceptées par ce build ; `--cache-ram` et `--ctx-checkpoints` étant
+récentes, prévois un build du même ordre de grandeur.
 
 ### Installation
 
 ```bash
 git clone git@github.com:stengerg-sfeir/smith.git
 cd smith
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt        # générateur : ruff
 ```
 
-Pour installer les outils de dev complémentaires :
+Pour installer les outils de dev complémentaires (ajoute `click`, et reprend le
+générateur) :
 
 ```bash
-pip install -r requirements-dev.txt
+python3 -m pip install -r requirements-dev.txt    # testeur : ruff + click
 ```
 
 ### Exécution
@@ -55,22 +83,43 @@ pip install -r requirements-dev.txt
 L'entrée principale s'effectue via `agent.py` :
 
 ```bash
-python agent.py --prompt hello_world
+bash server.sh                            # dans un autre terminal : le serveur LLM
+python3 agent.py --list                   # lister les prompts disponibles
+python3 agent.py --prompt hello_world
 ```
 
 **Lancer les suites d'évaluation et de benchmark :**
-L'ensemble des outils de benchmark et de vérification est centralisé dans `bench.py` :
+L'ensemble des outils de benchmark et de vérification est centralisé dans `bench.py`
+(à lancer depuis la racine du dépôt) :
 
 ```bash
-python bench.py --help
+python3 bench.py --help
 ```
 
 ---
 
 ## Analyses & Documentation
 
-Des rapports détaillés et des analyses d'architecture sont maintenus dans le dossier `analysis/` :
-* `agent_architectural_analysis.md` : Analyse de la structure globale de l'agent.
-* `claude_vs_generator.md` : Comparatif entre la baseline Claude et le générateur.
-* `semantic_problems.md` : Cartographie des défauts sémantiques et comportementaux.
-* `semantic_dispositions.md` : Stratégies de correction et évolutions du kernel.
+Le dossier `analysis/` contient un ledger et des rapports datés :
+
+* `semantic_dispositions.md` — **le document de référence** : pour chaque défaut sémantique
+  corrigé, le mécanisme qui l'empêche désormais de revenir et la mesure qui le prouve.
+* `convergence_plan.md` — la méthode du chantier (« une loi à la fois »), ses lois et ses
+  preuves datées ; marqué clos.
+* `named_prompts_analysis.md` — ce que les portes du harnais vérifient sur les six prompts
+  nommés.
+* `named_prompts_report.md` / `.json` — le tableau des quatre axes, réécrit à chaque
+  `bench.py named`.
+* `claude_vs_generator.md` — comparatif entre la baseline Claude Code et le générateur.
+* `claude_baseline_report.md` / `claude_baseline_report_sonnet.md` — les mesures brutes de
+  cette comparaison (Haiku / Sonnet).
+* `small_model_trials.md` — trois modèles plus petits que le 4B de référence, et ce qu'ils
+  révèlent.
+* `generation_cost_profile.md` — où passe le temps mural d'une génération.
+
+Six rapports plus anciens ont été retirés : `agent_architectural_analysis.md`,
+`agent_diagnosis_summary.md`, `code_spec_analysis.md`, `ground_truth_target.md`,
+`oracle_test_bloat_analysis.md` et `semantic_problems.md`. Leurs affirmations sur le dépôt
+étaient devenues fausses — ils décrivaient par exemple un générateur qui n'émettrait pas de
+`ON DELETE CASCADE`, ou seulement 4 projets conformes sur 40 ; ils énuméraient aussi des
+défauts depuis corrigés. L'historique git les conserve.
