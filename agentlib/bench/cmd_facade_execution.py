@@ -5,7 +5,7 @@ This wires together the NEW facade tester (built ALONGSIDE the existing
 internal tester). For each named prompt (plus prompt 20):
 
 1. loads the intent-extraction + facade-discovery artifact
-   (``behavior_runs/facade/<ident>.json``, produced by ``run_facade_intents.py``),
+   (``behavior_runs/facade/<ident>.json``, produced by ``bench.py facade-intents``),
 2. maps each intention to a concrete CLI invocation (``facade_mapping``),
 3. executes it in a subprocess against the generated project
    (``facade_executor``),
@@ -16,8 +16,8 @@ It does NOT call the LLM — it reuses the stage-A artifact — so it is fast an
 fully deterministic. Unmapped intentions are reported, not run.
 
 Usage:
-    python3 run_facade_execution.py                 # all prompts
-    python3 run_facade_execution.py --prompt inventory
+    python3 bench.py facade-exec                 # all prompts
+    python3 bench.py facade-exec --prompt inventory
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     for ident in idents:
         artifact = artifact_dir / ("%s.json" % ident)
         if not artifact.exists():
-            print("[%s] no artifact (run run_facade_intents.py first)" % ident, file=sys.stderr)
+            print("[%s] no artifact (run 'bench.py facade-intents' first)" % ident, file=sys.stderr)
             summary["results"].append({"ident": ident, "status": "no_artifact"})
             continue
         data = json.loads(artifact.read_text(encoding="utf-8"))

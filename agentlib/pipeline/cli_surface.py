@@ -14,7 +14,7 @@ Priority (see CLI_FROM_INTENTS.md section 5):
    search verbs over the designed entities).
 
 This module is GENERATION-side (agentlib); it must never import from
-``behavior_tests``.
+``agentlib.bench``.
 """
 from __future__ import annotations
 

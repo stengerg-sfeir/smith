@@ -21,8 +21,8 @@ Two things this harness is deliberately honest about:
   produced source.
 
 Usage:
-    python3 run_claude_baseline.py --only hello_world
-    python3 run_claude_baseline.py                  # all six named prompts
+    python3 bench.py claude --only hello_world
+    python3 bench.py claude                  # all six named prompts
 """
 import argparse
 import ast

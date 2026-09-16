@@ -582,7 +582,7 @@ def method_contract_violations(tree, svc_design, contracts, entities_by_class,
 
     Effects and guards are NOT checked here: whether a counter really moved
     is a runtime property, so it is verified by the executed oracle
-    (``behavior_tests``) instead of by pattern-matching the source.
+    (``agentlib.bench``) instead of by pattern-matching the source.
     """
     violations = []
     contracts = contracts or {}

@@ -11,7 +11,7 @@ so every importing namespace is patched in place — no call can bypass the
 counter.
 
 Usage:
-    python3 run_cost_profile.py --prompt library_system --prompt expenses
+    python3 bench.py cost --prompt library_system --prompt expenses
 """
 import argparse
 import os

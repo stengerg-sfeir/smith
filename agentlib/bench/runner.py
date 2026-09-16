@@ -8,7 +8,7 @@ For each prompt it:
 4. parses the JSON result and folds per-test pass/fail + a coverage matrix
    into a result dict.
 
-The runner can be used standalone (``python3 run_behavior_tests.py``) and is
+The runner can be used standalone (``python3 bench.py behavior``) and is
 deliberately not coupled to the generation benchmark.
 """
 

@@ -17,7 +17,7 @@ tuned to satisfy both by construction -- and every invariant is EXECUTED
 against the generated package, not pattern-matched in its source.
 
 Usage:
-    python3 -m behavior_tests.semantic_oracle --project library_system
+    python3 -m agentlib.bench.semantic_oracle --project library_system
 """
 
 from __future__ import annotations

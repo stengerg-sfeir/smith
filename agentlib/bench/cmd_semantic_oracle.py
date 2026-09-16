@@ -7,9 +7,9 @@ project, then validates that the oracle is load-bearing by mutation
 (``agentlib.bench.mutate_semantic``).
 
 Usage:
-    python3 run_semantic_oracle.py
-    python3 run_semantic_oracle.py --project expenses
-    python3 run_semantic_oracle.py --no-mutate
+    python3 bench.py semantic
+    python3 bench.py semantic --project expenses
+    python3 bench.py semantic --no-mutate
 """
 
 from __future__ import annotations

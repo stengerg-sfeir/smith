@@ -16,7 +16,7 @@ specification names, nor stop dropping a duplicate:
   (``list_authors_with_books`` beside ``find_books_by_author``);
 * ``_drop_functions``       — the AST range deletion that removes them.
 
-Usage: python3 run_repo_pruner_unit.py
+Usage: python3 bench.py pruners
 """
 
 from __future__ import annotations

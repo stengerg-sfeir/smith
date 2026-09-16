@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prompt -> repository surface conformity gate (deterministic, no LLM).
 
-The counterpart of ``run_cli_conformity.py`` for the layer below it. The CLI
+The counterpart of ``cmd_cli_conformity`` for the layer below it. The CLI
 gate answers "does the surface the prompt enumerates exist, and nothing else?";
 this one answers "does each repository ship one method per capability, and only
 the capabilities the prompt names?".
@@ -12,8 +12,8 @@ sibling with a scalar qualifier, or whose name appears nowhere in the prompt is
 a FAILURE.
 
 Usage:
-    python3 run_repo_conformity.py                    # every enumerated prompt
-    python3 run_repo_conformity.py --prompt expenses
+    python3 bench.py repo-conformity                    # every enumerated prompt
+    python3 bench.py repo-conformity --prompt expenses
 """
 
 from __future__ import annotations

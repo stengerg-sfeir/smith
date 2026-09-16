@@ -15,8 +15,8 @@ never mutates ``generated/`` and never disturbs the fixtures the other suites
 seed.
 
 Usage:
-    python3 run_surface_smoke.py                  # every enumerated prompt
-    python3 run_surface_smoke.py --prompt expenses
+    python3 bench.py surface                  # every enumerated prompt
+    python3 bench.py surface --prompt expenses
 """
 
 from __future__ import annotations

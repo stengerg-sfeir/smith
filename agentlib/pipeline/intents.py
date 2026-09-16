@@ -3,7 +3,7 @@
 This module is the AGENTLIB home of the intention oracle. It is used in two
 places:
 
-1. The facade tester (``behavior_tests``) extracts USER INTENTIONS from a
+1. The facade tester (``agentlib.bench``) extracts USER INTENTIONS from a
    prompt to verify the generated app fulfils what a user actually wants at
    the user-facing surface (``extract_intentions``).
 2. The generation pipeline (``agentlib.pipeline.manifest``) now uses the SAME
@@ -14,7 +14,7 @@ places:
    ``cli`` file.
 
 This file is intentionally SELF-CONTAINED: ``agentlib`` must never import
-from ``behavior_tests`` (which already imports from ``agentlib``). The
+from ``agentlib.bench`` (which already imports from ``agentlib``). The
 intention-extraction logic here is a distinct copy that lives in the
 ``agentlib`` package, so the generation pipeline can use it directly.
 """

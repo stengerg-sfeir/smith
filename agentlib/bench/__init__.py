@@ -12,7 +12,7 @@ The test pipeline is:
     test_behavior.py --> (subprocess against generated/NN) --> JSON result
 
 and the whole thing can be run independently via
-``python3 run_behavior_tests.py --prompt NN`` (or ``--all`` / ``--start`` /
+``python3 bench.py behavior --prompt NN`` (or ``--all`` / ``--start`` /
 ``--end``).
 """
 

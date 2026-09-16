@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end behavioural gate on the GENERATED CLIs (no LLM).
 
-`run_facade_execution.py` proves each enumerated command is REACHABLE and exits
+`bench.py facade-exec` proves each enumerated command is REACHABLE and exits
 0 on a mapped intention. This runner proves the paths that mapping cannot
 express: a value the specification DECLARES must be enforced, a command it
 never asked for must be absent, and the stateful workflows must actually move
@@ -11,8 +11,8 @@ Every assertion is executed against the shipped CLI on a FRESH database, so a
 generator regression shows up here as a non-zero exit or a wrong row.
 
 Usage:
-    python3 run_cli_behavior.py                    # every covered project
-    python3 run_cli_behavior.py --prompt expenses
+    python3 bench.py cli-behavior                    # every covered project
+    python3 bench.py cli-behavior --prompt expenses
 """
 
 from __future__ import annotations

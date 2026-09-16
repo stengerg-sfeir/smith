@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run the full facade tester over ALL prompts in batches of 5.
 
-Two stages per prompt, matching ``run_facade_intents.py`` then
-``run_facade_execution.py``:
+Two stages per prompt, matching ``bench facade-intents`` then
+``bench facade-exec``:
 
 - Stage A: extract intentions + discover the CLI facade -> writes
   ``behavior_runs/facade/<ident>.json``.
@@ -14,9 +14,9 @@ artifacts and a batch summary are written to ``behavior_runs/facade/batches/``,
 so a partial run is never lost.
 
 Usage:
-    python3 run_facade_all.py                  # all prompts, batches of 5
-    python3 run_facade_all.py --only 01 02 03  # only these idents
-    python3 run_facade_all.py --batch-size 3
+    python3 bench.py facade-all                  # all prompts, batches of 5
+    python3 bench.py facade-all --only 01 02 03  # only these idents
+    python3 bench.py facade-all --batch-size 3
 """
 
 from __future__ import annotations

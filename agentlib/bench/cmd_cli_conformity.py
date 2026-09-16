@@ -12,8 +12,8 @@ defect: a command the prompt never asked for is a FAILURE, and a command the
 prompt asked for but that is absent is a FAILURE too.
 
 Usage:
-    python3 run_cli_conformity.py                    # every enumerated prompt
-    python3 run_cli_conformity.py --prompt expenses
+    python3 bench.py cli-conformity                    # every enumerated prompt
+    python3 bench.py cli-conformity --prompt expenses
 """
 
 from __future__ import annotations

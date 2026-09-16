@@ -8,7 +8,7 @@ corrupt a file that already compiles. These cases pin the two properties
 that matter: each floor fires on exactly the shapes it targets, and it never
 touches a file it should leave alone.
 
-Usage: python3 run_generation_floors_unit.py
+Usage: python3 bench.py floors
 """
 import sys
 

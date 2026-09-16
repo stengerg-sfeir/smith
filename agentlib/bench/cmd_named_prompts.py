@@ -16,9 +16,9 @@ The report is written to ``analysis/named_prompts_report.md`` (readable) and
 ``analysis/named_prompts_report.json`` (machine-readable).
 
 Usage:
-    python3 run_named_prompts.py                       # all six, regenerate
-    python3 run_named_prompts.py --only expenses        # one prompt
-    python3 run_named_prompts.py --skip-generate        # verify what is there
+    python3 bench.py named                       # all six, regenerate
+    python3 bench.py named --only expenses        # one prompt
+    python3 bench.py named --skip-generate        # verify what is there
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ non-tautological: each mutant corresponds to an invariant the spec declares
 (FK enforcement, unique constraint), and breaking it must be caught.
 
 Usage:
-    python3 -m behavior_tests.mutate --prompt 27 [--use-cached-spec]
+    python3 -m agentlib.bench.mutate --prompt 27 [--use-cached-spec]
 """
 
 from __future__ import annotations
