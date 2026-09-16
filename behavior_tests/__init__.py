@@ -1,9 +1,9 @@
 """Independent behavioral test generation for the neurosymbolic bench.
 
-This package is deliberately decoupled from ``run_benchmark.py`` and
-``checks/generic_checks.py``. It generates *behavioral* assertions from the
-prompt specification independently of the code generator, so the resulting
-tests are a non-tautological oracle for the generated application.
+This package is deliberately decoupled from the code generator. It generates
+*behavioral* assertions from the prompt specification independently of the
+generator, so the resulting tests are a non-tautological oracle for the
+generated application.
 
 The test pipeline is:
 
@@ -13,7 +13,7 @@ The test pipeline is:
 
 and the whole thing can be run independently via
 ``python3 run_behavior_tests.py --prompt NN`` (or ``--all`` / ``--start`` /
-``--end``). It does not depend on ``run_benchmark.py``.
+``--end``).
 """
 
 from __future__ import annotations
