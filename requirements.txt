@@ -4,20 +4,33 @@
 #   harness and is covered by requirements-dev.txt.
 #
 # ---------------------------------------------------------------------------
-# NO third-party package.
+# 1. `ruff` -- the only external tool the generator invokes.
+# ---------------------------------------------------------------------------
 #
-# Every module the generator imports is Python standard library:
+# agentlib/pipeline/generate.py:24 runs, on EVERY generated project
+# (agentlib/pipeline/run.py:359):
+#
+#     ruff check --fix --select E,F,I,W <project_dir>      (timeout 30 s)
+#
+# It is a *soft* dependency: the call is wrapped in
+# `except (subprocess.TimeoutExpired, FileNotFoundError): pass`, so generation
+# completes without it -- but the generated tree then keeps the import-order,
+# unused-import and whitespace defects the pass exists to remove. Install it.
+#
+# `ruff` ships on PyPI, so the line below installs it. Note that the machine this
+# was measured on has it from Homebrew instead (`/opt/homebrew/bin/ruff`, 0.15.1),
+# which is why `pip show ruff` reports nothing there even though the binary runs.
+#
+ruff>=0.5,<1
+#
+# Everything else the generator imports is Python standard library:
 #   __future__ argparse ast builtins copy dataclasses difflib importlib inspect
 #   json os pathlib pkgutil re subprocess sys textwrap traceback typing
 #   unicodedata urllib
-#
 # The LLM is reached over plain HTTP with urllib.request (agentlib/llm/client.py),
 # never through an SDK, so no HTTP client is required.
 #
-# This file deliberately has no requirement lines, so that
-# `pip install -r requirements.txt` succeeds and installs nothing.
 # ---------------------------------------------------------------------------
-#
 # Python >= 3.9
 #
 #   agentlib/pipeline/manifest.py:380 writes a builtin generic in an EVALUATED
@@ -34,11 +47,11 @@
 #   match/case, no except*, no tomllib import -- the only "tomllib" in the tree is
 #   a string inside the stdlib name list in agentlib/checks/ast_utils.py).
 #
-#   Developed and measured on CPython 3.14.5.
+#   Developed and measured on CPython 3.14.5, ruff 0.15.1.
 #
 # ---------------------------------------------------------------------------
-# NOT a Python dependency, but required to generate anything:
+# NOT installable, but required to generate anything:
 #   a running llama.cpp server exposing the OpenAI-compatible endpoint
-#   http://localhost:8000/v1 (see server.sh, which also needs the GGUF weights).
-#   Override the endpoint with the LLM_BASE_URL environment variable
-#   (agentlib/config.py).
+#   http://localhost:8000/v1 (see server.sh, which also needs the GGUF weights
+#   and, on macOS, the `caffeinate` binary). Override the endpoint and the model
+#   with the LLM_BASE_URL / LLM_MODEL environment variables (agentlib/config.py).

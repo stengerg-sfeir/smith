@@ -7,7 +7,13 @@
 # requirements.txt needs, plus the one package below.
 #
 # ---------------------------------------------------------------------------
-# Third-party packages: exactly one.
+# The generator's own requirements first (this environment is a superset:
+# bench.py drives agent.py, and agent.py is what invokes ruff).
+# ---------------------------------------------------------------------------
+-r requirements.txt
+#
+# ---------------------------------------------------------------------------
+# Third-party packages the harness itself needs: exactly one.
 # ---------------------------------------------------------------------------
 #
 # click
