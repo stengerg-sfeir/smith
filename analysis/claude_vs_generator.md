@@ -1,12 +1,12 @@
 # The generator vs Claude Code, on the same six specifications
 
-Harness: `run_claude_baseline.py`. Each `prompts/prompt_<ident>.txt` is passed
+Harness: `python3 bench.py claude`. Each `prompts/prompt_<ident>.txt` is passed
 **verbatim** to non-interactive Claude Code (`claude -p`, `--output-format
 json`, empty working directory, no session persistence), plus one imperative
 tail asking for the full runnable implementation. The result is then subjected
 to the **same** gates as the generator: `functional_failures`,
 `conformity_failures` and `conformity`'s prompt→surface check, from
-`behavior_tests.named_prompt_suite`.
+`agentlib.bench.named_prompt_suite`.
 
 Claude's output is kept in `baseline/` (`baseline/<ident>/` for the CLI's own
 default model, `baseline/sonnet/<ident>/` for `--model sonnet`), so every gate
@@ -38,7 +38,7 @@ neither is privileged; the gate now decides behaviourally.
 
 Non-regression: after all nine corrections the generator still reports
 **0 functional and 0 conformity failures on all six**, and
-`run_repo_conformity.py` still passes 3/3.
+`bench.py repo-conformity` still passes 3/3.
 
 ## Verdicts (final, corrected gates)
 
@@ -132,3 +132,18 @@ gates, and three of them are installable packages (`pyproject.toml`,
   "failures" (the `library` program token, and id-vs-name for `--category`) are
   ambiguities a human reviewer would have to adjudicate, not defects. A
   conformance suite cannot be sharper than the specification it encodes.
+---
+
+**Nomenclature (commit `296211d`).** Les scripts `run_*.py` cités dans ce
+document sont regroupés dans `agentlib/bench/` derrière l'unique point d'entrée
+`bench.py` (`agent.py` reste le générateur) ; le paquet `behavior_tests/` est
+devenu `agentlib/bench/`. Traduction, suites et options inchangées :
+`run_named_prompts.py`→`bench.py named`, `run_cli_conformity.py`→`bench.py
+cli-conformity`, `run_repo_conformity.py`→`bench.py repo-conformity`,
+`run_semantic_oracle.py`→`bench.py semantic`, `run_cli_behavior.py`→`bench.py
+cli-behavior`, `run_facade_execution.py`→`bench.py facade-exec`,
+`run_facade_intents.py`→`bench.py facade-intents`, `run_facade_all.py`→`bench.py
+facade-all`, `run_surface_smoke.py`→`bench.py surface`, `run_cost_profile.py`→
+`bench.py cost`, `run_generation_floors_unit.py`→`bench.py floors`,
+`run_repo_pruner_unit.py`→`bench.py pruners`, `run_claude_baseline.py`→`bench.py
+claude`, `run_behavior_tests.py`→`bench.py behavior`.

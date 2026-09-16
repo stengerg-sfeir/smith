@@ -1,6 +1,6 @@
 # Generation cost profile — where the wall time actually goes
 
-Reproduction: `python3 run_cost_profile.py --prompt library_system --prompt expenses`
+Reproduction: `python3 bench.py cost --prompt library_system --prompt expenses`
 
 The harness wraps `agentlib.llm.client._chat_completion`, the single function
 every completion in the pipeline funnels through, in **every** namespace that
@@ -102,3 +102,18 @@ the model's output) could be prevented before the call instead of after.
 
 The earlier (wrong) conclusion inverted these two priorities. Measured, the
 generator's cost is a **design-phase** problem, not a fill problem.
+---
+
+**Nomenclature (commit `296211d`).** Les scripts `run_*.py` cités dans ce
+document sont regroupés dans `agentlib/bench/` derrière l'unique point d'entrée
+`bench.py` (`agent.py` reste le générateur) ; le paquet `behavior_tests/` est
+devenu `agentlib/bench/`. Traduction, suites et options inchangées :
+`run_named_prompts.py`→`bench.py named`, `run_cli_conformity.py`→`bench.py
+cli-conformity`, `run_repo_conformity.py`→`bench.py repo-conformity`,
+`run_semantic_oracle.py`→`bench.py semantic`, `run_cli_behavior.py`→`bench.py
+cli-behavior`, `run_facade_execution.py`→`bench.py facade-exec`,
+`run_facade_intents.py`→`bench.py facade-intents`, `run_facade_all.py`→`bench.py
+facade-all`, `run_surface_smoke.py`→`bench.py surface`, `run_cost_profile.py`→
+`bench.py cost`, `run_generation_floors_unit.py`→`bench.py floors`,
+`run_repo_pruner_unit.py`→`bench.py pruners`, `run_claude_baseline.py`→`bench.py
+claude`, `run_behavior_tests.py`→`bench.py behavior`.

@@ -23,10 +23,10 @@ Two checks exist and they must never share a source:
   the prompt.
 
 If a single source produced both, the check would restate the code and could
-never fail. The executed oracle (`behavior_tests/spec_invariants.py`) is a third
+never fail. The executed oracle (`agentlib/bench/spec_invariants.py`) is a third
 independent source — assertions transcribed from the prompt's own bullets,
 evaluated against concrete data through the public API — and
-`behavior_tests/mutate_semantic.py` proves it is load-bearing by requiring every
+`agentlib/bench/mutate_semantic.py` proves it is load-bearing by requiring every
 invariant to fail on a mutated snapshot.
 
 ## What was implemented
@@ -56,9 +56,9 @@ invariant to fail on a mutated snapshot.
    returns_entity}`; `method_contract_violations` then rejects a body that does
    not read a declared filter parameter or that never reaches the entity it must
    return.
-4. **Executed oracle + mutation testing** — `behavior_tests/spec_invariants.py`,
-   `behavior_tests/semantic_oracle.py`, `behavior_tests/mutate_semantic.py`,
-   driven by `run_semantic_oracle.py`.
+4. **Executed oracle + mutation testing** — `agentlib/bench/spec_invariants.py`,
+   `agentlib/bench/semantic_oracle.py`, `agentlib/bench/mutate_semantic.py`,
+   driven by `bench.py semantic`.
 5. **Bounded refill** — a rejected body's violations travel back to the retry
    (existing infra); the contract verifier is one more rejection source.
 
@@ -84,7 +84,7 @@ invariant to fail on a mutated snapshot.
 | S16 | `Member.is_active` default not captured | **recipe** | `agentlib/pipeline/model_defaults.py` transcribes defaults from the PROMPT alone and stamps them onto designed fields. Root cause of the miss: the design LLM stamps a default the renderer must STRICTLY reject, and the pass used to defer to it — it now defers only to a RENDERABLE default. Verified: `available_copies: int = 1`, `is_active: bool = True`. |
 | S17 | `BookRepository.search_book` omits author | **recipe** | The lone-term search recipe LIKEs the entity's own text columns AND the text columns of every entity it references through a `<ref>_id` column, joined in. Verified in the shipped body: `LEFT JOIN authors ON books.author_id = authors.id … OR authors.name LIKE ?`. Oracle: "search_books finds a book by its author's name" (a token that appears in no book column); killed by the dedicated `search_ignores_join` mutant. |
 | S18 | `bool`-returning methods carry no invariant enforcement | **recipe** | `counter_delta` / `flag_toggle` / `flag_set` / `status_set` effects are deterministic, AND so is the child-creating workflow: `compile_contract_impl` compiles a stated INSERT operation into a `create_child_row` impl (`agentlib/kernel/service/create_child_row.py`), which loads the anchor row, renders the guards from the DESIGN's own exception classes, applies the counter effects and inserts the child with every required column stamped from an exact source (a method parameter, the design's declared default, or "now" for an unqualified date). It is decided BEFORE the guard gate, so a guarded create is deterministic too. Earlier revisions of this row claimed `borrow_book` "stays LLM-filled" and that a child's required fields were "a domain decision neither source can supply" — measured on a fresh regeneration, that was a fill-luck dependency, not a necessity: one run shipped `borrow_book` as a dead `return False` stub, another happened to fill it correctly. The rendered body is now always `load Book → refuse when `(available_copies or 0) <= 0` → decrement → insert the Loan → True`, and the oracle's `borrow → return` round-trip (decrement, then restore) is a property of the renderer, not of the sample. |
-| S19 | Dead / duplicated methods | **fixed (surface)** | The prune ("keep only the commands the specification lists") used to be impossible: the deterministic surface it pruned against was itself incomplete — it lacked spec-required commands (`overdue`, `history`), so pruning by it removed working behaviour, and commit `30521e5` reverted the attempt. The lever was wrong, not the idea: the surface is no longer DERIVED from the design's methods, it is READ from the prompt's own command list (`agentlib/pipeline/cli_spec.py`), so it is complete by construction. `agentlib/pipeline/cli_propagate.py` now takes `preserve_surface=True` and skips its merge/drop loop entirely, and no LLM CLI design runs at all. Shipped counts: library_system 24 → 9 commands (the prompt's 9), expenses 22 → 14 (the prompt's 14); `run_cli_conformity.py` asserts the equality. |
+| S19 | Dead / duplicated methods | **fixed (surface)** | The prune ("keep only the commands the specification lists") used to be impossible: the deterministic surface it pruned against was itself incomplete — it lacked spec-required commands (`overdue`, `history`), so pruning by it removed working behaviour, and commit `30521e5` reverted the attempt. The lever was wrong, not the idea: the surface is no longer DERIVED from the design's methods, it is READ from the prompt's own command list (`agentlib/pipeline/cli_spec.py`), so it is complete by construction. `agentlib/pipeline/cli_propagate.py` now takes `preserve_surface=True` and skips its merge/drop loop entirely, and no LLM CLI design runs at all. Shipped counts: library_system 24 → 9 commands (the prompt's 9), expenses 22 → 14 (the prompt's 14); `bench.py cli-conformity` asserts the equality. |
 
 ## Residual, explicitly non-generic
 
@@ -162,14 +162,14 @@ guards `available_copies > 0`.
 ## Re-verifying
 
 ```
-python3 -m compileall -q agentlib behavior_tests
-python3 run_semantic_oracle.py            # invariants + mutation testing
-python3 run_facade_execution.py --prompt library_system --prompt expenses
-python3 run_cli_conformity.py             # prompt surface == shipped CLI
-python3 run_cli_behavior.py               # declared values, flags, workflows
+python3 -m compileall -q agentlib bench.py
+python3 bench.py semantic                 # invariants + mutation testing
+python3 bench.py facade-exec --prompt library_system --prompt expenses
+python3 bench.py cli-conformity           # prompt surface == shipped CLI
+python3 bench.py cli-behavior             # declared values, flags, workflows
 ```
 
-`run_cli_conformity.py` is the new deterministic gate for (a)+(b): for every
+`bench.py cli-conformity` is the new deterministic gate for (a)+(b): for every
 command a specification enumerates it asserts the group path exists and every
 named option is declared, and for every command the CLI exposes it asserts the
 specification asked for it. It is LLM-free and needs no fixture data.
@@ -392,7 +392,7 @@ specification's own enumerated command list and the surface is shipped
 verbatim; `_reconcile_cli_design(..., preserve_surface=True)` may back-propagate
 a missing service method but can never remove a command, and a removal is
 reported as `[conformity] MISSING command: <path>` rather than shipped.
-`run_cli_conformity.py` + `behavior_tests/conformity.py` are the executable
+`bench.py cli-conformity` + `agentlib/bench/conformity.py` are the executable
 check: for every command the prompt lists they assert the group chain, the
 sub-command and every option exist, and that **no command the prompt never
 asked for is exposed**. Measured on a fresh regeneration:
@@ -467,7 +467,7 @@ a design decision: a tree with a `cli.py` and no `main.py`/`app.py` now gets
 `_render_main_file` unconditionally. Verified: both projects ship a `main.py`.
 
 **(n) The tester reads the call wherever the generated body puts it.** —
-`behavior_tests/facade_discovery.py::_find_service_target` and
+`agentlib/bench/facade_discovery.py::_find_service_target` and
 `_data_keys_from_body`. Both scanned only a function's TOP-LEVEL statements.
 Adding the `try:` wrapper above nested the `result = svc.…` assignment one
 level down, so the facade discovered an EMPTY target for every command of every
@@ -603,7 +603,7 @@ ALL SEMANTIC CHECKS PASS
 [library_system] status=pass mapped=9  unmapped=0 pass=9  fail=0
 ```
 
-`run_cli_conformity.py` is load-bearing, not decorative: it is what caught the
+`bench.py cli-conformity` is load-bearing, not decorative: it is what caught the
 last regression (2 violations on `inventory`, caused by a missing command the
 generator itself had dropped), and its output is the measured equality between
 each prompt's own command list and the shipped CLI — every prompt command
@@ -765,7 +765,7 @@ have failed — so the marker means exactly what it says.
 
 ### The gate that keeps the display convention honest
 
-`run_cli_behavior.py` gained seven assertions on the report path: the monthly
+`bench.py cli-behavior` gained seven assertions on the report path: the monthly
 and yearly reports must print `Decimal` totals while `SUM(amount_cents)` in
 SQLite still returns integer cents. Both halves are checked (console path and
 stored column), so a regression on either side of the "store cents, display
@@ -824,7 +824,7 @@ a bare `category add` without its `expense` group, `expense monthly` for
 
 ### `source-fidelity`: a gate that found a defect in a DETERMINISTIC body
 
-`run_cli_behavior.py` grew a third suite that re-runs the generator's own
+`bench.py cli-behavior` grew a third suite that re-runs the generator's own
 `_repo_fidelity_violations` over the SHIPPED repository sources (83 assertions
 on the two projects). It exists because the fill-time rule only ever sees LLM
 FILLS — a deterministically rendered body never passes through the validator,
@@ -982,20 +982,20 @@ weaker; there is less duplicate surface to assert against.
 ### Gates re-run on the fresh regeneration
 
 ```
-python3 run_cli_conformity.py
+python3 bench.py cli-conformity
 [expenses]       status=pass prompt_commands=14 violations=0
 [inventory]      status=pass prompt_commands=11 violations=0
 [library_system] status=pass prompt_commands=9  violations=0
 
-python3 run_cli_behavior.py
+python3 bench.py cli-behavior
 EXPENSES: PASS (43 ok, 0 fail)   LIBRARY_SYSTEM: PASS (39 ok, 0 fail)
 SOURCE-FIDELITY: PASS (65 ok, 0 fail)   FIDELITY-RULES: PASS (7 ok, 0 fail)
 
-python3 run_semantic_oracle.py
+python3 bench.py semantic
 library_system: 15/15 invariant(s) hold / mutation pass (baseline 15/15)
 expenses: 16/16 invariant(s) hold / mutation pass (baseline 16/16)
 
-python3 run_facade_execution.py --prompt library_system --prompt expenses \
+python3 bench.py facade-exec --prompt library_system --prompt expenses \
     --prompt inventory --prompt cli_tool
 [cli_tool] 5/5   [inventory] 12/12   [expenses] 14/14   [library_system] 9/9
 
@@ -1012,9 +1012,9 @@ the optional-option path that was defect 1 of the brief —
 `--expense-date`, exits 0 and stores today's ISO date.
 ### The duplicate-capability gate
 
-`run_repo_conformity.py` + `behavior_tests/repo_conformity.py` are the shipped
+`bench.py repo-conformity` + `agentlib/bench/repo_conformity.py` are the shipped
 regression test for this pass — the layer-below counterpart of
-`run_cli_conformity.py`, deterministic and LLM-free. For each generated
+`bench.py cli-conformity`, deterministic and LLM-free. For each generated
 repository they assert, per method, that it does not re-spell the deterministic
 CRUD surface, that it does not merely extend a sibling with a scalar qualifier,
 and that every content word of its name appears in the prompt that asked for the
@@ -1027,7 +1027,7 @@ reported exactly the duplicates that stale artifact still carried
 regenerated tree it reports 0. Measured on all three enumerating prompts:
 
 ```
-python3 run_repo_conformity.py
+python3 bench.py repo-conformity
 [expenses]       status=pass repositories=3 violations=0
 [inventory]      status=pass repositories=2 violations=0
 [library_system] status=pass repositories=4 violations=0
@@ -1074,7 +1074,7 @@ shipped `list_products`, and all five are gone on the fresh tree with the
 project's façade holding at 12/12.
 ### The surface-smoke gate
 
-`run_surface_smoke.py` is the executable form of the third objective — *no
+`bench.py surface` is the executable form of the third objective — *no
 command the prompt authorizes may crash*. For every command each enumerating
 prompt lists it invokes the shipped CLI three ways (`--help`, with NO option,
 and with every option given a placeholder value) inside a SCRATCH COPY of the
@@ -1085,7 +1085,7 @@ arguments). A stack dump is precisely the defect disposition (l) fixed, where
 a traceback.
 
 ```
-python3 run_surface_smoke.py
+python3 bench.py surface
 [expenses]       status=pass commands=14 runs=42 violations=0
 [inventory]      status=pass commands=11 runs=33 violations=0
 [library_system] status=pass commands=9  runs=27 violations=0
@@ -1179,12 +1179,12 @@ capability the bullet names exactly once is left alone, so
 `get_expenses_for_category`, `check_budget_exceeded`, `get_monthly_report` and
 `get_yearly_summary` are untouched — each names a capability no sibling shares.
 
-`behavior_tests/repo_conformity.py` gained the matching check — two shipped
+`agentlib/bench/repo_conformity.py` gained the matching check — two shipped
 methods with identical non-empty capability tokens are a violation — and it
 FAILED on the tree before regeneration
 (`author_repository.py ships find_books_by_author and list_authors_with_books
 — one capability (books), two implementations`), which is what makes it
-load-bearing rather than decorative. `run_repo_pruner_unit.py` grew from 71 to
+load-bearing rather than decorative. `bench.py pruners` grew from 71 to
 81 cases, pinning the new predicate in both directions against the REAL prompt
 bullets.
 
@@ -1231,12 +1231,12 @@ exit 1 for the official forbidden pattern):
 
 | gate | result |
 |---|---|
-| `compileall` (agentlib, behavior_tests, gates) | OK |
-| `run_repo_pruner_unit.py` | PASS (81 cases) |
-| `run_cli_conformity.py` | 0 violations — expenses 14, inventory 11, library_system 9 |
-| `run_repo_conformity.py` | 0 violations — 3 + 2 + 4 repositories |
-| `run_surface_smoke.py` | 102 invocations, 0 tracebacks |
-| `run_cli_behavior.py` | PASS (43 / 39 / 64 / 7) |
+| `compileall` (agentlib, bench.py, gates) | OK |
+| `bench.py pruners` | PASS (81 cases) |
+| `bench.py cli-conformity` | 0 violations — expenses 14, inventory 11, library_system 9 |
+| `bench.py repo-conformity` | 0 violations — 3 + 2 + 4 repositories |
+| `bench.py surface` | 102 invocations, 0 tracebacks |
+| `bench.py cli-behavior` | PASS (43 / 39 / 64 / 7) |
 | `list_authors_with_books` in the tree | 0 occurrences |
 | `init_database` + `get_connection` + `get_db_connection` | 0 occurrences in any `database.py` |
 
@@ -1307,7 +1307,7 @@ instead of being deleted.
 ### D5 — the same class of defect, exposed by an outside implementation
 
 A Claude Code baseline (`claude -p`, non-interactive, prompt file verbatim;
-`run_claude_baseline.py`) was run against the same six specifications and then
+`bench.py claude`) was run against the same six specifications and then
 subjected to the *same* gates. Three further checks turned out to encode an
 unstated convention of THIS generator:
 

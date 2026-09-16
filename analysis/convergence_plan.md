@@ -423,3 +423,31 @@ Contre-exemples mesurés malgré ces portes vertes :
   `average_monthly_spend: 36466.666666666664` (N4).
 - `expense add … --method bitcoin` → accepté (N5).
 - `expense add --help` → `--recurring / --no-recurring` (N6).
+---
+
+## Note de nomenclature (commit `296211d`)
+
+Les scripts `run_*.py` cités dans ce document ont été regroupés dans
+`agentlib/bench/` derrière l'unique point d'entrée `bench.py` ; `agent.py`
+reste le générateur. Le paquet `behavior_tests/` est devenu `agentlib/bench/`.
+Correspondances :
+
+| ancien | maintenant |
+|---|---|
+| `run_named_prompts.py` | `python3 bench.py named` |
+| `run_cli_conformity.py` | `python3 bench.py cli-conformity` |
+| `run_repo_conformity.py` | `python3 bench.py repo-conformity` |
+| `run_semantic_oracle.py` | `python3 bench.py semantic` |
+| `run_cli_behavior.py` | `python3 bench.py cli-behavior` |
+| `run_facade_execution.py` | `python3 bench.py facade-exec` |
+| `run_facade_intents.py` | `python3 bench.py facade-intents` |
+| `run_facade_all.py` | `python3 bench.py facade-all` |
+| `run_surface_smoke.py` | `python3 bench.py surface` |
+| `run_cost_profile.py` | `python3 bench.py cost` |
+| `run_generation_floors_unit.py` | `python3 bench.py floors` |
+| `run_repo_pruner_unit.py` | `python3 bench.py pruners` |
+| `run_claude_baseline.py` | `python3 bench.py claude` |
+| `run_behavior_tests.py` | `python3 bench.py behavior` |
+
+Le texte ci-dessus est conservé tel qu'il a été mesuré ; seuls les points
+d'entrée ont changé, les suites et leurs options sont identiques.
