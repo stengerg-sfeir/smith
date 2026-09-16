@@ -7,10 +7,10 @@ mur de `agent.py --prompt <nom>`.
 | prompt | génération (s) | marqueurs | compile | **fonctionnel** | **conforme** | façade |
 |---|---|---|---|---|---|---|
 | `cli_tool` | 14.2 | propre | OK | **PASS** | **PASS** | pass 5/5 |
-| `expenses` | 418.4 | propre | OK | **PASS** | **PASS** | pass 14/14 |
+| `expenses` | 402.0 | propre | OK | **PASS** | **PASS** | pass 14/14 |
 | `hello_world` | 2.0 | propre | OK | **PASS** | **PASS** | no_mapped 0/0 |
 | `inventory` | 244.8 | propre | OK | **PASS** | **PASS** | pass 12/12 |
-| `library_system` | 223.3 | propre | OK | **PASS** | **PASS** | pass 9/9 |
+| `library_system` | 220.2 | propre | OK | **PASS** | **PASS** | pass 9/9 |
 | `multi_module` | 141.6 | propre | OK | **PASS** | **PASS** | pass 5/5 |
 
 ## `cli_tool`
@@ -25,7 +25,7 @@ mur de `agent.py --prompt <nom>`.
 
 ## `expenses`
 
-- génération : **418.4 s** (exit 0)
+- génération : **402.0 s** (exit 0)
 - commandes énumérées par le prompt : 14 — `expense category add`, `expense category list`, `expense category update`, `expense category delete`, `budget list`, `budget add`, `budget update`, `budget delete`, `expense add`, `expense list`, `expense report monthly`, `expense report yearly`, `expense export`, `expense recurring detect`
 - balayage de surface : 42 invocations
 - marqueurs interdits : aucun
@@ -57,7 +57,7 @@ mur de `agent.py --prompt <nom>`.
 
 ## `library_system`
 
-- génération : **223.3 s** (exit 0)
+- génération : **220.2 s** (exit 0)
 - commandes énumérées par le prompt : 9 — `library book add`, `library book list`, `library book search`, `library member add`, `library member list`, `library borrow`, `library return`, `library overdue`, `library member history`
 - balayage de surface : 27 invocations
 - marqueurs interdits : aucun
@@ -76,4 +76,4 @@ mur de `agent.py --prompt <nom>`.
 - **conforme** : PASS
 - façade (contrôle indépendant, piloté par LLM) : status=pass pass=5/5
 
-_Généré le 2026-09-16T11:28:08.067920+00:00._
+_Généré le 2026-09-16T13:43:13.439381+00:00._

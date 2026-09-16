@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T11:28:08.062715+00:00",
+  "generated_at": "2026-09-16T13:43:13.435832+00:00",
   "records": [
     {
       "ident": "cli_tool",
@@ -20,7 +20,7 @@
     },
     {
       "ident": "expenses",
-      "elapsed_s": 418.4,
+      "elapsed_s": 402.0,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -102,7 +102,7 @@
     },
     {
       "ident": "library_system",
-      "elapsed_s": 223.3,
+      "elapsed_s": 220.2,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
