@@ -1,0 +1,53 @@
+# Runtime requirements of the TESTER (the generation harness).
+#
+#   bench.py + agentlib/bench/
+#
+# It is a SUPERSET of the generator's environment: the harness drives
+# agent.py / agentlib.pipeline.* to generate projects, so it needs everything
+# requirements.txt needs, plus the one package below.
+#
+# ---------------------------------------------------------------------------
+# Third-party packages: exactly one.
+# ---------------------------------------------------------------------------
+#
+# click
+#
+#   The harness never imports a generated CLI -- it PARSES cli.py with ast
+#   (agentlib/bench/conformity.py, agentlib/bench/design_extract.py) or RUNS it as a
+#   subprocess under the SAME interpreter:
+#       agentlib/bench/cmd_surface_smoke.py : [sys.executable, "cli.py"] + args
+#       agentlib/bench/named_prompt_suite.py: _run(project, ["cli.py"] + ...)
+#       agentlib/bench/facade_executor.py   : subprocess + sys.executable
+#   Those child processes import click, because every generated CLI IS a click
+#   application (agentlib/generation/cli_render.py emits `import click`,
+#   @click.group(), @click.command(), @click.option(), click.Choice, click.echo).
+#   Running them therefore requires click to be importable in this environment.
+#
+#   APIs used by the generated code (@click.group, @click.command, @click.option,
+#   is_flag, default, required, type=int/float, click.Choice, click.echo) are all
+#   present since click 7; the floor below is 8.0, measured at 8.4.2.
+#
+click>=8.0,<9
+#
+# The generated service/model/repository modules that the oracle imports
+# IN-PROCESS (agentlib/bench/semantic_oracle.py: models, database, exceptions,
+# repos, services; agentlib/bench/renderer.py: exceptions) are standard-library
+# only (sqlite3, dataclasses, datetime, decimal, typing), so they add no package.
+#
+# ---------------------------------------------------------------------------
+# Python >= 3.10  (the generator itself only needs 3.9 -- see requirements.txt)
+#
+#   Three harness modules do NOT carry `from __future__ import annotations` and
+#   write PEP 604 unions in EVALUATED annotations, so `X | Y` is built when the
+#   module is imported:
+#       agentlib/bench/cmd_claude_baseline.py         (5, e.g. `model: str | None`)
+#       agentlib/bench/cmd_cost_profile.py            (`argv: list[str] | None`)
+#       agentlib/bench/cmd_generation_floors_unit.py  (`argv: list[str] | None`)
+#
+#   Developed and measured on CPython 3.14.5.
+#
+# ---------------------------------------------------------------------------
+# NOT a Python dependency, but required by one command:
+#   `python3 bench.py claude` shells out to the Claude Code CLI
+#   (`claude -p ...`, agentlib/bench/cmd_claude_baseline.py:88). Every other
+#   bench.py subcommand needs no external binary.

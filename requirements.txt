@@ -1,0 +1,44 @@
+# Runtime requirements of the GENERATOR.
+#
+#   agent.py + agentlib/ , EXCLUDING agentlib/bench/ -- that package is the test
+#   harness and is covered by requirements-dev.txt.
+#
+# ---------------------------------------------------------------------------
+# NO third-party package.
+#
+# Every module the generator imports is Python standard library:
+#   __future__ argparse ast builtins copy dataclasses difflib importlib inspect
+#   json os pathlib pkgutil re subprocess sys textwrap traceback typing
+#   unicodedata urllib
+#
+# The LLM is reached over plain HTTP with urllib.request (agentlib/llm/client.py),
+# never through an SDK, so no HTTP client is required.
+#
+# This file deliberately has no requirement lines, so that
+# `pip install -r requirements.txt` succeeds and installs nothing.
+# ---------------------------------------------------------------------------
+#
+# Python >= 3.9
+#
+#   agentlib/pipeline/manifest.py:380 writes a builtin generic in an EVALUATED
+#   annotation, in a module that does NOT carry
+#   `from __future__ import annotations`:
+#       by_capability: dict[frozenset, list] = {}
+#   `dict[...]` as a subscript needs 3.9 at runtime; without the future import the
+#   annotation is evaluated when the module is imported.
+#
+#   Nothing in the generator needs 3.10: no PEP 604 union (`X | Y`) appears in an
+#   evaluated annotation (verified by AST), the only `|` on non-annotated values
+#   in the tree is integer flag OR-ing (`re.IGNORECASE | re.DOTALL` in
+#   agentlib/generation/repo_contract.py), and no 3.11/3.12 feature is used (no
+#   match/case, no except*, no tomllib import -- the only "tomllib" in the tree is
+#   a string inside the stdlib name list in agentlib/checks/ast_utils.py).
+#
+#   Developed and measured on CPython 3.14.5.
+#
+# ---------------------------------------------------------------------------
+# NOT a Python dependency, but required to generate anything:
+#   a running llama.cpp server exposing the OpenAI-compatible endpoint
+#   http://localhost:8000/v1 (see server.sh, which also needs the GGUF weights).
+#   Override the endpoint with the LLM_BASE_URL environment variable
+#   (agentlib/config.py).
