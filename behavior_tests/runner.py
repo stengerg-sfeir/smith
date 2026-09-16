@@ -1,6 +1,6 @@
 """Runner: orchestrates the behavioral test pipeline for one or more prompts.
 
-This is independent of ``run_benchmark.py``. For each prompt it:
+For each prompt it:
 
 1. extracts a ``test_spec.json`` (the test oracle — one LLM pass),
 2. renders a deterministic ``test_behavior.py``,

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Standalone behavioral-test runner for the neurosymbolic bench.
 
-This entry point is intentionally independent of ``run_benchmark.py``. It
-generates behavior tests from the prompt SPEC (a separate LLM pass) and runs
-them against a previously generated project, reporting per-test pass/fail and
-a coverage matrix.
+This entry point generates behavior tests from the prompt SPEC (a separate
+LLM pass) and runs them against a previously generated project, reporting
+per-test pass/fail and a coverage matrix.
 
 Usage:
     python3 run_behavior_tests.py --prompt 27

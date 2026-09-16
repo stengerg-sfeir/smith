@@ -4,7 +4,7 @@
 Runs the EXECUTED semantic oracle (design-derived + spec-derived invariants,
 see ``behavior_tests.semantic_oracle``) against a previously generated
 project, then validates that the oracle is load-bearing by mutation
-(``behavior_tests.mutate_semantic``). Independent of ``run_benchmark.py``.
+(``behavior_tests.mutate_semantic``).
 
 Usage:
     python3 run_semantic_oracle.py
