@@ -534,6 +534,30 @@ def prompt_surface_paths(prompt_text: str) -> list[dict]:
     return out
 
 
+def _without_program_token(wanted: list[dict],
+                           discovered: dict[str, set[str]]) -> list[dict]:
+    """Drop a leading token that names the TOOL rather than a command.
+
+    ``library_system`` writes every one of its commands as ``library <...>``,
+    which reads equally well as a command GROUP of the CLI or as the NAME of
+    the tool itself (``[project.scripts] library = "library_system.cli:library"``).
+    Both make the specification's literal command line work; the group reading
+    is not privileged. The token is taken as the program name ONLY when the
+    discovered surface has no command starting with it AND every stripped path
+    is present — so a CLI that does expose the group is untouched.
+    """
+    firsts = {w["path"].split()[0] for w in wanted if w["path"].split()}
+    if len(firsts) != 1:
+        return wanted
+    token = firsts.pop()
+    if any(path.startswith(token + " ") for path in discovered):
+        return wanted
+    stripped = [w["path"].split(" ", 1)[1] for w in wanted if " " in w["path"]]
+    if len(stripped) != len(wanted) or not set(stripped) <= set(discovered):
+        return wanted
+    return [{**w, "path": w["path"].split(" ", 1)[1]} for w in wanted]
+
+
 def surface_conformity_violations(prompt_text: str,
                                   project_dir: Path) -> list[str]:
     """Prompt→surface name conformance ([] = the CLI is exactly the prompt's).
@@ -560,6 +584,8 @@ def surface_conformity_violations(prompt_text: str,
             for option in command.get("options", [])
             for name in _option_long_names(option)
         }
+
+    wanted = _without_program_token(wanted, discovered)
 
     errs: list[str] = []
     wanted_paths = {w["path"] for w in wanted}

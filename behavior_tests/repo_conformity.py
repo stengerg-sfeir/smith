@@ -73,10 +73,18 @@ def repository_conformity_violations(prompt_text: str,
     """Every duplicate / unasked repository method of one generated project."""
     stems = prompt_tokens(prompt_text)
     violations: list[str] = []
-    for path in sorted(Path(project_dir).glob("*_repository.py")):
+    # Recursive: a project may lay its repositories out inside a package
+    # (``expense_tracker/repositories/category_repository.py``), and a
+    # non-recursive glob silently skipped every one of them — the check
+    # reported PASS by finding nothing to look at.
+    for path in sorted(Path(project_dir).rglob("*_repository.py")):
         ent_snake = path.stem[: -len("_repository")]
         model = "".join(part.capitalize() for part in ent_snake.split("_"))
-        names = _method_names(path)
+        # A PRIVATE helper is implementation detail, not a capability. The
+        # ownership test asks "did the prompt request this capability?", which
+        # is a question about the repository's public surface — a row mapper
+        # named ``_row_to_category`` was being faulted for naming ``row``.
+        names = [n for n in _method_names(path) if not n.startswith("_")]
         for name in names:
             shadow = _crud_shadow_target(name, ent_snake, model)
             if shadow:
@@ -95,11 +103,18 @@ def repository_conformity_violations(prompt_text: str,
             if name in _DETERMINISTIC:
                 continue
             _, content = _capability_tokens(name, ent_snake, model)
-            missing = sorted(tok for tok in content if tok not in stems)
-            if missing:
+            # The ownership test asks whether the PROMPT requested the
+            # CAPABILITY, so it fires only when the name shares NOTHING with
+            # the prompt. Requiring EVERY word fired on a faithful name that
+            # merely adds a modifier — ``find_potential_recurring`` for a
+            # specification that asks for recurring detection — while the
+            # near-duplicate defects this exists to catch (a sibling plus a
+            # scalar qualifier, a re-spelling of the CRUD surface) are caught
+            # by the two checks above.
+            if content and not (set(content) & stems):
                 violations.append(
                     "%s.%s names %s, which appear nowhere in the prompt"
-                    % (path.name, name, ", ".join(missing))
+                    % (path.name, name, ", ".join(sorted(set(content))))
                 )
         # ONE capability, two methods: a repository that keeps two spellings of
         # a single duty (AuthorRepository's ``find_books_by_author`` beside

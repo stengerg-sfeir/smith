@@ -1304,3 +1304,38 @@ the shipped script was correct.
 Recorded because the false failure cost a full regeneration cycle to tell
 apart from a real one — the same reason S14 is kept with its correction
 instead of being deleted.
+### D5 — the same class of defect, exposed by an outside implementation
+
+A Claude Code baseline (`claude -p`, non-interactive, prompt file verbatim;
+`run_claude_baseline.py`) was run against the same six specifications and then
+subjected to the *same* gates. Three further checks turned out to encode an
+unstated convention of THIS generator:
+
+- **`cli_tool`** — the optional output path was still required to be a NAMED
+  option. The specification asks only for "an optional output file path", and
+  argparse renders a faithful optional positional as `[output]`. The
+  MECHANISM is now discovered from the child's own help: a named option, or an
+  optional positional. (This is D4 for the third time: D4 fixed the option's
+  *spelling*, this fixes the option's *existence*.)
+- **`multi_module`** — how an id is supplied was assumed to be an option. The
+  specification names its COMMANDS, not their parameters, so `show TASK_ID` is
+  faithful. Discovered the same way.
+- **`multi_module`** — the service module was required to be named
+  `*_service.py` and its operations to be spelled add/update/list. The
+  specification asks for "a TaskService with business logic for creating,
+  updating, and listing tasks" — naming neither a file nor a method. It is now
+  located by its Service CLASS and its operations by intent
+  (create/add, update, list).
+
+All three had been passing the generator silently (it happens to satisfy the
+conventions) while failing an equally faithful implementation. Verified
+non-regressive: the generator still reports 0 functional and 0 conformity
+failures on all six named prompts.
+
+The lesson is not "Claude was right" — two of the six specifications ARE
+genuinely violated by that baseline (see `analysis/claude_baseline_report.md`)
+— it is that **a conformance suite written alongside an implementation will
+drift toward measuring that implementation's conventions**. The only cheap way
+to detect the drift is to point the suite at code the same author did not
+write. That is the purpose of the baseline, and it found three defects in the
+suite that six rounds of self-testing had not.

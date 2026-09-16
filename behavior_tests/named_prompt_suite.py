@@ -58,6 +58,7 @@ _SCRIPTS = {
 
 _INT_PLACEHOLDER = "1"
 _STR_PLACEHOLDER = "x"
+_DATE_PLACEHOLDER = "2024-01-01"
 _TIMEOUT = 90
 
 
@@ -78,12 +79,20 @@ def _has_traceback(proc: subprocess.CompletedProcess) -> bool:
 # --- the generic sweep ------------------------------------------------------
 
 def _all_args(options: list[str]) -> list[str]:
-    """Every option given a placeholder value (value-less flags stay bare)."""
+    """Every option given a placeholder value (value-less flags stay bare).
+
+    The placeholder is SHAPED like the value the option declares: a ``-date``
+    option gets a date. Feeding the generic ``x`` to a command that parses its
+    dates measured the placeholder, not the option — it raised
+    ``ValueError: Invalid isoformat string: 'x'`` on a correct implementation.
+    """
     out: list[str] = []
     for opt in options:
         if not opt.startswith("--") or "/" in opt or opt.startswith("--no-"):
             continue
-        if opt.endswith(("-id", "-year", "-month")):
+        if opt.endswith("-date"):
+            out.extend([opt, _DATE_PLACEHOLDER])
+        elif opt.endswith(("-id", "-year", "-month")):
             out.extend([opt, _INT_PLACEHOLDER])
         elif opt in ("--recurring", "--available-only", "--active-only",
                      "--low-only"):
@@ -105,8 +114,11 @@ def cli_sweep_failures(ident: str, source: Path) -> tuple[list[str], int]:
             db.unlink()
         prompt_text = (Path("prompts") / ("prompt_%s.txt" % ident)).read_text(
             encoding="utf-8")
+        skip = _program_token(prompt_text, project)
         for command in prompt_surface_paths(prompt_text):
             path_args = command["path"].split()
+            if skip and path_args[:1] == [skip]:
+                path_args = path_args[1:]
             for extra in ([], ["--help"], _all_args(command.get("options") or [])):
                 n_runs += 1
                 proc = _run(project, ["cli.py"] + path_args + extra)
@@ -166,33 +178,76 @@ def _seed_parent(project: Path, sql: str) -> None:
         conn.close()
 
 
-def _id_option(project: Path, command: list[str]) -> str:
-    """The id option the shipped CLI declares for ``command``.
+def _id_argv(project: Path, command: list[str]) -> list[str]:
+    """The argv tokens that supply an id to ``command``.
 
     For a specification that ENUMERATES its options the prompt's own spelling
     is the contract (and the conformity gate proves the CLI matches it); for a
-    specification that only names its COMMANDS (``multi_module``) the option
-    name is a design decision, so it is read from the CLI's own help text
-    instead of guessed.
+    specification that only names its COMMANDS (``multi_module``) the MECHANISM
+    is a design decision, so it is read from the CLI's own help text instead of
+    guessed: a named option, or a positional (``show TASK_ID``). Assuming a
+    named option rejected a correct CLI outright.
     """
     proc = _run(project, ["cli.py"] + command + ["--help"])
-    match = re.search(r"(--[a-z0-9_-]*id)\b", proc.stdout or "")
-    return match.group(1) if match else "--id"
+    help_text = proc.stdout or ""
+    match = re.search(r"(--[a-z0-9_-]*id)\b", help_text)
+    if match:
+        return [match.group(1)]
+    usage = next(
+        (line for line in help_text.splitlines() if line.startswith("Usage:")), ""
+    )
+    if re.search(r"\b[A-Z][A-Z_]*ID\b", usage):
+        return []
+    return ["--id"]
 
 
-def _output_option(project: Path, script: str) -> str | None:
-    """The output-path option the shipped script declares, or None.
+def _output_mechanism(project: Path, script: str) -> tuple[str, str] | None:
+    """HOW the shipped script takes its optional output path, or None.
 
-    The specification asks for "an optional output file path" but never names
-    the option, so its spelling is a design decision (``--output`` and
-    ``--output-file`` are both faithful readings) and is read from the
-    script's OWN help text instead of being guessed. Checking the source text
-    for the literal ``--output`` wrongly rejected a correct script whose
-    option happened to be spelled differently.
+    The specification asks for "an optional output file path" and never says
+    it must be a NAMED option, so an optional POSITIONAL is an equally
+    faithful reading — argparse renders it as ``[output]`` in its usage line.
+    Only the MECHANISM is discovered here, never assumed: ``--option`` from
+    the help text, or an optional positional from argparse's own usage line.
+    Assuming a named option rejected a correct script outright (the second
+    time this check has encoded an unstated convention).
     """
     proc = _run(project, [script, "--help"])
-    match = re.search(r"(--[a-z0-9_-]*output[a-z0-9_-]*)", proc.stdout or "")
-    return match.group(1) if match else None
+    help_text = proc.stdout or ""
+    match = re.search(r"(--[a-z0-9_-]*output[a-z0-9_-]*)", help_text)
+    if match:
+        return "option", match.group(1)
+    usage = next(
+        (line for line in help_text.splitlines() if line.startswith("usage:")), ""
+    )
+    if re.search(r"\[\s*[a-z0-9_-]*output[a-z0-9_-]*\s*\]", usage, re.IGNORECASE):
+        return "positional", ""
+    return None
+
+
+def _program_token(prompt_text: str, project: Path) -> str | None:
+    """The leading prompt token that names the TOOL, not a command (or None).
+
+    A specification whose every command starts with the same token leaves that
+    token ambiguous: it may be a GROUP of the shipped CLI, or the NAME of the
+    tool itself (a console script — ``[project.scripts] library =
+    "library_system.cli:library"``). Both make the specification's literal
+    command line work; only the first is a sub-command of the entry file.
+    Decided behaviourally: the token is the program name when the entry file
+    rejects it as a command but accepts the same path without it.
+    """
+    paths = [c["path"].split() for c in prompt_surface_paths(prompt_text)]
+    firsts = {path[0] for path in paths if path}
+    if not paths or len(firsts) != 1:
+        return None
+    token = firsts.pop()
+    if _run(project, ["cli.py", token, "--help"]).returncode == 0:
+        return None
+    rest = [path[1:] for path in paths if len(path) > 1]
+    if not rest:
+        return None
+    probe = _run(project, ["cli.py"] + rest[0] + ["--help"])
+    return token if probe.returncode == 0 else None
 
 
 def _workflow_failures(ident: str, source: Path) -> list[str]:
@@ -204,6 +259,13 @@ def _workflow_failures(ident: str, source: Path) -> list[str]:
         shutil.copytree(source, project)
         for db in project.glob("*.db"):
             db.unlink()
+        prompt_text = (Path("prompts") / ("prompt_%s.txt" % ident)).read_text(
+            encoding="utf-8")
+        skip = _program_token(prompt_text, project)
+
+        def _strip(args: list[str]) -> list[str]:
+            return args[1:] if skip and args[:1] == [skip] else args
+
         steps: list[tuple[list[str], int, str | None]] = []
         if ident == "expenses":
             steps = [
@@ -231,7 +293,7 @@ def _workflow_failures(ident: str, source: Path) -> list[str]:
             # The schema is created by a real command (Database._init_tables),
             # and ONLY then can a parent row the command surface cannot create
             # be seeded — this specification has no `author add`.
-            _cli(project, ["library", "member", "list"])
+            _cli(project, _strip(["library", "member", "list"]))
             _seed_parent(
                 project,
                 "INSERT INTO authors (name, birth_year, biography) "
@@ -247,6 +309,7 @@ def _workflow_failures(ident: str, source: Path) -> list[str]:
         if not steps:
             return []
         for args, want_exit, want_text in steps:
+            args = _strip(args)
             proc = _cli(project, args)
             label = " ".join(args)
             if proc.returncode != want_exit:
@@ -313,7 +376,7 @@ def _cli_tool(project: Path) -> tuple[list[str], list[str]]:
     if not script.is_file():
         return ["cli_tool: no %s" % script.name], ["cli_tool: no script"]
     text = script.read_text(encoding="utf-8")
-    out_opt = _output_option(project, script.name)
+    out_mech = _output_mechanism(project, script.name)
 
     scratch = Path(tempfile.mkdtemp(prefix="named_csv_"))
     try:
@@ -334,22 +397,32 @@ def _cli_tool(project: Path) -> tuple[list[str], list[str]]:
                         "row must drive the keys)" % key
                     )
         # An optional output path writes the file (option name discovered).
-        if out_opt is None:
-            functional.append("cli_tool: no optional output path option is exposed")
+        if out_mech is None:
+            functional.append(
+                "cli_tool: no optional output path is exposed (neither a named "
+                "option nor an optional positional)"
+            )
         else:
+            kind, spelling = out_mech
+            label = spelling or "<positional>"
             out_path = Path(scratch) / "out.json"
-            proc2 = _run(project, [script.name, str(csv_path), out_opt, str(out_path)])
+            argv_out = [script.name, str(csv_path)]
+            argv_out += (
+                [spelling, str(out_path)] if kind == "option"
+                else [str(out_path)]
+            )
+            proc2 = _run(project, argv_out)
             if proc2.returncode != 0:
                 functional.append(
                     "cli_tool: %s -> exit=%d %s"
-                    % (out_opt, proc2.returncode,
+                    % (label, proc2.returncode,
                        (proc2.stderr or "").strip()[-200:])
                 )
             elif not out_path.is_file():
-                functional.append("cli_tool: %s did not write a file" % out_opt)
+                functional.append("cli_tool: %s did not write a file" % label)
             elif "alpha" not in out_path.read_text(encoding="utf-8"):
                 functional.append(
-                    "cli_tool: %s file lacks the header keys" % out_opt
+                    "cli_tool: %s file lacks the header keys" % label
                 )
         # A missing input must be a clean error, never a traceback.
         missing = _run(project, [script.name, str(Path(scratch) / "absent.csv")])
@@ -376,8 +449,11 @@ def _cli_tool(project: Path) -> tuple[list[str], list[str]]:
                 "cli_tool: hard-codes the column name %s, which the "
                 "specification forbids" % literal
             )
-    if out_opt is None:
-        conformant.append("cli_tool: no optional output path option")
+    if out_mech is None:
+        conformant.append(
+            "cli_tool: no optional output path is exposed (neither a named "
+            "option nor an optional positional)"
+        )
     if "import sqlite3" in text:
         conformant.append(
             "cli_tool: imports sqlite3, which this specification never asks for"
@@ -411,16 +487,16 @@ def _multi_module_functional(project: Path) -> list[str]:
         shutil.copytree(project, work)
         for db in work.glob("*.db"):
             db.unlink()
-        # This specification names its COMMANDS, not their options: the id
-        # option's spelling is a design decision, so it is read from the CLI.
-        id_opt = _id_option(work, ["show"])
+        # This specification names its COMMANDS, not their options: how an id
+        # is supplied is a design decision, so it is read from the CLI itself.
+        id_argv = _id_argv(work, ["show"])
         steps: list[tuple[list[str], int, str | None]] = [
             (["add", "--title", "write tests", "--description", "d"], 0, None),
             (["list"], 0, "write tests"),
-            (["show", id_opt, "1"], 0, None),
-            (["update", id_opt, "1", "--status", "done"], 0, None),
+            (["show"] + id_argv + ["1"], 0, None),
+            (["update"] + id_argv + ["1", "--status", "done"], 0, None),
             (["list", "--status", "done"], 0, None),
-            (["delete", id_opt, "1"], 0, None),
+            (["delete"] + id_argv + ["1"], 0, None),
         ]
         for args, want_exit, want_text in steps:
             proc = _cli(work, args)
@@ -463,8 +539,12 @@ _TASK_FIELDS = ("title", "description", "status", "created_at")
 
 def _multi_module_conformity(project: Path, prompt_text: str) -> list[str]:
     failures: list[str] = []
+    # Recursive: this specification names no file layout, so a package
+    # (``task_manager/cli/main.py``) is as faithful as flat modules — and a
+    # non-recursive glob found no command at all in the package layout,
+    # reporting five absent commands on a correct CLI.
     blob = "\n".join(
-        p.read_text(encoding="utf-8") for p in sorted(project.glob("*.py"))
+        p.read_text(encoding="utf-8") for p in sorted(project.rglob("*.py"))
     )
     for name in _MULTI_MODULE_COMMANDS:
         if not re.search(r"(?m)^\s*def\s+%s\s*\(" % name, blob):
@@ -474,9 +554,14 @@ def _multi_module_conformity(project: Path, prompt_text: str) -> list[str]:
             failures.append(
                 "multi_module: the status vocabulary value %r is absent" % value
             )
-    model = project / "models.py"
-    if model.is_file():
-        text = model.read_text(encoding="utf-8")
+    # Found by the CLASS it defines, not by a file name: this specification
+    # names no file, and a package may put the model in ``models/task.py``.
+    models = [
+        path for path in sorted(project.rglob("*.py"))
+        if re.search(r"(?m)^class\s+Task\b", path.read_text(encoding="utf-8"))
+    ]
+    if models:
+        text = models[0].read_text(encoding="utf-8")
         for field in _TASK_FIELDS:
             if field not in text:
                 failures.append(
@@ -484,15 +569,25 @@ def _multi_module_conformity(project: Path, prompt_text: str) -> list[str]:
                 )
     else:
         failures.append("multi_module: no models.py")
-    service = sorted(project.glob("*_service.py"))
+    # The specification asks for "a TaskService with business logic for
+    # creating, updating, and listing tasks" — it names neither a FILE nor a
+    # method spelling, so the module is found by its Service CLASS and the
+    # operations by intent (creating/adding, updating, listing).
+    service = [
+        path for path in sorted(project.rglob("*.py"))
+        if re.search(r"(?m)^class\s+\w*Service\b",
+                     path.read_text(encoding="utf-8"))
+    ]
     if not service:
-        failures.append("multi_module: no service module")
+        failures.append("multi_module: no *Service class is defined")
     else:
         svc = service[0].read_text(encoding="utf-8")
-        for verb in ("add", "update", "list"):
-            if not re.search(r"def\s+\w*%s\w*\s*\(" % verb, svc):
+        for label, pattern in (("create/add", r"creat|add"),
+                               ("update", r"updat"),
+                               ("list", r"list")):
+            if not re.search(r"def\s+\w*(?:%s)\w*\s*\(" % pattern, svc):
                 failures.append(
-                    "multi_module: the service has no %r operation" % verb
+                    "multi_module: the service has no %s operation" % label
                 )
     return failures
 
