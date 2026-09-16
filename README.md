@@ -62,6 +62,24 @@ la racine du dépôt) ; sur macOS il passe par `caffeinate`. Toutes les options 
 `-ub`, `-c`, `-b`) sont acceptées par ce build ; `--cache-ram` et `--ctx-checkpoints` étant
 récentes, prévois un build du même ordre de grandeur.
 
+**Le modèle.** `server.sh` attend `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (2,33 Go) à la racine
+du dépôt. Il est publié par **bartowski** ; le fichier distant porte un préfixe `Qwen_`,
+d'où le `-o` qui le renomme au nom attendu :
+
+```bash
+curl -L -o Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+  https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+```
+
+Contrôle d'intégrité (2 497 280 736 octets) :
+
+```bash
+shasum -a 256 Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+# 2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e
+```
+
+Le fichier est ignoré par git (`.gitignore` : `*.gguf`), il n'est donc pas versionné.
+
 ### Installation
 
 ```bash
@@ -116,10 +134,3 @@ Le dossier `analysis/` contient un ledger et des rapports datés :
 * `small_model_trials.md` — trois modèles plus petits que le 4B de référence, et ce qu'ils
   révèlent.
 * `generation_cost_profile.md` — où passe le temps mural d'une génération.
-
-Six rapports plus anciens ont été retirés : `agent_architectural_analysis.md`,
-`agent_diagnosis_summary.md`, `code_spec_analysis.md`, `ground_truth_target.md`,
-`oracle_test_bloat_analysis.md` et `semantic_problems.md`. Leurs affirmations sur le dépôt
-étaient devenues fausses — ils décrivaient par exemple un générateur qui n'émettrait pas de
-`ON DELETE CASCADE`, ou seulement 4 projets conformes sur 40 ; ils énuméraient aussi des
-défauts depuis corrigés. L'historique git les conserve.
