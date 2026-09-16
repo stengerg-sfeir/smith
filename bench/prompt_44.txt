@@ -1,1 +1,0 @@
-Create an application for a small shop. The shop needs to keep track of products, customers and sales. It should be possible to know what has been sold and what is still in stock.

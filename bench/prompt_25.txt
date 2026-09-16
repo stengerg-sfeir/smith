@@ -1,1 +1,0 @@
-Create a Python 3.12 employee management application. Employees belong to departments. Each department can contain many employees. Provide CRUD operations and allow users to list employees belonging to a department.

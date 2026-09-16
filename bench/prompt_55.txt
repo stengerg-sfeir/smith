@@ -1,1 +1,0 @@
-Create an inventory application. Products have stock quantities. Users can sell products. The application should never allow the inventory to become incorrect.

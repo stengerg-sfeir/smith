@@ -1,1 +1,0 @@
-Create a Python 3.12 CLI application for managing customers, orders and products. Customers can have many orders, orders contain products, products have stock quantities, products can be searched and filtered, orders can be cancelled, cancelling an order must restore its product quantities, and all modifications must be persisted atomically in SQLite.

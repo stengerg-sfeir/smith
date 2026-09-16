@@ -1,1 +1,0 @@
-Create something to manage customers and their purchases. Users should be able to find a customer's purchase history and determine how much they have spent.

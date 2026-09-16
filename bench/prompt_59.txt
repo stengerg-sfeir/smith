@@ -1,1 +1,0 @@
-Create a simple Python 3.12 application for managing orders. It should support customers, products, stock, orders, order lines, discounts, taxes, order cancellation, stock restoration, reporting and CSV export. Keep the application easy to maintain and split it into appropriate modules.

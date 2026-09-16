@@ -1,1 +1,0 @@
-Create an application for managing a collection of books. Users should be able to add books, find books and organize them. The application should remember the information between executions.

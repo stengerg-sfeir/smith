@@ -1,1 +1,0 @@
-Build a lightweight project management tool. Projects contain tasks, tasks have priorities and statuses, and users should be able to see what needs attention.

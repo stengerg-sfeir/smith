@@ -1,1 +1,0 @@
-Create a Python 3.12 application for managing documents. The CLI should remain independent from persistence so that the persistence mechanism can later be replaced without changing the business logic.

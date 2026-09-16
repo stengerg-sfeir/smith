@@ -1,1 +1,0 @@
-Create a Python 3.12 banking application managing customers and accounts. An account belongs to a customer and has a balance. Deposits increase the balance and withdrawals decrease it. A withdrawal must be rejected if it would make the balance negative.

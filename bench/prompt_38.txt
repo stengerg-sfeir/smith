@@ -1,1 +1,0 @@
-Create a Python 3.12 CLI application managing users and documents. Users must authenticate before accessing documents. A user can only read, modify or delete their own documents.

@@ -1,1 +1,0 @@
-Create a Python 3.12 inventory application. Provide normal product CRUD operations and a bulk update operation that changes the stock quantity of multiple products. The entire bulk update must succeed or fail as a single transaction.

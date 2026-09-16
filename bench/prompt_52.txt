@@ -1,1 +1,0 @@
-Create a library management application where a book can be borrowed by members. A book that is currently being borrowed should not appear as available. When it is returned, it should become available again.
