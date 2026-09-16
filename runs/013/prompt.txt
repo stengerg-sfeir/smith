@@ -1,1 +1,0 @@
-Create a Python 3.12 inventory application. Products have a SKU, name, category, price and stock quantity. SKUs must be unique. Provide CRUD operations, product search, category filtering and low-stock reporting.

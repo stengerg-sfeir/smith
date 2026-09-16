@@ -1,1 +1,0 @@
-Create a Python 3.12 reservation application managing customers and rooms. A customer can make multiple reservations. A room cannot have two overlapping reservations. Provide CRUD operations and reject reservations that overlap an existing reservation.

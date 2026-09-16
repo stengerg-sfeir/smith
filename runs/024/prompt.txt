@@ -1,1 +1,0 @@
-Create a Python 3.12 project management application. A project contains multiple tasks. Each task belongs to one project and has a title, description, status and priority. Users must be able to create, update, delete and list projects and tasks.

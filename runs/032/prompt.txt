@@ -1,1 +1,0 @@
-Create a Python 3.12 order management application. An order starts in the `pending` state and can become `confirmed`, `shipped` or `cancelled`. A cancelled order cannot be shipped, and a shipped order cannot be cancelled. Implement the allowed state transitions explicitly.

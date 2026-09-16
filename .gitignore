@@ -25,6 +25,7 @@ venv/
 
 generated/
 behavior_runs
+runs/
 
 # Claude Code baseline output (the same six specifications, run through `claude -p`)
 baseline/

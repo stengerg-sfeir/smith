@@ -1,1 +1,0 @@
-Create a Python 3.12 inventory application. Products have name, category, price and quantity. Users must be able to search by name, filter by category, specify a maximum price and specify a minimum quantity. All filters must be combinable.

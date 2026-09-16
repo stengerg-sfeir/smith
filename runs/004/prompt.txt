@@ -1,1 +1,0 @@
-Create a Python 3.12 command-line todo application. Users can add, list, complete and delete tasks. Tasks must be stored in SQLite so that they remain available after restarting the application.

@@ -1,1 +1,0 @@
-Create a Python 3.12 task management application using SQLite. Provide CRUD operations and commands to export all tasks to JSON and import tasks from JSON. The import operation must validate the input before modifying the database.

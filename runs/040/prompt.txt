@@ -1,1 +1,0 @@
-Create a Python 3.12 order application. When an order is confirmed, the application must send a notification. Define a notification service abstraction and provide a simple implementation that logs the notification instead of sending a real message.
