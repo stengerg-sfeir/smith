@@ -28,6 +28,8 @@ from agentlib.prompts import (
     _normalise_prompt_name,
 )
 from agentlib.design import _route_mode
+from agentlib.generation.annotations import add_missing_none_returns
+from agentlib.generation.entrypoint import ensure_entry_point
 from agentlib.checks.ast_utils import (
     _extract_model_ast,
     _check_syntax_and_imports,
@@ -256,13 +258,23 @@ def _single_pass(prompt_text, verbose=False):
         %s
         Return ONLY raw Python source code -- no markdown, no commentary.
         For multi-file projects: # === file: path/to/file.py ===
+        Every function and method annotates every parameter and its return
+        type; a function that returns nothing is annotated `-> None`.
     """) % prompt_text
 
     code = generate_with_validation(
         full_prompt, prompt_text,
         verbose=verbose, max_retries=3,
     )
-    return _split_multifile(code or "")
+    files = _split_multifile(code or "")
+    # Deterministic annotation floor: the system rule ("type hints") is only
+    # a statement TO the model, and the 4B model does drop it on a trivial
+    # file (`def main():`). `-> None` is the one annotation derivable
+    # without guessing the author's intent, so it is imposed here.
+    files, annotated = add_missing_none_returns(files)
+    if verbose and annotated:
+        print("    Annotated %d untyped return(s) -> None" % annotated)
+    return files
 
 
 # ---------------------------------------------------------------------------
@@ -322,14 +334,16 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
         ):
             existing.unlink()
 
-    # LAST-RESORT entry-point guarantee: the LLM repair loop above rewrites a
-    # cli.py with a syntax error and drops the `if __name__ == "__main__":
-    # cli()` block, leaving every CLI command a silent no-op (library_system
-    # __seed_Loan FK failure was traced to exactly this). Re-assert the
-    # dispatch on the FINAL output so the CLI is always invocable.
-    for fn, content in list(files.items()):
-        if Path(fn).stem == "cli" and "if __name__" not in content:
-            files[fn] = content.rstrip() + "\n\nif __name__ == \"__main__\":\n    cli()\n"
+    # Entry-point guarantee on the FINAL output. Two observed ways to lose
+    # the dispatch: the LLM repair loop rewrites cli.py and drops its
+    # `__main__` block (every command becomes a silent no-op — the
+    # library_system __seed_Loan FK failure traced to exactly this), and the
+    # single-pass path drops it altogether (csv_to_json.py shipped with NO
+    # guard, so the whole tool did nothing and "succeeded"). One generic
+    # rule re-asserts both; it never touches a file that already has one.
+    files, added_guards = ensure_entry_point(files)
+    if verbose and added_guards:
+        print("    Added %d entry-point guard(s)" % added_guards)
 
     for rel_path, content in files.items():
         target = project_dir / rel_path
@@ -338,9 +352,11 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
         if verbose:
             print("  wrote %s" % target.relative_to(Path.cwd()))
 
-    # Run ruff --fix for style cleanup
-    if len(files) > 1:
-        _run_ruff_fix(project_dir)
+    # Run ruff --fix for style cleanup on EVERY project, not only multi-file
+    # ones: a single-file script is exactly where an unused import survives
+    # (the "sqlite3 for DB" system rule obeyed by a project that has no
+    # database) and the single-pass path has no other gate at all.
+    _run_ruff_fix(project_dir)
 
     if verbose:
         print("\n  Project written to %s/\n" % project_dir.relative_to(Path.cwd()))

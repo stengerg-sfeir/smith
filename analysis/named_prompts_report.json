@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-09-15T22:02:24.324505+00:00",
+  "generated_at": "2026-09-16T05:20:48.619635+00:00",
   "records": [
     {
       "ident": "cli_tool",
-      "elapsed_s": 12.1,
+      "elapsed_s": 11.3,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -14,15 +14,13 @@
         "fail": "0"
       },
       "functional_failures": [],
-      "conformity_failures": [
-        "cli_tool: imports sqlite3, which this specification never asks for"
-      ],
+      "conformity_failures": [],
       "metrics": {},
       "enumerated_commands": []
     },
     {
       "ident": "expenses",
-      "elapsed_s": 414.9,
+      "elapsed_s": 402.6,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -56,26 +54,24 @@
     },
     {
       "ident": "hello_world",
-      "elapsed_s": 2.2,
+      "elapsed_s": 2.0,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "pass",
-        "mapped": "1",
-        "pass": "1",
+        "status": "no_mapped",
+        "mapped": "0",
+        "pass": "0",
         "fail": "0"
       },
       "functional_failures": [],
-      "conformity_failures": [
-        "hello_world: main() carries NO type hint, and the specification asks for type hints throughout"
-      ],
+      "conformity_failures": [],
       "metrics": {},
       "enumerated_commands": []
     },
     {
       "ident": "inventory",
-      "elapsed_s": 249.6,
+      "elapsed_s": 241.1,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -106,7 +102,7 @@
     },
     {
       "ident": "library_system",
-      "elapsed_s": 230.6,
+      "elapsed_s": 244.0,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -135,7 +131,7 @@
     },
     {
       "ident": "multi_module",
-      "elapsed_s": 135.6,
+      "elapsed_s": 128.8,
       "exit": 0,
       "markers": [],
       "compile_failures": [],

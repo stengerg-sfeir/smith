@@ -180,6 +180,21 @@ def _id_option(project: Path, command: list[str]) -> str:
     return match.group(1) if match else "--id"
 
 
+def _output_option(project: Path, script: str) -> str | None:
+    """The output-path option the shipped script declares, or None.
+
+    The specification asks for "an optional output file path" but never names
+    the option, so its spelling is a design decision (``--output`` and
+    ``--output-file`` are both faithful readings) and is read from the
+    script's OWN help text instead of being guessed. Checking the source text
+    for the literal ``--output`` wrongly rejected a correct script whose
+    option happened to be spelled differently.
+    """
+    proc = _run(project, [script, "--help"])
+    match = re.search(r"(--[a-z0-9_-]*output[a-z0-9_-]*)", proc.stdout or "")
+    return match.group(1) if match else None
+
+
 def _workflow_failures(ident: str, source: Path) -> list[str]:
     """The specification's own minimal workflow, executed for real."""
     scratch = Path(tempfile.mkdtemp(prefix="named_flow_"))
@@ -298,12 +313,13 @@ def _cli_tool(project: Path) -> tuple[list[str], list[str]]:
     if not script.is_file():
         return ["cli_tool: no %s" % script.name], ["cli_tool: no script"]
     text = script.read_text(encoding="utf-8")
+    out_opt = _output_option(project, script.name)
 
     scratch = Path(tempfile.mkdtemp(prefix="named_csv_"))
     try:
         csv_path = Path(scratch) / "data.csv"
         csv_path.write_text("alpha,beta\ngamma,delta\n", encoding="utf-8")
-        # Header-driven keys, printed to stdout when no --output is given.
+        # Header-driven keys, printed to stdout when no output path is given.
         proc = _run(project, [script.name, str(csv_path)])
         if proc.returncode != 0:
             functional.append(
@@ -317,14 +333,24 @@ def _cli_tool(project: Path) -> tuple[list[str], list[str]]:
                         "cli_tool: stdout lacks the header key %r (the header "
                         "row must drive the keys)" % key
                     )
-        # An optional output path writes the file.
-        out_path = Path(scratch) / "out.json"
-        proc2 = _run(project, [script.name, str(csv_path), "--output", str(out_path)])
-        if proc2.returncode == 0 and out_path.is_file():
-            if "alpha" not in out_path.read_text(encoding="utf-8"):
-                functional.append("cli_tool: --output file lacks the header keys")
-        elif proc2.returncode == 0:
-            functional.append("cli_tool: --output did not write a file")
+        # An optional output path writes the file (option name discovered).
+        if out_opt is None:
+            functional.append("cli_tool: no optional output path option is exposed")
+        else:
+            out_path = Path(scratch) / "out.json"
+            proc2 = _run(project, [script.name, str(csv_path), out_opt, str(out_path)])
+            if proc2.returncode != 0:
+                functional.append(
+                    "cli_tool: %s -> exit=%d %s"
+                    % (out_opt, proc2.returncode,
+                       (proc2.stderr or "").strip()[-200:])
+                )
+            elif not out_path.is_file():
+                functional.append("cli_tool: %s did not write a file" % out_opt)
+            elif "alpha" not in out_path.read_text(encoding="utf-8"):
+                functional.append(
+                    "cli_tool: %s file lacks the header keys" % out_opt
+                )
         # A missing input must be a clean error, never a traceback.
         missing = _run(project, [script.name, str(Path(scratch) / "absent.csv")])
         if _has_traceback(missing):
@@ -350,7 +376,7 @@ def _cli_tool(project: Path) -> tuple[list[str], list[str]]:
                 "cli_tool: hard-codes the column name %s, which the "
                 "specification forbids" % literal
             )
-    if "--output" not in text:
+    if out_opt is None:
         conformant.append("cli_tool: no optional output path option")
     if "import sqlite3" in text:
         conformant.append(

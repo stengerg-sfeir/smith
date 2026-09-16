@@ -1243,3 +1243,64 @@ exit 1 for the official forbidden pattern):
 `SOURCE-FIDELITY` moves 65 → 64 because one of its checks asserted a property
 of the method that no longer exists; the check left WITH the method rather
 than being silenced.
+---
+
+## Dispositions of the single-pass / entry-point revision
+
+Three defects were fixed on the **generator** side (never patched in the
+generated tree), each with a deterministic boundary rather than a model
+instruction. All three were found by regenerating `cli_tool` and `hello_world`
+and reading the shipped output.
+
+### D1 — the annotation floor (`agentlib/generation/annotations.py`)
+
+`hello_world` shipped `def main():` with **no annotation at all**, against a
+specification that asks for type hints. `SYSTEM_CONTEXT` only *states* the
+rule and nothing verified it, and the single-pass path had no post-check.
+
+The floor adds the ONE annotation derivable without guessing the author's
+intent: a function with no return annotation whose body neither returns a
+value nor yields gets `-> None`. Parameter types are NOT recoverable from the
+source and are left to the model — inventing them would be worse than leaving
+the parameter bare. Boundaries, all unit-tested (12/12): a value-returning
+function, a generator, an already-annotated function, a multi-line signature,
+and a signature carrying a comment are each left byte-for-byte untouched; the
+edit is re-parsed before being kept, so a mis-located colon can never ship.
+
+### D2 — the entry-point guarantee (`agentlib/generation/entrypoint.py`)
+
+`csv_to_json.py` shipped with **no `if __name__ == "__main__":` block at all**.
+`python csv_to_json.py data.csv` therefore exited 0 having done nothing: no
+stdout, `--output` never written, a missing input "accepted" — four separate
+functional failures and a silently dead project, all from one missing guard.
+
+The previous rule only covered `Path(fn).stem == "cli"` and only ever emitted
+`cli()`, so a command module with any other name was invisible to it. The
+generalised rule appends the guard to any module that owns a top-level click
+command/group (the thing a user is meant to run), calling THAT command by
+name, or to `main.py`. A module that already has a guard, does not parse, or
+owns no click command is untouched; the edit is re-parsed before being kept.
+Unit-tested 5/5, including idempotence.
+
+### D3 — `ruff --fix` unconditionally (`agentlib/pipeline/run.py`)
+
+The style pass was gated on `len(files) > 1`, so a single-file script never
+got it — exactly where an unused import survives (the "sqlite3 for DB" system
+rule obeyed by a project that has no database). `cli_tool` shipped
+`import sqlite3` untouched. The gate had no justification: the pass is a
+formatter, not a multi-file transform.
+
+### D4 — the harness must not hard-code a name the specification leaves free
+
+The `cli_tool` specification asks for "an optional output file path" and never
+names the option. The *harness* had baked in `--output`, both to drive the
+script and as its conformity assertion, so a correct script whose option was
+spelled `--output-file` (with short `-o`) was reported as failing four
+functional checks and one conformity check. The option is now discovered from
+the script's own `--help`, exactly as `_id_option` already did for
+`multi_module`. This was a defect in the measurement, not in the generator:
+the shipped script was correct.
+
+Recorded because the false failure cost a full regeneration cycle to tell
+apart from a real one — the same reason S14 is kept with its correction
+instead of being deleted.
