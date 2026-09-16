@@ -1,8 +1,8 @@
 # Dispositions for S1–S19 (Family-B semantic problems)
 
-This document closes the loop on `analysis/semantic_problems.md`: for every
-catalogue entry it states **how the defect is now prevented, detected, or why
-it is left documented**. A defect is only "closed" in one of three ways:
+This document records, for every Family-B semantic defect catalogued on the two
+explicit-CLI prompts, **how the defect is now prevented, detected, or why it is
+left documented**. A defect is only "closed" in one of three ways:
 
 | Disposition | Meaning |
 |---|---|

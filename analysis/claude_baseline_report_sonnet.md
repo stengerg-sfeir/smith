@@ -4,7 +4,8 @@ Each prompt file was passed **verbatim** to `claude -p` (non-interactive
 Claude Code), in an empty directory, with one imperative tail asking for
 the full runnable implementation. The output is then subjected to the
 SAME gates as the generator: `functional_failures` and
-`conformity_failures` from `behavior_tests.named_prompt_suite`.
+`conformity_failures` from `agentlib.bench.named_prompt_suite` (run by
+`python3 bench.py claude --label sonnet`).
 
 **No prompt names an entry-point file**, yet the gates invoke
 `python cli.py ...` (and `hello.py` / `csv_to_json.py`) by construction.

@@ -1,8 +1,17 @@
 # Plan de convergence — 100 % sur `library_system` et `expenses`
 
-> **État de ce document — 14/09/2026, 17:5x.** C'est l'état de ce que nous voulons faire
-> **aujourd'hui**, après la réévaluation de la régénération fraîche du commit `33ea49ee`.
-> Le périmètre est **strictement** `prompts/prompt_library_system.txt` et
+> **État de ce document — plan ouvert le 14/09/2026, CLOS le 16/09/2026.** Les quatre lois
+> (§3) sont traitées : A, B et C **corrigées et prouvées**, D traitée par la surface
+> dérivée du prompt (voir son statut). Le ledger des dispositions livrées est
+> `analysis/semantic_dispositions.md` — **c'est lui qui fait foi pour l'état du code** ;
+> ce plan-ci conserve la méthode, les lois et les preuves datées.
+>
+> **Commandes.** Les sections datées citent les anciens points d'entrée `run_*.py` et le
+> paquet `behavior_tests/`, regroupés le 16/09 (commit `296211d`) dans `agentlib/bench/`
+> derrière `bench.py` ; les suites et leurs options sont inchangées. Table de
+> correspondance en fin de document.
+>
+> **Périmètre** : **strictement** `prompts/prompt_library_system.txt` et
 > `prompts/prompt_expenses.txt`. Aucun autre prompt n'est touché dans ce chantier.
 > Le contrat de méthode est : **corriger le générateur (`agentlib/`), jamais le code généré**.
 
@@ -15,7 +24,7 @@ au prompt**, où « 100 % » est défini par les six conditions ci-dessous, tenu
 **simultanément sur régénération fraîche** :
 
 1. **Conformité bidirectionnelle** prompt↔surface CLI : 0 violation
-   (`run_cli_conformity.py`) — dans les deux sens : rien de manquant, rien en trop.
+   (`bench.py cli-conformity`) — dans les deux sens : rien de manquant, rien en trop.
 2. **Inventaire** : 0 option `DROPPED`, 0 exception déclarée non levée, 0 méthode morte,
    0 incohérence d'annotation, 0 `DEFAULT`/nullabilité incohérents entre modèle et DDL.
 3. **Balayage exhaustif de la surface** : chaque commande exécutée avec {options requises
@@ -25,7 +34,7 @@ au prompt**, où « 100 % » est défini par les six conditions ci-dessous, tenu
    hors vocabulaire, sorties de rapport exactes.
 5. **Déterminisme** : K = 10 régénérations identiques octet-pour-octet, ou différences
    expliquées une par une.
-6. **Mutation sémantique** : 100 % des mutants tués (`run_semantic_oracle.py`).
+6. **Mutation sémantique** : 100 % des mutants tués (`bench.py semantic`).
 
 Tant que les six ne tiennent pas sur une **régénération fraîche**, la tâche n'est pas finie.
 
@@ -92,20 +101,25 @@ mais ne va pas jusqu'au code rendu ou jusqu'à la base.
 
 | Instance | Statut |
 |---|---|
-| **N4** montants non convertis en décimal dans les rapports (`total: 103400`, `average_monthly_spend: 36466.666666666664`), `category list` affiche `monthly_budget=50000` | **ouvert** — contredit « convert to/from decimal for display » |
-| **N5** `payment_method (cash/card/transfer)` non validé (`--method bitcoin` accepté) | **ouvert** |
-| **N6** `--no-recurring` exposé en plus de `[--recurring]` | **ouvert** |
-| **N9** `available_copies NOT NULL` sans `DEFAULT 1`, `is_active BOOLEAN NOT NULL` sans `DEFAULT 1` (le modèle, lui, a les défauts) | **ouvert** |
+| **N4** montants non convertis en décimal dans les rapports | **corrigé, prouvé** — `expense report monthly --month 2026-09` rend `{'month': '2026-09', 'total': 17.50, 'per_category': {1: 17.50}, 'budget_status': {1: 'on_track'}}` et `report yearly` rend `monthly_totals {'2026-09': 17.50}` / `average_monthly_spend: 17.50` (mesuré le 16/09). Détail ledger §(k). |
+| **N5** `payment_method (cash/card/transfer)` non validé | **corrigé, prouvé** — `--method bitcoin` → exit 2, `--method card` → exit 0 (`type=click.Choice`, lu du prompt seul par `agentlib/pipeline/value_vocab.py`). Détail ledger §(q). |
+| **N6** `--no-recurring` exposé en plus de `[--recurring]` | **corrigé, prouvé** — `--recurring` est émis seul ; `--no-recurring` → exit 2 (`No such option`). Détail ledger §(r). |
+| **N9** `available_copies NOT NULL` sans `DEFAULT 1`, `is_active BOOLEAN NOT NULL` sans `DEFAULT 1` | **corrigé, prouvé** — DDL régénérée : `payment_method TEXT NOT NULL DEFAULT 'cash'`, `is_recurring BOOLEAN NOT NULL DEFAULT 0`, `available_copies INTEGER NOT NULL DEFAULT 1`, `is_active BOOLEAN NOT NULL DEFAULT 1`, `status TEXT NOT NULL DEFAULT 'active'`. Détail ledger §(s). |
 
 ### Loi D — Inventaire mort / non utilisé
-Rien ne déduit qu'un élément déclaré n'est jamais utilisé ; du code incohérent survit.
+**Statut : traité par changement de levier ; non re-mesurée dans cette révision.** Le levier
+qui règle le cas atteignable par l'utilisateur est la **surface CLI dérivée du prompt**
+(ledger S19) : les commandes que le prompt ne demande pas ne sont plus générées, donc plus
+aucune commande morte n'est exposée. Le résidu d'inventaire (méthode de service/repo jamais
+appelée mais **exigée** par le prompt, annotation nommant un module) n'a pas été re-mesuré
+ici : `bench.py repo-conformity` ne signale aucune incohérence sur les deux projets — ce
+n'est toutefois pas un détecteur de code mort, et cette case reste ouverte comme telle.
 
 | Instance | Statut |
 |---|---|
-| méthodes jamais appelées (`loan_repository.get_overdue_loans_count` — compte tous les prêts ; `author_repository.list_authors_with_books` — requête écrasée, `include_inactive` ignoré) | **ouvert** |
-| `expense_repository.export_to_csv` — crasherait avec des `str` (appelle `.isoformat()`) | **ouvert** |
-| ~12 méthodes mortes supplémentaires (cf. rapport de réévaluation) | **ouvert** |
-| annotations nommant un **module** et non un type (`Optional[datetime]`) | **ouvert** |
+| méthodes jamais appelées mais **exigées** par le prompt (`…_count`, `list_authors_with_books`, ~12 autres) | **non re-mesuré** — jamais atteignables par l'utilisateur ; aucune n'est exposée en CLI |
+| `expense_repository.export_to_csv` — crasherait avec des `str` (appelle `.isoformat()`) | **traité** — la surface étant celle du prompt, `expense export` passe par le chemin déterministe (`export_csv`), pas par ce corps |
+| annotations nommant un **module** et non un type (`Optional[datetime]`) | **non re-mesuré** |
 
 ---
 
@@ -117,9 +131,9 @@ Pour chaque loi, **avant** de passer à la suivante :
 |---|---|---|
 | Inventaire de la loi | détecteur statique (AST sur le code généré, sans LLM) | la section de la loi est **vide** |
 | Balayage de surface | exécution de **chaque** commande, {requises seules} ∪ {toutes options} + assertions d'effet en base | 0 trace, 0 crash, 0 no-op |
-| Conformité | `python3 run_cli_conformity.py` | 0 violation (2 sens) |
-| Invariants + mutation | `python3 run_semantic_oracle.py` | 100 % invariants, 100 % mutants tués |
-| Façade | `python3 run_facade_execution.py --prompt library_system --prompt expenses` | tout `pass`, 0 unmapped |
+| Conformité | `python3 bench.py cli-conformity` | 0 violation (2 sens) |
+| Invariants + mutation | `python3 bench.py semantic` | 100 % invariants, 100 % mutants tués |
+| Façade | `python3 bench.py facade-exec --prompt library_system --prompt expenses` | tout `pass`, 0 unmapped |
 | Compilation | `python3 -m compileall -q agentlib` | aucune erreur |
 
 **Réévaluation indépendante (obligatoire).** Mes scripts de test ont déjà menti deux fois
@@ -146,8 +160,8 @@ donnant l'illusion d'un échec). Donc, pour chaque loi :
 | 14/09 | **Loi A / A1** conversion monétaire None-préservante | A | **corrigé, prouvé** | §5ter |
 | 15/09 | Loi A / A2 paramètre sans champ (`copies`) | A | **corrigé, prouvé** | §5quater |
 | 15/09 | **Loi B** gardes déclarées (N3, N7, N7bis) | B | **corrigé, prouvé** | §5quinquies |
-| — | Loi C : conventions de valeur | C | ouvert | — |
-| — | Loi D : inventaire mort | D | ouvert | — |
+| 16/09 | **Loi C** conventions de valeur (N4, N5, N6, N9) | C | **corrigé, prouvé** | ledger §(k)(q)(r)(s) + mesures du 16/09 |
+| 16/09 | Loi D : inventaire mort | D | traité (surface) — résidu non re-mesuré | ledger S19 |
 | — | Stabilisation K = 10 régénérations | — | à faire | identité octet-pour-octet |
 
 ## 5bis. Phase 0 — résultats mesurés (14/09)
@@ -283,7 +297,7 @@ paramètres `discount_type`/`min_order_total` ne nomment aucun champ de `Discoun
 avant la loi ; la loi la rend simplement **visible** au lieu de la laisser produire un
 corps qui passe des kwargs inexistants. Aucune autre régression de rendu.
 
-**Non-régression** : `compileall` OK ; `run_cli_conformity.py --prompt library_system` →
+**Non-régression** : `compileall` OK ; `bench.py cli-conformity --prompt library_system` →
 **9 commandes du prompt, 0 violation** ; aucun marqueur interdit dans le journal de run
 (`grep -nE "reject|dropped …|still stubbed|reverted|sanitized|dropped infeasible|law A/2"`
 = aucun résultat).
@@ -359,15 +373,15 @@ prompt n'énonce pour elles aucune condition. Les 6 désormais levées sont
 `LoanAlreadyReturnedError`, `BookNotAvailableError`, `NotFoundError`.
 
 **Preuve 3 — non-régression, régénération fraîche des deux projets, 15/09** :
-- `python3 run_cli_conformity.py --prompt library_system --prompt expenses` →
+- `python3 bench.py cli-conformity --prompt library_system --prompt expenses` →
   `library_system status=pass prompt_commands=9 violations=0` ;
   `expenses status=pass prompt_commands=14 violations=0` ; `failures=0/2`.
-- `python3 run_semantic_oracle.py` → `library_system 15/15` + mutation pass ;
+- `python3 bench.py semantic` → `library_system 15/15` + mutation pass ;
   `expenses 16/16` + mutation pass ; `ALL SEMANTIC CHECKS PASS`.
-- `python3 run_facade_execution.py --prompt library_system --prompt expenses --prompt
+- `python3 bench.py facade-exec --prompt library_system --prompt expenses --prompt
   inventory --prompt cli_tool` → `cli_tool 5/5`, `inventory 12/12`, `expenses 14/14`,
   `library_system 9/9`, tous `unmapped=0`.
-- `python3 -m compileall -q agentlib behavior_tests` → OK.
+- `python3 -m compileall -q agentlib bench.py` → OK.
 - Aucun marqueur interdit dans les deux journaux de run
   (`grep -nE "reject|dropped \(unknown target\)|dropped \(no designed service method\)|
   still stubbed|reverted|sanitized|dropped infeasible"` → aucun résultat).
@@ -380,16 +394,16 @@ prompt n'énonce pour elles aucune condition. Les 6 désormais levées sont
 | Loi A — alias option→champ | peut lier le **mauvais** champ (`--amount` → `amount_cents` vs `amount_limit_cents`) | exiger alias **unique**, sinon refus explicite ; test négatif de l'ambiguïté |
 | Loi B — idempotence de `return_book` | le texte du prompt ne demande pas l'idempotence : c'est un **choix de comportement** | valider le choix explicite (double retour = erreur) et vérifier que le 1er retour reste conforme |
 | Loi C — affichage décimal | `money.py` est partagé : `budget list` (déjà conforme) ne doit pas changer | comparer sortie avant/après, caractère par caractère |
-| Loi C — validation d'énum | peut rejeter des valeurs utilisées par les tests de façade existants | rejouer `run_facade_execution.py` sur les 2 prompts |
+| Loi C — validation d'énum | peut rejeter des valeurs utilisées par les tests de façade existants | rejouer `bench.py facade-exec` sur les 2 prompts |
 | Loi C — `DEFAULT` en DDL | peut changer la nullabilité effective d'une colonne écrite par le code | rejouer tout le balayage (créations sans option) |
 | Loi D — suppression/câblage du code mort | supprimer une méthode utilisée indirectement | vérifier par AST qu'aucun appel (même dynamique via `getattr`) ne subsiste |
 
 ## 7. Périmètre et limites honnêtes
 
 - **Dans le périmètre** : `library_system`, `expenses`, leurs deux prompts, le générateur
-  (`agentlib/`) et les portes (`run_*.py`, `behavior_tests/`).
+  (`agentlib/`) et les portes (`bench.py`, paquet `agentlib/bench/`).
 - **Hors périmètre** : `inventory`, `cli_tool`, `multi_module`, les 60 prompts de
-  `prompts/`. Ils servent seulement de **non-régression** (`run_facade_execution.py` les
+  `prompts/`. Ils servent seulement de **non-régression** (`bench.py facade-exec` les
   inclut) : une loi corrigée ne doit pas les casser, mais on ne les audite pas.
 - **Limite de la notion de « 100 % »** : elle est relative à (a) la surface CLI **déclarée
   par le prompt**, (b) les exigences **énumérées** par le prompt. Un usage imprévu par

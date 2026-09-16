@@ -546,15 +546,15 @@ caffeinate /opt/homebrew/bin/llama-server -t 4 --ctx-checkpoints 0 -ngl 99 \
   -sps 0.0 --log-file /tmp/llama_coder3b.log
 EOF
 bash /tmp/server_coder3b.sh
-bash /tmp/run_coder3b.sh expenses        # même surcharge LLM_BASE_URL, port 8001
-bash /tmp/run_coder3b.sh library_system
+bash /tmp/run_coder.sh expenses          # même surcharge LLM_BASE_URL, port 8001
+bash /tmp/run_coder.sh library_system
 
 # 3. référence (4B, port 8000, aucune surcharge)
 bash server.sh
 python3 agent.py --prompt expenses
 python3 agent.py --prompt library_system
-python3 run_named_prompts.py --only expenses --skip-generate
-python3 run_named_prompts.py --only library_system --skip-generate
+python3 bench.py named --only expenses --skip-generate
+python3 bench.py named --only library_system --skip-generate
 ```
 
 Logs conservés : `/tmp/gen17_evidence_thinking_on.log`,
