@@ -1587,9 +1587,9 @@ def _run_python_assertion(assertion, result, refs, ref_vals):
     # Normalize common JS-style operators the model occasionally emits so the
     # assertion runs instead of surfacing a spurious harness error. gap-free
     # validation rejects these upstream; this is only a safety net.
-    expr = _re.sub(r"\s*&&\s*", " and ", expr)
-    expr = _re.sub(r"\s*\|\|\s*", " or ", expr)
-    expr = _re.sub(r"(?<![=<>!])!\s*", " not ", expr)
+    expr = _re.sub(r"\\s*&&\\s*", " and ", expr)
+    expr = _re.sub(r"\\s*\\|\\|\\s*", " or ", expr)
+    expr = _re.sub(r"(?<![=<>!])!\\s*", " not ", expr)
     namespace = {
         "result": result,
         "len": len,
@@ -1800,6 +1800,15 @@ def main():
 if __name__ == "__main__":
     raise SystemExit(main())
 '''
+
+# Escape discipline for the literal above: it is a NON-raw '''...''' string, so
+# every backslash in it is interpreted by *this* module rather than passed
+# through. A lone backslash before an unrecognised escape (\s, \d, \.) is a
+# SyntaxWarning today and a SyntaxError in a future Python, and a
+# backslash-newline silently swallows the line break. Any backslash that must
+# survive into the emitted test file is therefore written doubled here — the
+# enclosing literal collapses \\ back to \. Verified by comparing
+# md5(_RUNNER_TEMPLATE) before and after the fix: it must not move.
 
 
 def _emit_spec_literal(spec):
