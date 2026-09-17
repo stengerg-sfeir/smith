@@ -196,7 +196,7 @@ Puis lire `analysis/named_prompts_report.md` (le tableau des 4 axes) et
 
 Chaque porte imprime une ligne par cible, puis un total :
 
-```
+```text
 [expenses] status=pass commands=13 runs=39 violations=0
 [cli-conformity] failures=0/3 summary -> behavior_runs/cli_conformity/summary.json
 [expenses] status=pass mapped=12 unmapped=0 pass=12 fail=0
@@ -244,7 +244,7 @@ un seul prompt sans repayer les autres.
 
 `named` scanne le journal de génération à la recherche de six marqueurs :
 
-```
+```text
 reject | dropped (unknown target) | dropped (no designed service method)
 still stubbed | reverted | sanitized | dropped infeasible
 ```

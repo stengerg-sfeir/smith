@@ -2,6 +2,8 @@
 
 **Agent Smith** est un agent de génération de code conçu pour produire des applications Python complètes, testées et robustes à partir de **petits modèles locaux (4B de paramètres)**.
 
+---
+
 Au lieu de reposer sur de gros LLM propriétaires en SaaS et sur des boucles lentes de correction après-coup (*post-hooks*), Agent Smith s'appuie sur une **architecture neurosymbolique** : il contraint strictement le LLM via un pipeline déterministe, des grammaires JSON (GBNF) et des validations AST dès la phase de génération.
 
 ---
@@ -41,10 +43,10 @@ deux fichiers de dépendances.
 * `ruff` — le générateur exécute `ruff check --fix --select E,F,I,W` sur chaque projet
   produit. Dépendance *souple* (l'appel est protégé par un `try/except`), mais sans lui le
   code généré garde ses défauts d'ordre d'imports et d'imports inutilisés. Installé par
-  `requirements.txt`.
+  [`requirements.txt`](requirements.txt).
 * `click` — le testeur *exécute* les CLI générés (chacun étant une application click) dans
   le même interpréteur, donc l'environnement du testeur doit l'avoir. Installé par
-  `requirements-dev.txt`.
+  [`requirements-dev.txt`](requirements-dev.txt).
 
 **Serveur LLM local**, compatible OpenAI, accessible sur `http://localhost:8000/v1`
 (`llama-server`, `vLLM`, …). Version mesurée : **llama.cpp build `9430`** (commit
@@ -123,17 +125,22 @@ sur un prompt, un lot, ou tous — est dans **[`BENCH.md`](BENCH.md)**.
 
 Le dossier `analysis/` contient un ledger et des rapports datés :
 
-* `semantic_dispositions.md` — **le document de référence** : pour chaque défaut sémantique
-  corrigé, le mécanisme qui l'empêche désormais de revenir et la mesure qui le prouve.
-* `convergence_plan.md` — la méthode du chantier (« une loi à la fois »), ses lois et ses
-  preuves datées ; marqué clos.
-* `named_prompts_analysis.md` — ce que les portes du harnais vérifient sur les six prompts
-  nommés.
-* `named_prompts_report.md` / `.json` — le tableau des quatre axes, réécrit à chaque
-  `bench.py named`.
-* `claude_vs_generator.md` — comparatif entre la baseline Claude Code et le générateur.
-* `claude_baseline_report.md` / `claude_baseline_report_sonnet.md` — les mesures brutes de
-  cette comparaison (Haiku / Sonnet).
-* `small_model_trials.md` — trois modèles plus petits que le 4B de référence, et ce qu'ils
-  révèlent.
-* `generation_cost_profile.md` — où passe le temps mural d'une génération.
+* [`semantic_dispositions.md`](analysis/semantic_dispositions.md) — **le document de
+  référence** : pour chaque défaut sémantique corrigé, le mécanisme qui l'empêche désormais
+  de revenir et la mesure qui le prouve.
+* [`convergence_plan.md`](analysis/convergence_plan.md) — la méthode du chantier (« une loi à
+  la fois »), ses lois et ses preuves datées ; marqué clos.
+* [`named_prompts_analysis.md`](analysis/named_prompts_analysis.md) — ce que les portes du
+  harnais vérifient sur les six prompts nommés.
+* [`named_prompts_report.md`](analysis/named_prompts_report.md) /
+  [`named_prompts_report.json`](analysis/named_prompts_report.json) — le tableau des quatre
+  axes, réécrit à chaque `bench.py named`.
+* [`claude_vs_generator.md`](analysis/claude_vs_generator.md) — comparatif entre la baseline
+  Claude Code et le générateur.
+* [`claude_baseline_report.md`](analysis/claude_baseline_report.md) /
+  [`claude_baseline_report_sonnet.md`](analysis/claude_baseline_report_sonnet.md) — les
+  mesures brutes de cette comparaison (Haiku / Sonnet).
+* [`small_model_trials.md`](analysis/small_model_trials.md) — trois modèles plus petits que
+  le 4B de référence, et ce qu'ils révèlent.
+* [`generation_cost_profile.md`](analysis/generation_cost_profile.md) — où passe le temps
+  mural d'une génération.
