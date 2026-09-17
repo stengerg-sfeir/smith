@@ -114,6 +114,9 @@ L'ensemble des outils de benchmark et de vérification est centralisé dans `ben
 python3 bench.py --help
 ```
 
+Le détail des quatorze commandes — ce que chacune teste, pourquoi, et comment la lancer
+sur un prompt, un lot, ou tous — est dans **[`BENCH.md`](BENCH.md)**.
+
 ---
 
 ## Analyses & Documentation
