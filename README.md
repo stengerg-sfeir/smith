@@ -6,6 +6,8 @@
 
 Au lieu de reposer sur de gros LLM propriétaires en SaaS et sur des boucles lentes de correction après-coup (*post-hooks*), Agent Smith s'appuie sur une **architecture neurosymbolique** : il contraint strictement le LLM via un pipeline déterministe, des grammaires JSON (GBNF) et des validations AST dès la phase de génération.
 
+> **Le paradoxe :** un agent construit pour se passer des grands LLM propriétaires... a lui-même été développé avec l'aide de grands LLM — **Kimi K3**, **DeepSeek V4 Pro** et **GPT 5.6 Sol**. Le neurosymbolique n'est pas un refus des grands modèles, c'est la réponse à la question : que reste-t-il à faire quand on n'en a pas ?
+
 ---
 
 ## Pourquoi Agent Smith ?
