@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T19:25:32.379009+00:00",
+  "generated_at": "2026-09-17T09:33:14.883850+00:00",
   "records": [
     {
       "ident": "cli_tool",
@@ -8,10 +8,8 @@
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "pass",
-        "mapped": "5",
-        "pass": "5",
-        "fail": "0"
+        "status": "no_result",
+        "detail": "4/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", line 1324, in do_open\n    raise URLError(err)\nurllib.error.URLError: <urlopen error [Errno 61] Connection refused>"
       },
       "functional_failures": [],
       "conformity_failures": [],
@@ -25,10 +23,8 @@
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "pass",
-        "mapped": "14",
-        "pass": "14",
-        "fail": "0"
+        "status": "no_result",
+        "detail": "4/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", line 1324, in do_open\n    raise URLError(err)\nurllib.error.URLError: <urlopen error [Errno 61] Connection refused>"
       },
       "functional_failures": [],
       "conformity_failures": [],
@@ -59,10 +55,8 @@
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "no_mapped",
-        "mapped": "0",
-        "pass": "0",
-        "fail": "0"
+        "status": "no_result",
+        "detail": "4/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", line 1324, in do_open\n    raise URLError(err)\nurllib.error.URLError: <urlopen error [Errno 61] Connection refused>"
       },
       "functional_failures": [],
       "conformity_failures": [],
@@ -76,10 +70,8 @@
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "pass",
-        "mapped": "11",
-        "pass": "11",
-        "fail": "0"
+        "status": "no_result",
+        "detail": "4/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", line 1324, in do_open\n    raise URLError(err)\nurllib.error.URLError: <urlopen error [Errno 61] Connection refused>"
       },
       "functional_failures": [],
       "conformity_failures": [],
@@ -107,10 +99,8 @@
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "pass",
-        "mapped": "9",
-        "pass": "9",
-        "fail": "0"
+        "status": "no_result",
+        "detail": "4/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", line 1324, in do_open\n    raise URLError(err)\nurllib.error.URLError: <urlopen error [Errno 61] Connection refused>"
       },
       "functional_failures": [],
       "conformity_failures": [],
@@ -136,10 +126,8 @@
       "markers": [],
       "compile_failures": [],
       "facade": {
-        "status": "pass",
-        "mapped": "5",
-        "pass": "5",
-        "fail": "0"
+        "status": "no_result",
+        "detail": "4/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", line 1324, in do_open\n    raise URLError(err)\nurllib.error.URLError: <urlopen error [Errno 61] Connection refused>"
       },
       "functional_failures": [],
       "conformity_failures": [],

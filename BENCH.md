@@ -52,8 +52,8 @@ montré qu'elle **peut** échouer.
 | `facade-intents` | extraction des intentions + découverte de la façade | 46 prompts | oui | `behavior_runs/facade/<id>.json` |
 | `facade-exec` | intentions → invocations CLI → exécution | 46 prompts | non | `behavior_runs/facade/execution/` |
 | `facade-all` | les deux précédentes, par lots de 5 | 46 prompts | oui | `behavior_runs/facade/batches/` |
-| `cost` | où passe le temps mural d'une génération, phase par phase | 1 prompt (obligatoire) | oui | console |
-| `claude` | la même spec passée à Claude Code (référence externe) | 6 nommés | externe | `analysis/` |
+| `cost` | où passe le temps mural d'une génération **et ce qu'elle consomme** (tokens du serveur, chars), phase par phase | 1 prompt (obligatoire) | oui | console (+ `analysis/generation_cost_profile.json` avec `--json`) |
+| `claude` | la même spec passée à Claude Code (référence externe) : verdicts **et** consommation | 6 nommés | externe | `analysis/claude_baseline_report{,_<label>}.md` + `.json` |
 | `floors` | tests unitaires des « planchers » de génération | — | non | console |
 | `pruners` | tests unitaires de l'élagage des dépôts | — | non | console |
 
@@ -118,7 +118,43 @@ python3 bench.py named --only expenses --skip-generate
 
 # où passe le temps de génération
 python3 bench.py cost --prompt expenses
+
+# la même mesure, écrite dans un artefact relisible (tokens + chars + livrable)
+python3 bench.py cost --prompt expenses --json analysis/generation_cost_profile.json
 ```
+
+### 4.1.1 La référence externe, et sa consommation
+
+`claude` passe le **même fichier de prompt** à Claude Code, puis applique les mêmes portes.
+Il mesure aussi ce que le run a coûté, dans les unités que le CLI sait prouver :
+
+```bash
+python3 bench.py claude                    # les 6 nommés, modèle par défaut de la CLI (facturé)
+python3 bench.py claude --label sonnet     # le modèle « sonnet », dans baseline/sonnet/
+python3 bench.py claude --model sonnet     # équivalent (le label suffit)
+python3 bench.py claude --reuse            # re-rend les rapports SANS rappeler le modèle
+```
+
+**`--label` EST le sélecteur de modèle.** `--label sonnet` lance Sonnet ; le même mot nomme
+le sous-dossier et le suffixe du rapport, pour que l'étiquette et le modèle ne puissent pas
+diverger. Un `--model` explicite est accepté mais doit être identique au label, sinon le
+harnais s'arrête.
+
+Le modèle demandé est **vérifié avant tout run** (préflight : un appel jetable dans un
+répertoire temporaire) et **revérifié après chaque prompt** (le modèle rapporté par la CLI
+doit contenir celui demandé). Un modèle qui n'existe pas, ou que la CLI substituerait
+silencieusement, provoque un **échec dur** — jamais un rapport étiqueté du nom d'un modèle
+qui n'a pas tourné :
+
+```text
+refusing to run: --model 'modele-inexistant' failed the preflight: There's an issue with
+the selected model (modele-inexistant). It may not exist or you may not have access to it.
+```
+
+Ce qui a été mesuré est **conservé** : `baseline/<id>.claude.json` garde le payload brut du
+CLI et `baseline/<id>.timing.json` les champs dérivés. Un run live raté (session OAuth
+expirée, par exemple) **s'arrête avant d'écrire** : il ne peut donc pas remplacer une
+baseline existante par un répertoire vide, ni enregistrer des zéros comme des tokens.
 
 ### 4.2 Un lot de prompts
 
@@ -216,6 +252,7 @@ Chaque porte imprime une ligne par cible, puis un total :
 |---|---|
 | `surface`, `cli-conformity`, `repo-conformity`, `semantic`, `behavior` | **0** si tout passe, **1** sinon |
 | `named`, `facade-all` | **toujours 0** |
+| `claude` | **0** si les six runs ont mesuré quelque chose, **1** si un run n'a rien produit (il s'arrête avant d'écraser la baseline) |
 
 `named` et `facade-all` retournent toujours 0 : ils écrivent un **rapport** et c'est lui
 qu'il faut lire, pas `$?`. Pour `named`, la dernière ligne donne le verdict
@@ -235,6 +272,10 @@ qu'il faut lire, pas `$?`. Pour `named`, la dernière ligne donne le verdict
 | `behavior_runs/facade/batches/batch_NN.json` | l'état de chaque lot de `facade-all` |
 | `behavior_runs/NNN/` | un run de `behavior` : `prompt.txt`, `test_spec.json`, `test_behavior.py`, `generated/` |
 | `/tmp/named_prompt_logs/<id>.log` | le journal de génération, celui que `named` scanne |
+| `analysis/claude_baseline_report{,_<label>}.json` | les mesures du rapport `.md`, exploitables : tokens, chars, coût, verdicts par prompt |
+| `analysis/generation_cost_profile.json` | le coût du générateur par prompt **et** par phase (`--json`) |
+| `baseline/<id>.claude.json` | le payload brut du CLI : toute métrique future s'en redérive sans repayer |
+| `baseline/<id>.timing.json` | le temps mural et les tokens du run qui a produit cette sortie |
 
 Un `--only` partiel sur `named` **ne perd pas** les mesures des prompts qu'il n'a pas
 touchés : les enregistrements précédents sont repris depuis le JSON. On peut donc relancer
@@ -262,6 +303,15 @@ affiche `propre` ou le nombre de hits.
   **noms** de commandes et d'options à ceux du prompt. Un prompt qui décrit son interface en
   prose (les 63 non-énumérants) n'est pas vérifié nom à nom — il n'y a pas de contrat
   explicite à comparer.
+- **La conformité de surface lit les commandes *déclarées*, pas la façon de lancer le
+  projet.** Ce sont deux questions distinctes, et deux mécanismes : `declared_surface`
+  (analyse AST de tous les `.py`, quelle que soit la profondeur) décide le verdict
+  prompt↔surface, tandis que `discover_facade` — celui de l'exécuteur — résout un point
+  d'entrée *exécutable* (`python -m pkg.cli`). Les confondre a produit un faux
+  « no click CLI was discovered » sur un projet dont le groupe click vivait un niveau plus
+  bas ; corrigé, et l'épisode est documenté dans
+  [`claude_vs_generator.md`](analysis/claude_vs_generator.md) (défaut 5 de la section
+  « The instruments had to be fixed »).
 - **`surface` vérifie l'absence de trace Python, pas le bon résultat.** Une commande qui
   renvoie `0` en ne faisant rien passe cette porte. C'est `named` (scénario minimal),
   `semantic` (invariants) et la façade (intentions) qui regardent le résultat.

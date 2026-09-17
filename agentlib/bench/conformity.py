@@ -558,6 +558,41 @@ def _without_program_token(wanted: list[dict],
     return [{**w, "path": w["path"].split(" ", 1)[1]} for w in wanted]
 
 
+def declared_surface(project_dir: Path) -> dict:
+    """The CLI surface the code DECLARES, independent of how it is run.
+
+    ``discover_facade`` answers a different question — "how do I EXECUTE this
+    project" — and for a package it needs a runnable entry (``python -m
+    pkg.cli``). Conformity asks only WHICH COMMANDS EXIST, so answering it with
+    the executor's discovery conflated the two: a project whose click group
+    sits one level deeper than the executor's package scan
+    (``library_system/cli/main.py``) was reported as having "no click CLI",
+    although the harness itself had just dispatched that very group. The
+    fallback below parses every Python file at ANY depth and keeps the richest
+    click tree; it cannot invent a surface, it only refuses to confuse
+    "discoverable" with "runnable".
+    """
+    from agentlib.bench.facade_discovery import (
+        _parse_click_file, discover_facade,
+    )
+
+    facade = discover_facade(project_dir)
+    if facade.get("kind") in ("click_group", "click_command"):
+        return facade
+
+    best: dict | None = None
+    for path in sorted(Path(project_dir).rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        parsed = _parse_click_file(path)
+        if not parsed or not parsed["commands"]:
+            continue
+        if best is None or len(parsed["commands"]) > len(best["commands"]):
+            best = {"entry": path.name, "kind": "click_group",
+                    "commands": parsed["commands"]}
+    return best or facade
+
+
 def surface_conformity_violations(prompt_text: str,
                                   project_dir: Path) -> list[str]:
     """Prompt→surface name conformance ([] = the CLI is exactly the prompt's).
@@ -567,13 +602,11 @@ def surface_conformity_violations(prompt_text: str,
     exposes: the prompt must have asked for it. A missing command, a missing
     option, or a generated extra is a violation.
     """
-    from agentlib.bench.facade_discovery import discover_facade
-
     wanted = prompt_surface_paths(prompt_text)
     if not wanted:
         return []
 
-    facade = discover_facade(project_dir)
+    facade = declared_surface(project_dir)
     if facade.get("kind") not in ("click_group", "click_command"):
         return ["prompt enumerates a command line but no click CLI was discovered"]
 

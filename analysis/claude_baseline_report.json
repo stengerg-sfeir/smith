@@ -1,0 +1,240 @@
+{
+  "generated_at": "2026-09-17T09:32:52.574067+00:00",
+  "runs": [
+    {
+      "ident": "cli_tool",
+      "model": "claude-haiku-4-5-20251001",
+      "elapsed_s": 27.9,
+      "claude_duration_ms": 26757,
+      "claude_api_ms": 27623,
+      "turns": 8,
+      "cost_usd": 0.058467,
+      "usage": {
+        "input": 66,
+        "output": 3383,
+        "cache_read": 180303,
+        "cache_creation": 11183,
+        "total": 194935
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1091,
+          "output": 3396,
+          "cache_read": 180303,
+          "cache_creation": 11183,
+          "cost_usd": 0.05846730000000001
+        }
+      },
+      "prompt_chars": 647,
+      "source_files": 1,
+      "source_chars": 3950,
+      "all_source_files": 3,
+      "all_source_chars": 5101,
+      "python_files": 1,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 0,
+      "raw_conformity": 0,
+      "shim_functional": 0,
+      "shim_conformity": 0
+    },
+    {
+      "ident": "expenses",
+      "model": "claude-haiku-4-5-20251001",
+      "elapsed_s": 94.0,
+      "claude_duration_ms": 92905,
+      "claude_api_ms": 92747,
+      "turns": 15,
+      "cost_usd": 0.178398,
+      "usage": {
+        "input": 122,
+        "output": 15929,
+        "cache_read": 462792,
+        "cache_creation": 25238,
+        "total": 504081
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1923,
+          "output": 15944,
+          "cache_read": 462792,
+          "cache_creation": 25238,
+          "cost_usd": 0.17839820000000003
+        }
+      },
+      "prompt_chars": 3505,
+      "source_files": 8,
+      "source_chars": 40003,
+      "all_source_files": 10,
+      "all_source_chars": 47275,
+      "python_files": 8,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 3,
+      "raw_conformity": 6,
+      "shim_functional": 3,
+      "shim_conformity": 6
+    },
+    {
+      "ident": "hello_world",
+      "model": "claude-haiku-4-5-20251001",
+      "elapsed_s": 9.2,
+      "claude_duration_ms": 8326,
+      "claude_api_ms": 9094,
+      "turns": 3,
+      "cost_usd": 0.019022,
+      "usage": {
+        "input": 26,
+        "output": 595,
+        "cache_read": 61328,
+        "cache_creation": 4423,
+        "total": 66372
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1008,
+          "output": 607,
+          "cache_read": 61328,
+          "cache_creation": 4423,
+          "cost_usd": 0.0190218
+        }
+      },
+      "prompt_chars": 416,
+      "source_files": 1,
+      "source_chars": 111,
+      "all_source_files": 1,
+      "all_source_chars": 111,
+      "python_files": 1,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 0,
+      "raw_conformity": 0,
+      "shim_functional": 0,
+      "shim_conformity": 0
+    },
+    {
+      "ident": "inventory",
+      "model": "claude-haiku-4-5-20251001",
+      "elapsed_s": 181.3,
+      "claude_duration_ms": 180428,
+      "claude_api_ms": 181113,
+      "turns": 11,
+      "cost_usd": 0.202211,
+      "usage": {
+        "input": 90,
+        "output": 20612,
+        "cache_read": 390256,
+        "cache_creation": 29211,
+        "total": 440169
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1628,
+          "output": 20627,
+          "cache_read": 390256,
+          "cache_creation": 29211,
+          "cost_usd": 0.20221060000000002
+        }
+      },
+      "prompt_chars": 2517,
+      "source_files": 7,
+      "source_chars": 19648,
+      "all_source_files": 9,
+      "all_source_chars": 19908,
+      "python_files": 7,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 1,
+      "raw_conformity": 8,
+      "shim_functional": 1,
+      "shim_conformity": 8
+    },
+    {
+      "ident": "library_system",
+      "model": "claude-haiku-4-5-20251001",
+      "elapsed_s": 119.1,
+      "claude_duration_ms": 118325,
+      "claude_api_ms": 118206,
+      "turns": 12,
+      "cost_usd": 0.14895,
+      "usage": {
+        "input": 98,
+        "output": 13733,
+        "cache_read": 338227,
+        "cache_creation": 22412,
+        "total": 374470
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1563,
+          "output": 13748,
+          "cache_read": 338227,
+          "cache_creation": 22412,
+          "cost_usd": 0.1489497
+        }
+      },
+      "prompt_chars": 2171,
+      "source_files": 7,
+      "source_chars": 31752,
+      "all_source_files": 9,
+      "all_source_chars": 37793,
+      "python_files": 7,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 13,
+      "raw_conformity": 2,
+      "shim_functional": 13,
+      "shim_conformity": 2
+    },
+    {
+      "ident": "multi_module",
+      "model": "claude-haiku-4-5-20251001",
+      "elapsed_s": 52.0,
+      "claude_duration_ms": 51057,
+      "claude_api_ms": 51004,
+      "turns": 14,
+      "cost_usd": 0.069875,
+      "usage": {
+        "input": 42,
+        "output": 5795,
+        "cache_read": 116586,
+        "cache_creation": 14043,
+        "total": 136466
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1100,
+          "output": 5806,
+          "cache_read": 116586,
+          "cache_creation": 14043,
+          "cost_usd": 0.06987460000000001
+        }
+      },
+      "prompt_chars": 763,
+      "source_files": 9,
+      "source_chars": 10078,
+      "all_source_files": 11,
+      "all_source_chars": 13052,
+      "python_files": 9,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": null,
+      "raw_conformity": null,
+      "shim_functional": 1,
+      "shim_conformity": 1
+    }
+  ],
+  "totals": {
+    "prompt_chars": 10019,
+    "source_chars": 105542,
+    "source_files": 33,
+    "all_source_chars": 123240,
+    "all_source_files": 43,
+    "tokens_input": 444,
+    "tokens_output": 60047,
+    "tokens_cache_read": 1549492,
+    "tokens_cache_creation": 106510,
+    "tokens_total": 1716493,
+    "cost_usd": 0.6769
+  }
+}

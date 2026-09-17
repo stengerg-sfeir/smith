@@ -1,0 +1,282 @@
+{
+  "generated_at": "2026-09-17T09:33:06.116908+00:00",
+  "runs": [
+    {
+      "ident": "cli_tool",
+      "model": "claude-haiku-4-5-20251001, claude-sonnet-5",
+      "elapsed_s": 52.6,
+      "claude_duration_ms": 51797,
+      "claude_api_ms": 51646,
+      "turns": 11,
+      "cost_usd": 0.161446,
+      "usage": {
+        "input": 20,
+        "output": 3754,
+        "cache_read": 308018,
+        "cache_creation": 15293,
+        "total": 327085
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1025,
+          "output": 13,
+          "cache_read": 0,
+          "cache_creation": 0,
+          "cost_usd": 0.00109
+        },
+        "claude-sonnet-5": {
+          "input": 20,
+          "output": 3754,
+          "cache_read": 308018,
+          "cache_creation": 15293,
+          "cost_usd": 0.16035560000000001
+        }
+      },
+      "prompt_chars": 647,
+      "source_files": 1,
+      "source_chars": 3086,
+      "all_source_files": 2,
+      "all_source_chars": 3117,
+      "python_files": 1,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": null,
+      "raw_conformity": null,
+      "shim_functional": 0,
+      "shim_conformity": 1
+    },
+    {
+      "ident": "expenses",
+      "model": "claude-haiku-4-5-20251001, claude-sonnet-5",
+      "elapsed_s": 408.8,
+      "claude_duration_ms": 408071,
+      "claude_api_ms": 407579,
+      "turns": 30,
+      "cost_usd": 1.1598,
+      "usage": {
+        "input": 60,
+        "output": 48703,
+        "cache_read": 1966309,
+        "cache_creation": 69378,
+        "total": 2084450
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1801,
+          "output": 15,
+          "cache_read": 0,
+          "cache_creation": 0,
+          "cost_usd": 0.001876
+        },
+        "claude-sonnet-5": {
+          "input": 60,
+          "output": 48703,
+          "cache_read": 1966309,
+          "cache_creation": 69378,
+          "cost_usd": 1.1579237999999998
+        }
+      },
+      "prompt_chars": 3505,
+      "source_files": 9,
+      "source_chars": 42206,
+      "all_source_files": 10,
+      "all_source_chars": 42217,
+      "python_files": 9,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 3,
+      "raw_conformity": 0,
+      "shim_functional": 3,
+      "shim_conformity": 0
+    },
+    {
+      "ident": "hello_world",
+      "model": "claude-haiku-4-5-20251001, claude-sonnet-5",
+      "elapsed_s": 6.3,
+      "claude_duration_ms": 5445,
+      "claude_api_ms": 6167,
+      "turns": 2,
+      "cost_usd": 0.058994,
+      "usage": {
+        "input": 4,
+        "output": 249,
+        "cache_read": 48790,
+        "cache_creation": 11424,
+        "total": 60467
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 982,
+          "output": 12,
+          "cache_read": 0,
+          "cache_creation": 0,
+          "cost_usd": 0.001042
+        },
+        "claude-sonnet-5": {
+          "input": 4,
+          "output": 249,
+          "cache_read": 48790,
+          "cache_creation": 11424,
+          "cost_usd": 0.057952000000000004
+        }
+      },
+      "prompt_chars": 416,
+      "source_files": 1,
+      "source_chars": 87,
+      "all_source_files": 1,
+      "all_source_chars": 87,
+      "python_files": 1,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": null,
+      "raw_conformity": null,
+      "shim_functional": 0,
+      "shim_conformity": 2
+    },
+    {
+      "ident": "inventory",
+      "model": "claude-haiku-4-5-20251001, claude-sonnet-5",
+      "elapsed_s": 148.7,
+      "claude_duration_ms": 147975,
+      "claude_api_ms": 147926,
+      "turns": 15,
+      "cost_usd": 0.440413,
+      "usage": {
+        "input": 30,
+        "output": 18603,
+        "cache_read": 632054,
+        "cache_creation": 31576,
+        "total": 682263
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1538,
+          "output": 14,
+          "cache_read": 0,
+          "cache_creation": 0,
+          "cost_usd": 0.001608
+        },
+        "claude-sonnet-5": {
+          "input": 30,
+          "output": 18603,
+          "cache_read": 632054,
+          "cache_creation": 31576,
+          "cost_usd": 0.43880480000000005
+        }
+      },
+      "prompt_chars": 2517,
+      "source_files": 8,
+      "source_chars": 21537,
+      "all_source_files": 9,
+      "all_source_chars": 21548,
+      "python_files": 8,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": 0,
+      "raw_conformity": 0,
+      "shim_functional": 0,
+      "shim_conformity": 0
+    },
+    {
+      "ident": "library_system",
+      "model": "claude-haiku-4-5-20251001, claude-sonnet-5",
+      "elapsed_s": 387.3,
+      "claude_duration_ms": 6464,
+      "claude_api_ms": 396037,
+      "turns": 1,
+      "cost_usd": 1.183254,
+      "usage": {
+        "input": 2,
+        "output": 477,
+        "cache_read": 68996,
+        "cache_creation": 2534,
+        "total": 72009
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1465,
+          "output": 12,
+          "cache_read": 0,
+          "cache_creation": 0,
+          "cost_usd": 0.0015249999999999999
+        },
+        "claude-sonnet-5": {
+          "input": 114,
+          "output": 38257,
+          "cache_read": 2445011,
+          "cache_creation": 92454,
+          "cost_usd": 1.1817287
+        }
+      },
+      "prompt_chars": 2171,
+      "source_files": 16,
+      "source_chars": 32121,
+      "all_source_files": 18,
+      "all_source_chars": 32519,
+      "python_files": 16,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": null,
+      "raw_conformity": null,
+      "shim_functional": 0,
+      "shim_conformity": 2
+    },
+    {
+      "ident": "multi_module",
+      "model": "claude-haiku-4-5-20251001, claude-sonnet-5",
+      "elapsed_s": 104.8,
+      "claude_duration_ms": 103970,
+      "claude_api_ms": 104157,
+      "turns": 20,
+      "cost_usd": 0.301465,
+      "usage": {
+        "input": 40,
+        "output": 7642,
+        "cache_read": 687524,
+        "cache_creation": 21583,
+        "total": 716789
+      },
+      "model_usage": {
+        "claude-haiku-4-5-20251001": {
+          "input": 1058,
+          "output": 14,
+          "cache_read": 0,
+          "cache_creation": 0,
+          "cost_usd": 0.0011279999999999999
+        },
+        "claude-sonnet-5": {
+          "input": 40,
+          "output": 7642,
+          "cache_read": 687524,
+          "cache_creation": 21583,
+          "cost_usd": 0.30033680000000007
+        }
+      },
+      "prompt_chars": 763,
+      "source_files": 6,
+      "source_chars": 11178,
+      "all_source_files": 8,
+      "all_source_chars": 11573,
+      "python_files": 6,
+      "stub_markers": 0,
+      "compile_ok": true,
+      "raw_functional": null,
+      "raw_conformity": null,
+      "shim_functional": 5,
+      "shim_conformity": 0
+    }
+  ],
+  "totals": {
+    "prompt_chars": 10019,
+    "source_chars": 110215,
+    "source_files": 41,
+    "all_source_chars": 111061,
+    "all_source_files": 48,
+    "tokens_input": 156,
+    "tokens_output": 79428,
+    "tokens_cache_read": 3711691,
+    "tokens_cache_creation": 151788,
+    "tokens_total": 3943063,
+    "cost_usd": 3.3054
+  }
+}

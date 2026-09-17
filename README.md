@@ -6,7 +6,7 @@
 
 Au lieu de reposer sur de gros LLM propriétaires en SaaS et sur des boucles lentes de correction après-coup (*post-hooks*), Agent Smith s'appuie sur une **architecture neurosymbolique** : il contraint strictement le LLM via un pipeline déterministe, des grammaires JSON (GBNF) et des validations AST dès la phase de génération.
 
-> **Le paradoxe :** un agent construit pour se passer des grands LLM propriétaires... a lui-même été développé avec l'aide de grands LLM — **Kimi K3**, **DeepSeek V4 Pro** et **GPT 5.6 Sol**. Le neurosymbolique n'est pas un refus des grands modèles, c'est la réponse à la question : que reste-t-il à faire quand on n'en a pas ?
+> **Le paradoxe :** un agent construit pour se passer des grands LLM propriétaires a lui-même été développé avec l'aide de grands LLM — Kimi K3, DeepSeek V4 Pro, GPT 5.6 Sol. Ce n'est pas une contradiction mais l'énoncé du problème : le neurosymbolique ne remplace pas les grands modèles, il réduit ce qu'on leur demande. La mesure de ce qui reste à leur demander est dans [`analysis/claude_vs_generator.md`](analysis/claude_vs_generator.md).
 
 ---
 
@@ -138,11 +138,16 @@ Le dossier `analysis/` contient un ledger et des rapports datés :
   [`named_prompts_report.json`](analysis/named_prompts_report.json) — le tableau des quatre
   axes, réécrit à chaque `bench.py named`.
 * [`claude_vs_generator.md`](analysis/claude_vs_generator.md) — comparatif entre la baseline
-  Claude Code et le générateur.
+  Claude Code et le générateur, **consommation comprise** : les mêmes six spécifications,
+  ce que chacune produit (chars, fichiers) et ce qu'elle coûte (tokens, dollars). Les
+  chiffres viennent de trois artefacts, pas d'un terminal.
 * [`claude_baseline_report.md`](analysis/claude_baseline_report.md) /
   [`claude_baseline_report_sonnet.md`](analysis/claude_baseline_report_sonnet.md) — les
-  mesures brutes de cette comparaison (Haiku / Sonnet).
+  mesures brutes de cette comparaison (Haiku / Sonnet), chacune avec son double
+  exploitable `claude_baseline_report{,_sonnet}.json`.
 * [`small_model_trials.md`](analysis/small_model_trials.md) — trois modèles plus petits que
   le 4B de référence, et ce qu'ils révèlent.
-* [`generation_cost_profile.md`](analysis/generation_cost_profile.md) — où passe le temps
-  mural d'une génération.
+* [`generation_cost_profile.md`](analysis/generation_cost_profile.md) /
+  [`generation_cost_profile.json`](analysis/generation_cost_profile.json) — où passe le
+  temps mural d'une génération **et** ce qu'elle consomme (secondes, chars, tokens), phase
+  par phase.

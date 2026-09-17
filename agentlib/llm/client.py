@@ -11,6 +11,27 @@ import urllib.request
 from ..config import LLM_BASE_URL, LLM_SEED, LLM_RETRY_TEMPERATURE
 
 
+# Token accounting of the most recent completion, exactly as the server
+# reported it (`{"prompt_tokens": .., "completion_tokens": ..}`), or None when
+# the response carried no `usage` block — llama.cpp only emits one while
+# streaming if the request asked for it, and this client does not, so streamed
+# calls leave it None and their size is known in CHARS instead.
+#
+# Measurement only: no pipeline code reads this. `bench.py cost` does, so a
+# token-per-project comparison against an external model is possible at all.
+LAST_USAGE = None
+
+
+def _note_usage(usage) -> None:
+    """Record, or clear, the server's token accounting for one call.
+
+    Cleared at the START of every call so a caller can never read the previous
+    call's numbers when the current response omitted `usage`.
+    """
+    global LAST_USAGE
+    LAST_USAGE = usage if isinstance(usage, dict) else None
+
+
 class _StreamLimitExceeded(Exception):
     """Raised when a streaming completion exceeds max_output_chars.
 
@@ -63,9 +84,11 @@ def _chat_completion(messages, max_tokens=2048, temperature=0.0, seed=None,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    _note_usage(None)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         if not stream:
             data = json.loads(resp.read().decode("utf-8"))
+            _note_usage(data.get("usage"))
             choice = data["choices"][0]
             if choice.get("finish_reason") == "length":
                 # Truncated output: make it VISIBLE instead of letting it
@@ -92,6 +115,11 @@ def _chat_completion(messages, max_tokens=2048, temperature=0.0, seed=None,
                 chunk = json.loads(payload)
             except json.JSONDecodeError:
                 continue
+            if chunk.get("usage"):
+                # Present only if the server decided to send it; recorded when
+                # it does rather than requested, so the streaming request body
+                # stays exactly what the pipeline has always sent.
+                _note_usage(chunk["usage"])
             for ch in chunk.get("choices") or []:
                 delta = ch.get("delta") or {}
                 piece = delta.get("content") or ""

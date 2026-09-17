@@ -6,12 +6,12 @@ mur de `agent.py --prompt <nom>`.
 
 | prompt | génération (s) | marqueurs | compile | **fonctionnel** | **conforme** | façade |
 |---|---|---|---|---|---|---|
-| `cli_tool` | 14.2 | propre | OK | **PASS** | **PASS** | pass 5/5 |
-| `expenses` | 399.5 | propre | OK | **PASS** | **PASS** | pass 14/14 |
-| `hello_world` | 2.0 | propre | OK | **PASS** | **PASS** | no_mapped 0/0 |
-| `inventory` | 244.8 | propre | OK | **PASS** | **PASS** | pass 11/11 |
-| `library_system` | 223.5 | propre | OK | **PASS** | **PASS** | pass 9/9 |
-| `multi_module` | 141.6 | propre | OK | **PASS** | **PASS** | pass 5/5 |
+| `cli_tool` | 14.2 | propre | OK | **PASS** | **PASS** | no_result ?/? |
+| `expenses` | 399.5 | propre | OK | **PASS** | **PASS** | no_result ?/? |
+| `hello_world` | 2.0 | propre | OK | **PASS** | **PASS** | no_result ?/? |
+| `inventory` | 244.8 | propre | OK | **PASS** | **PASS** | no_result ?/? |
+| `library_system` | 223.5 | propre | OK | **PASS** | **PASS** | no_result ?/? |
+| `multi_module` | 141.6 | propre | OK | **PASS** | **PASS** | no_result ?/? |
 
 ## `cli_tool`
 
@@ -21,7 +21,7 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=pass pass=5/5
+- façade (contrôle indépendant, piloté par LLM) : status=no_result pass=None/None
 
 ## `expenses`
 
@@ -32,7 +32,7 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=pass pass=14/14
+- façade (contrôle indépendant, piloté par LLM) : status=no_result pass=None/None
 
 ## `hello_world`
 
@@ -42,7 +42,7 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=no_mapped pass=0/0
+- façade (contrôle indépendant, piloté par LLM) : status=no_result pass=None/None
 
 ## `inventory`
 
@@ -53,7 +53,7 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=pass pass=11/11
+- façade (contrôle indépendant, piloté par LLM) : status=no_result pass=None/None
 
 ## `library_system`
 
@@ -64,7 +64,7 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=pass pass=9/9
+- façade (contrôle indépendant, piloté par LLM) : status=no_result pass=None/None
 
 ## `multi_module`
 
@@ -74,6 +74,6 @@ mur de `agent.py --prompt <nom>`.
 - compile : OK
 - **fonctionnel** : PASS
 - **conforme** : PASS
-- façade (contrôle indépendant, piloté par LLM) : status=pass pass=5/5
+- façade (contrôle indépendant, piloté par LLM) : status=no_result pass=None/None
 
-_Généré le 2026-09-16T19:25:32.384416+00:00._
+_Généré le 2026-09-17T09:33:14.884876+00:00._
