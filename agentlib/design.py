@@ -580,6 +580,52 @@ def _strip_reserved_methods(d):
     return removed
 
 
+def _normalize_method_names(d):
+    """Spell a command-named method the way Python spells it (in place).
+
+    A design sometimes names a service method after the COMMAND it serves —
+    ``payment/list``, ``order/line/add``. A slash is not an identifier, so the
+    prompt failed validation, the retry failed the same way, and the whole
+    prompt was reported as failed (prompt 46) even though the design carried
+    a perfectly good method.
+
+    The name is read as a path: the LAST segment is the verb and the earlier
+    segments are the resource — the same thing the generator spells
+    ``<verb>_<resource>`` everywhere else (``payment/list`` ->
+    ``list_payment``, ``order/line/add`` -> ``add_order_line``). Every
+    ``calls`` entry naming the old spelling is rewritten too, so nothing
+    points at a method that no longer exists.
+    """
+    rewritten = {}
+    for m in d.get("methods") or []:
+        if not isinstance(m, dict):
+            continue
+        name = m.get("name")
+        if not isinstance(name, str) or _NAME_SNAKE.match(name):
+            continue
+        if "/" not in name:
+            continue
+        parts = [p for p in name.split("/") if p]
+        if len(parts) < 2:
+            continue
+        candidate = "_".join([parts[-1]] + parts[:-1]).lower()
+        if not _NAME_SNAKE.match(candidate):
+            continue
+        m["name"] = candidate
+        rewritten[name] = candidate
+    if rewritten:
+        for m in d.get("methods") or []:
+            if not isinstance(m, dict):
+                continue
+            calls = m.get("calls")
+            if isinstance(calls, list):
+                m["calls"] = [
+                    rewritten.get(c, c) if isinstance(c, str) else c
+                    for c in calls
+                ]
+    return len(rewritten)
+
+
 def _strip_invalid_list_filters(d):
     """Drop invalid list_filter declarations in-place (models design)."""
     dropped = 0

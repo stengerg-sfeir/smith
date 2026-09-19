@@ -2584,7 +2584,12 @@ def _apply_impl_floors(entities_by_class, designs):
             # a year (S6). Without a period name the method carries no
             # exactly-renderable aggregate and keeps its LLM fill, where the
             # repo/entity coherence gate holds it to Category's own repository.
-            if not any(
+            # No parameter at all means no period to bucket by: there is no
+            # ``params[0]`` to name one, so the method cannot carry a
+            # well-formed period total and keeps its fill. Reading
+            # ``params[0]`` unconditionally crashed the whole prompt
+            # (IndexError: list index out of range) instead of declining.
+            if not params or not any(
                 tok in params[0].lower()
                 for tok in ("month", "year", "period", "week", "quarter",
                             "annee", "mois")

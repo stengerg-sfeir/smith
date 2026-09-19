@@ -22,6 +22,7 @@ from agentlib.design import (
     _strip_invalid_list_filters,
     _strip_invalid_impls,
     _strip_reserved_methods,
+    _normalize_method_names,
 )
 from agentlib.llm.client import _json_complete
 from agentlib.naming import _snake, _camel
@@ -687,8 +688,14 @@ def _design_module(path, kind, prompt_text, context, verbose=False,
                     for m in (data.get("methods") or [])
                     if isinstance(m, dict) and m.get("name")
                 }
+                # A method named after the COMMAND it serves (``payment/list``)
+                # is spelled the way Python spells it BEFORE anything judges
+                # it: without this the same name failed validation twice and
+                # the whole prompt was reported as failed (prompt 46) while
+                # the design carried a perfectly usable method.
+                normalized = _normalize_method_names(data)
                 stripped = _strip_invalid_impls(data)
-                stripped += _strip_reserved_methods(data)
+                stripped += _strip_reserved_methods(data) + normalized
                 label = "invalid impl(s)/method(s)"
             if stripped:
                 errs = validator(data)
