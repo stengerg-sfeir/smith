@@ -996,3 +996,81 @@ défauts du générateur : la sonde 40 exigeait une commande de création d'ordr
 que le prompt **ne demande pas** (elle vérifie maintenant que la confirmation
 existe, et la notification qu'elle émet), et la sonde 19 attendait le mot
 « error » là où l'import signale « not imported ».
+---
+
+## Session 2 — la campagne des 66 prompts : deux lois de plus, et une limitation caractérisée
+
+La campagne `python3 agent.py` traite **66 prompts** (les 60 numérotés et les 6
+nommés), pas 40. Résultat de la passe : **64 réussis, 2 échoués** — et les deux
+échecs ont livré deux lois nouvelles, toutes deux vérifiées sur l'arbre frais.
+
+### N11 — un total de période lit un paramètre qui peut ne pas exister
+
+    agentlib/generation/service_render.py:2587, in _apply_impl_floors
+        tok in params[0].lower()
+    IndexError: list index out of range
+
+Le plancher qui marque un « total sur une période » (kind `total_in_period`)
+n'était atteint que par la forme stricte « une seule entité à une date et un
+numérique », et il lisait alors `params[0]` **sans vérifier que la méthode a un
+paramètre**. Une méthode sans paramètre faisait tomber **tout le prompt** (et
+une seule fois ne suffisait pas : la nouvelle tentative rencontrait la même
+forme). Correctif : le test de période exige désormais un paramètre
+(`if not params or not any(...)`), exactement comme il refuse déjà un paramètre
+qui ne nomme pas une période — la méthode garde alors son remplissage.
+
+### N12 — une méthode nommée d'après sa COMMANDE n'est pas un identifiant
+
+    [design] invoice_service.py invalid: bad method name 'payment/list' (attempt 2)
+    Done -- 0 succeeded, 1 failed out of 1 prompt(s).
+
+Le design a nommé une méthode de service d'après la commande qu'elle sert :
+`payment/list`. La barre oblique n'est pas un identifiant Python, donc le
+validateur rejetait le design, la nouvelle tentative produisait le **même** nom,
+et le prompt entier était déclaré en échec — alors que le design portait une
+méthode parfaitement utilisable. Loi : le nom est lu comme un **chemin**, le
+dernier segment est le verbe et les précédents la ressource — la façon dont le
+générateur écrit partout ailleurs `<verbe>_<ressource>` (`payment/list` →
+`list_payment`, `order/line/add` → `add_order_line`). Toute entrée `calls` qui
+nommait l'ancienne orthographe est réécrite, pour que rien ne pointe vers une
+méthode disparue.
+
+Mesure d'isolation (`/tmp/t_norm.py`) : erreurs avant
+`["bad method name 'payment/list'", "bad method name 'order/line/add'"]`,
+2 renommages, `calls` réécrits, **zéro** erreur après. Mesure en génération :
+le prompt 46 passe de `0 succeeded, 1 failed` à **`1 succeeded, 0 failed`**.
+
+### Une garde resserrée au passage (N7)
+
+La réécriture de commande (`command_service_guard`) retrouvait son callback
+**par nom de méthode**, ce qui pouvait tomber sur une autre commande appelant
+une méthode homonyme, et elle pouvait retirer des options tout en laissant la
+commande branchée sur l'ancienne classe. Elle travaille maintenant sur le
+callback **qui a justifié le module** et exige que ce callback instancie bien la
+classe que le module déclare : tout ou rien. Revérifié en isolation sur 20
+(`REPORT_OK: True`).
+
+### Limitation ouverte, caractérisée : le prompt 59
+
+Le second échec est le prompt 59 (commandes, lignes, remises, taxes, annulation,
+restauration de stock, rapports, export CSV — le plus gros spéc). Après
+correctif du crash N11, sa génération entre dans la **boucle de réparation**
+(`pipeline/run.py:193`, `for repair_attempt in range(3)`) qui régénère des
+fichiers entiers par le modèle ; sur un spéc de cette taille, chaque génération
+**dépasse le budget de sortie** :
+
+    [warn] completion hit max_tokens=8192 — output truncated   (répété)
+
+Le processus a alors tourné **50 minutes** en émettant des appels modèle en
+continu (~1/s) **sans écrire un seul fichier** pour ce prompt. Ce n'est pas un
+défaut introduit par les lois N1–N12 : c'est une limite d'échelle du chemin de
+réparation (une demande plus grosse que le budget de sortie est réessayée à
+l'identique, donc ne peut pas aboutir). Prochaine étape, précise : borner la
+boucle de réparation par une mesure de **progrès** (si deux tentatives
+consécutives tronquent sans réduire le jeu d'erreurs, cesser et rapporter), et
+découper le remplissage/la réparation des gros fichiers par lots de méthodes,
+comme le fait déjà le remplissage de service (`LARGE_STUB_SET = 1`).
+
+Les deux échecs n'affectent **pas** la mesure 01–40 : le prompt 59 est hors de
+son périmètre, et les 40 prompts numérotés restent à **78/78** (voir
+`analysis/numbered_01_40_report_v3.md`).

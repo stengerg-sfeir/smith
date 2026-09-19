@@ -154,6 +154,8 @@ Mesure sur arbres **régénérés** : `/tmp/state_01_40.py`, rapport
 | N8 | mise à jour partielle (« only the quantity ») — **35** | ✅ | `bulk-update --ids 1 --stock-quantity 9` → `True`, `stock_quantity=9` |
 | N9 | notification observable (logging configuré) — **40** | ✅ | `order confirm --id 1` → `notification to 1: confirmed order 1` |
 | N10 | frontière CLI/persistance : pas de `sqlite3` dans le CLI, dépôt abstrait — **29**, **30** | ✅ | `IntegrityViolation` (erreur de domaine) ; `TaskRepositoryInterface(ABC)` créée et implémentée |
+| N11 | un total de période ne lit pas `params[0]` quand la méthode n'a aucun paramètre — crash de tout un prompt | ✅ | `IndexError: list index out of range` → la méthode garde son remplissage (`service_render._apply_impl_floors`) |
+| N12 | une méthode nommée d'après sa COMMANDE (`payment/list`) est réécrite `list_payment` — **46** | ✅ | `bad method name 'payment/list'` (×2) → **`1 succeeded, 0 failed`** |
 
 Modules des lois N7–N10 (tous dans `agentlib/generation/`) :
 
