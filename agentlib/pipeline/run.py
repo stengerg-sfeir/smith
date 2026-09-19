@@ -34,6 +34,8 @@ from agentlib.generation.click_prompts import drop_unneeded_prompts
 from agentlib.generation.cli_wiring import fix_click_option_params
 from agentlib.generation.delegation_guard import apply_delegation_guards
 from agentlib.generation.entrypoint import ensure_entry_point
+from agentlib.generation.export_guard import apply_export_guards
+from agentlib.generation.import_guard import apply_import_guards
 from agentlib.generation.ownership_guard import (
     apply_ownership_cli,
     apply_ownership_guards,
@@ -256,6 +258,12 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- 17: the delegation a service method owes its repository ----------
     _apply_delegations(files, design_ctx, verbose=verbose)
 
+    # ---- 18/19: an import the fill phase left as an empty stub ------------
+    _apply_imports(files, design_ctx, verbose=verbose)
+
+    # ---- 19: an export that writes a summary instead of the rows ---------
+    _apply_exports(files, design_ctx, verbose=verbose)
+
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
@@ -317,6 +325,46 @@ def _apply_ownership_scope(files, design_ctx, verbose=False):
             files[cli_path] = cli_source
             if verbose:
                 print("    [ownership] %s: %s" % (cli_path, "; ".join(notes)))
+
+
+def _apply_exports(files, design_ctx, verbose=False):
+    """Make an export write the entity's rows, not a summary (prompt 19).
+
+    "export all tasks to JSON and import tasks from JSON" (prompt 19) shipped
+    an export keyed on ``total_tasks``/``completed_tasks``/``overdue_tasks`` —
+    a summary the import cannot read back. An export whose body never names a
+    field of the entity it exports cannot be writing that entity's rows.
+    """
+    files, notes = apply_export_guards(
+        files,
+        design_ctx.get("service_files") or [],
+        design_ctx.get("repo_files") or [],
+        design_ctx.get("model_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [export] %s" % note)
+
+
+def _apply_imports(files, design_ctx, verbose=False):
+    """Implement an import command the fill phase left as an empty stub.
+
+    Prompt 18 asks to "import contacts from CSV", with "invalid rows during
+    import rejected without corrupting existing data", and prompt 19 asks the
+    same for JSON. The fill phase wrote the export in full and left the import
+    as ``return []`` — which exits 0, prints nothing, and imports nothing. The
+    body is rendered from the entity's dataclass (names and types decide the
+    coercion), validates every row BEFORE the first write, and reports each
+    rejection in the list the CLI prints.
+    """
+    files, notes = apply_import_guards(
+        files,
+        design_ctx.get("service_files") or [],
+        design_ctx.get("model_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [import] %s" % note)
 
 
 def _apply_delegations(files, design_ctx, verbose=False):

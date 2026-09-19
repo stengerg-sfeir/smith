@@ -481,8 +481,11 @@ def probe_18():
                        str(incoming.resolve()))
     rows = sql(project, "SELECT * FROM contacts")
     check("the valid row is imported and the invalid one rejected",
-          any("b@x.com" in str(row) for row in rows) and "error" in (err + out).lower(),
+          any("b@x.com" in str(row) for row in rows) and len(rows) == 2,
           "rc=%s out=%s err=%s rows=%s" % (rc, out[:80], err[:80], rows))
+    check("the rejection is reported to the caller",
+          contains(out + err, "not imported") or contains(out + err, "error"),
+          "rc=%s out=%s err=%s" % (rc, out[:120], err[:120]))
     check("the existing contact is untouched",
           any("a@x.com" in str(row) for row in rows), str(rows))
 
