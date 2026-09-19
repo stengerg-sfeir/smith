@@ -73,6 +73,26 @@ def sql(project, statement):
     return rows
 
 
+def execute(project, statement):
+    """Run one statement against the application's database, COMMITTED.
+
+    ``sql`` opens a connection and closes it without committing, which is
+    exactly right for a SELECT and silently useless for an INSERT (sqlite3
+    rolls an uncommitted transaction back on close). A probe that seeds rows
+    itself needs the write to survive the process.
+    """
+    for db in sorted(project.glob("*.db")):
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute(statement)
+            conn.commit()
+        except sqlite3.Error as exc:
+            return str(exc)
+        finally:
+            conn.close()
+    return None
+
+
 def check(label, ok, detail=""):
     RESULTS.append(ok)
     print("    %s %s%s" % ("PASS" if ok else "FAIL", label,
@@ -351,12 +371,86 @@ def probe_16():
 
 
 def probe_17():
+    """The four filters the specification asks for, and their combination.
+
+    "Users must be able to search by name, filter by category, specify a
+    maximum price and specify a minimum quantity. All filters must be
+    combinable."
+
+    The specification asks for NO creation command: searching and filtering
+    is the whole application, so the rows the filters must find are seeded
+    straight into its database rather than invented through a command the
+    prompt never requested.
+    """
     project = fresh("17")
-    group_help = cli(project, "product", "--help")[1] or surface(project)
-    verbs = re.findall(r"^  (\w[\w-]*)", group_help, re.M)
-    check("the application can create the data its filters need",
-          any(verb in ("add", "create") for verb in verbs),
-          "commands=%s" % verbs)
+    cli(project, "product", "list")          # let the app create its schema
+    columns = [
+        row[1] for row in sql(project, "PRAGMA table_info(products)")
+        if len(row) >= 6 and not row[5]
+    ]
+    if not columns:
+        check("the products table exists", False, "no columns")
+        return
+    check("the products table exists", True)
+
+    def seed(name, category, price, quantity):
+        data = {
+            column: (
+                name if "name" in column
+                else category if "categor" in column
+                else price if "price" in column
+                else quantity if "quant" in column or "stock" in column
+                else "x"
+            )
+            for column in columns
+        }
+        names = ", ".join(data)
+        values = ", ".join(repr(value) for value in data.values())
+        error = execute(
+            project, "INSERT INTO products (%s) VALUES (%s)" % (names, values)
+        )
+        if error:
+            check("the probe can seed a row", False, error)
+        return error
+
+    seed("Widget", "tools", 10, 5)
+    seed("Bread", "food", 20, 1)
+    stored = sql(project, "SELECT name FROM products")
+    if len(stored) != 2:
+        check("the probe seeded two rows", False, "%r" % (stored,))
+        return
+    check("the probe seeded two rows", True)
+
+    def listed(*args):
+        rc, out, err = cli(project, "product", "list", *args)
+        return out or err
+
+    by_category = listed("--category", "tools")
+    check("filter by category keeps only that category",
+          contains(by_category, "Widget") and not contains(by_category, "Bread"),
+          by_category)
+
+    by_price = listed("--max-price", "15")
+    check("a maximum price excludes the dearer row",
+          contains(by_price, "Widget") and not contains(by_price, "Bread"),
+          by_price)
+
+    by_quantity = listed("--min-quantity", "3")
+    check("a minimum quantity excludes the scarcer row",
+          contains(by_quantity, "Widget") and not contains(by_quantity, "Bread"),
+          by_quantity)
+
+    combined = listed("--category", "tools", "--max-price", "15",
+                      "--min-quantity", "3")
+    check("the filters combine",
+          contains(combined, "Widget") and not contains(combined, "Bread"),
+          combined)
+
+    rc, out, err = cli(project, "product", "search", "--term", "Widget")
+    found = out or err
+    check("search by name finds the row and not the other",
+          rc == 0 and contains(found, "Widget") and not contains(found, "Bread"),
+          found)
 
 
 def probe_18():

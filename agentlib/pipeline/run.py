@@ -32,6 +32,7 @@ from agentlib.generation.annotations import add_missing_none_returns
 from agentlib.generation.arithmetic_literals import fix_arithmetic_precision
 from agentlib.generation.click_prompts import drop_unneeded_prompts
 from agentlib.generation.cli_wiring import fix_click_option_params
+from agentlib.generation.delegation_guard import apply_delegation_guards
 from agentlib.generation.entrypoint import ensure_entry_point
 from agentlib.generation.ownership_guard import (
     apply_ownership_cli,
@@ -252,6 +253,9 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- 14: soft delete, imposed on the rendered repositories -------------
     _apply_soft_delete_scope(files, design_ctx, verbose=verbose)
 
+    # ---- 17: the delegation a service method owes its repository ----------
+    _apply_delegations(files, design_ctx, verbose=verbose)
+
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
@@ -313,6 +317,26 @@ def _apply_ownership_scope(files, design_ctx, verbose=False):
             files[cli_path] = cli_source
             if verbose:
                 print("    [ownership] %s: %s" % (cli_path, "; ".join(notes)))
+
+
+def _apply_delegations(files, design_ctx, verbose=False):
+    """Restore a service method's delegation to its repository (prompt 17).
+
+    ``product search --term Widget`` answered ``{'tools': 10.0, 'food': 20.0}``
+    — a category summary — because the shipped ``search_product`` never read
+    its own ``term`` parameter, while ``ProductRepository.search_product(term)``
+    did exactly the right query. A parameter no method reads, next to a
+    repository method of the same name that accepts precisely those
+    parameters, is the delegation that was meant to be written.
+    """
+    files, notes = apply_delegation_guards(
+        files,
+        design_ctx.get("service_files") or [],
+        design_ctx.get("repo_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [delegation] %s" % note)
 
 
 def _apply_soft_delete_scope(files, design_ctx, verbose=False):
