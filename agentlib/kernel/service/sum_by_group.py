@@ -31,10 +31,26 @@ def _h_sum_by_group(m, impl, ent, entities_by_class):
             "        for row in %s:" % call,
             "            key = (%s)" % key_tuple,
         ]
-    lines += [
-        "            results[key] = results.get(key, 0) + row.%s" % vf,
-        "        return results",
-    ]
+    if impl.get("also_count"):
+        # The specification asks for BOTH a total and a COUNT of the same rows
+        # ("a report showing total sales amount AND number of sales per
+        # product", prompt 20). One scalar per group can answer only one of the
+        # two, so each group maps to a PAIR: the total is the summed value, the
+        # count is how many rows the grouping folded in — no stored column is
+        # read for it, so nothing is invented.
+        lines += [
+            "            entry = results.get(key)",
+            "            if entry is None:",
+            '                entry = {"total": 0, "count": 0}',
+            "                results[key] = entry",
+            '            entry["total"] += row.%s' % vf,
+            '            entry["count"] += 1',
+        ]
+    else:
+        lines += [
+            "            results[key] = results.get(key, 0) + row.%s" % vf,
+        ]
+    lines += ["        return results"]
     return lines
 
 

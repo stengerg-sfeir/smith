@@ -179,11 +179,24 @@ def _impl_bindings_ok(impl, m, entities_by_class):
             return None, None
         return _camel(impl["entity"]), ent
     if kind == "export_csv":
-        if (
-            returns and returns != "None"
-            and "str" not in returns and "Path" not in returns
-        ):
-            return None, None
+        # An export WRITES A FILE: its return is None, or a str/Path naming
+        # what it wrote — never a container. The original substring test
+        # (`"str" not in returns`) was defeated by the element type of a
+        # container: `List[Dict[str, Any]]` SPELLS "str" inside `Dict[str, ...]`,
+        # so prompt 07's `search_book(term) -> List[Dict[str, Any]]` passed as
+        # an export. Its rendered body opened a CSV file NAMED BY THE SEARCH
+        # TERM (`open(term, "w")`), ignored the repository's own
+        # `search_book(term)` query, and returned None — the search feature was
+        # dead, and the CLI crashed on every call.
+        #
+        # Normalise the annotation, then judge the OUTER shape: a container
+        # return is never an export; anything else must name str/Path.
+        flat = "".join((returns or "").split()).lower()
+        if flat and flat != "none":
+            if flat.startswith(("list", "dict", "tuple", "set")):
+                return None, None
+            if "str" not in flat and "path" not in flat:
+                return None, None
     elif kind == "below_foreign_threshold":
         if returns and "List" not in returns and "list" not in returns:
             return None, None

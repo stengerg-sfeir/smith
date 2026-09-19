@@ -143,11 +143,70 @@ def _field_option(f, required=False):
     }
 
 
-def _derive_options(verb, entity, page=False):
-    """Options for a derived (non-explicit) command from the entity design."""
+# A specification that asks for an ORDERED listing states it one of two ways:
+# a sort/order verb ("list products sorted by name"), or a DIRECTION word
+# ("ascending or descending") — a direction can only be stated about an
+# ordering. Either is a deterministic signal, so no intent classifier and no
+# domain vocabulary is needed.
+_SORT_PHRASE_RE = re.compile(
+    r"\bsort(?:ed|ing)?\s+by\b"
+    r"|\border(?:ed|ing)?\s+by\b"
+    r"|\bsorted\b"
+    r"|\bsort\b",
+    re.I,
+)
+_SORT_DIRECTION_RE = re.compile(
+    r"\bascending\b|\bdescending\b|\basc\b|\bdesc\b", re.I
+)
+
+
+def _prompt_requests_sort(prompt_text):
+    """True when the specification asks for an ordered listing."""
+    text = prompt_text or ""
+    return bool(
+        _SORT_PHRASE_RE.search(text) or _SORT_DIRECTION_RE.search(text)
+    )
+
+
+def _prompt_sort_fields(prompt_text, entity):
+    """The entity columns a sort request names, or every sortable column.
+
+    The columns are read from the prompt's own "sorted by A, B or C" phrase by
+    intersecting its words with the entity's own fields — an ORDER BY may only
+    name a column the table HAS. When the phrase names none of them (an
+    improbable wording, or a direction-only request), every non-id scalar
+    column is offered instead of none: a sort command that accepts no column
+    is exactly the defect being fixed.
+    """
     fields = [
         f for f in (entity.get("fields") or [])
         if isinstance(f, dict) and f.get("name") and f["name"] != "id"
+    ]
+    scalar = [
+        f["name"] for f in fields
+        if (f.get("type") or "") in ("str", "int", "float")
+    ]
+    named = []
+    for raw in re.split(r"[^a-z0-9_]+", (prompt_text or "").lower()):
+        if raw and raw in scalar and raw not in named:
+            named.append(raw)
+    return named or scalar
+
+
+def _derive_options(verb, entity, page=False, sort=None):
+    """Options for a derived (non-explicit) command from the entity design.
+
+    ``sort``: the columns this entity's list command may order by, or None.
+    """
+    # A field the specification DERIVES from child rows (see
+    # ``_apply_derived_total_floors``) is never an option: the caller cannot
+    # know a number only arithmetic on the lines produces, so offering
+    # ``--total-amount`` would demand it (prompt 22/28).
+    _derived = set((entity or {}).get("derived_fields") or [])
+    fields = [
+        f for f in (entity.get("fields") or [])
+        if isinstance(f, dict) and f.get("name") and f["name"] != "id"
+        and f["name"] not in _derived
     ]
     # File I/O operations (export to CSV/JSON, import from CSV/JSON) take a
     # file path, not an entity id. The old domain-verb fallback produced
@@ -177,6 +236,19 @@ def _derive_options(verb, entity, page=False):
              "type": "str", "field": s["param"]}
             for s in lf
         ]
+        # A sorted-listing spec ("list products sorted by name, price or
+        # quantity, in ascending or descending order") needs --sort-by/--order
+        # on the list command. Without them the sort columns were taken for
+        # EQUALITY FILTERS (prompt 15: --name/--price/--quantity filtered
+        # instead of ordering) and the ordering was unreachable — the command
+        # always ran ORDER BY id.
+        if sort:
+            opts += [
+                {"name": "--sort-by", "required": False, "type": "str",
+                 "field": "sort_by"},
+                {"name": "--order", "required": False, "type": "str",
+                 "field": "order"},
+            ]
         # A paginated listing spec ("The caller specifies page number and page
         # size") needs --page/--page-size on the list command (prompt 16's
         # customer-list lacked them, leaving the pagination intent unmapped).
@@ -679,6 +751,10 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
     paginated = bool(
         re.search(r"\b(page|pagina\w*)\b", (prompt_text or "").lower())
     )
+    # Sorted-listing detection: a sort/order phrase (or a direction word) in
+    # the spec is a deterministic contract that its list command exposes
+    # --sort-by/--order (prompt 15's product-list sorted by nothing).
+    wants_sort = _prompt_requests_sort(prompt_text)
     for intent in intentions or []:
         text = (intent.get("text") or "").strip()
         entity = _intent_entity(text, entities_by_class)
@@ -699,7 +775,13 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
         if key in seen:
             continue
         seen.add(key)
-        options = _derive_options(verb, entity, page=paginated)
+        options = _derive_options(
+            verb, entity, page=paginated,
+            sort=(
+                _prompt_sort_fields(prompt_text, entity)
+                if (wants_sort and verb == "list") else None
+            ),
+        )
         if verb == "bulk-update":
             target = "bulk_update_" + ent_snake
         elif verb in _CRUD_VERBS:
@@ -968,6 +1050,28 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
                 })
                 existing_opts.add(flag)
                 break
+    # Derived-total floor: an entity whose total the specification says is
+    # CALCULATED FROM ITS LINES gets a command that computes it — the value is
+    # no longer an input, so the capability needs its own entry point ("Provide
+    # CRUD operations and calculate the total order amount", prompt 22; "The
+    # invoice total must be calculated from its lines", prompt 28).
+    for _cls, _ent in (entities_by_class or {}).items():
+        if not isinstance(_ent, dict) or not _ent.get("derived_total"):
+            continue
+        _e_snake = _snake(_cls)
+        if any(
+            c.get("group") == [_e_snake] and c.get("name") == "calculate-total"
+            for c in commands
+        ):
+            continue
+        commands.append({
+            "group": [_e_snake],
+            "name": "calculate-total",
+            "options": [
+                {"name": "--id", "required": True, "type": "int", "field": "id"},
+            ],
+            "target": "calculate_%s_total" % _e_snake,
+        })
     # CRUD-completeness floor: the spec's explicit "CRUD" word is a
     # deterministic contract. Intent extraction may drop a verb ("update a
     # customer"), but CRUD always means add/list/update/delete for every

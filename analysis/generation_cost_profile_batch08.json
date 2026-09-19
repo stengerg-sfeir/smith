@@ -1,0 +1,659 @@
+{
+  "generated_at": "2026-09-17T14:39:51.079125+00:00",
+  "generator_model": "Qwen3-4B-Instruct-2507-Q4_K_M",
+  "unit_note": "chars are measured on every call; tokens are what llama-server reported in `usage` (the schema-constrained JSON calls), so tokens_calls < calls leaves part of the output measured in chars only \u2014 see README of the harness for why the streamed fills carry no usage.",
+  "prompts": [
+    {
+      "ident": "36",
+      "wall_seconds": 214.47348713874817,
+      "llm_seconds": 214.3706545829773,
+      "calls": 18,
+      "chars_in": 45419,
+      "chars_out": 35188,
+      "tokens_in": 8868,
+      "tokens_out": 8093,
+      "tokens_calls": 16,
+      "errors": 0,
+      "by_phase": {
+        "design.py:_route_mode": {
+          "calls": 1,
+          "seconds": 0.600877046585083,
+          "chars_out": 17,
+          "tokens_in": 112,
+          "tokens_out": 7
+        },
+        "design.py:_generate_manifest": {
+          "calls": 1,
+          "seconds": 8.831538915634155,
+          "chars_out": 1459,
+          "tokens_in": 236,
+          "tokens_out": 373
+        },
+        "intents.py:extract_intentions": {
+          "calls": 1,
+          "seconds": 16.25011706352234,
+          "chars_out": 2696,
+          "tokens_in": 483,
+          "tokens_out": 672
+        },
+        "design.py:_design_module": {
+          "calls": 6,
+          "seconds": 77.0807843208313,
+          "chars_out": 12252,
+          "tokens_in": 3451,
+          "tokens_out": 3098
+        },
+        "service_contract.py:extract_service_contract": {
+          "calls": 1,
+          "seconds": 2.9122250080108643,
+          "chars_out": 381,
+          "tokens_in": 396,
+          "tokens_out": 90
+        },
+        "cli_surface.py:classify_intentions": {
+          "calls": 1,
+          "seconds": 4.414780378341675,
+          "chars_out": 532,
+          "tokens_in": 289,
+          "tokens_out": 166
+        },
+        "design.py:_llm_classify_repo_feasibility": {
+          "calls": 2,
+          "seconds": 14.064884185791016,
+          "chars_out": 2459,
+          "tokens_in": 596,
+          "tokens_out": 589
+        },
+        "method_contract.py:extract_method_contracts": {
+          "calls": 3,
+          "seconds": 75.91378974914551,
+          "chars_out": 13159,
+          "tokens_in": 3305,
+          "tokens_out": 3098
+        },
+        "fill.py:_llm_fill": {
+          "calls": 2,
+          "seconds": 14.301657915115356,
+          "chars_out": 2233,
+          "tokens_in": 0,
+          "tokens_out": 0
+        }
+      },
+      "slowest": [
+        {
+          "caller": "method_contract.py:extract_method_contracts < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 47.465632915496826,
+          "chars_in": 4162,
+          "chars_out": 8307,
+          "tokens_in": 955,
+          "tokens_out": 1917
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 34.92501902580261,
+          "chars_in": 5161,
+          "chars_out": 5382,
+          "tokens_in": 1182,
+          "tokens_out": 1367
+        },
+        {
+          "caller": "intents.py:extract_intentions < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 16.25011706352234,
+          "chars_in": 2150,
+          "chars_out": 2696,
+          "tokens_in": 483,
+          "tokens_out": 672
+        },
+        {
+          "caller": "method_contract.py:extract_method_contracts < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 15.408551931381226,
+          "chars_in": 5158,
+          "chars_out": 2629,
+          "tokens_in": 1198,
+          "tokens_out": 637
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 13.902160167694092,
+          "chars_in": 1890,
+          "chars_out": 2313,
+          "tokens_in": 461,
+          "tokens_out": 572
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 13.206767082214355,
+          "chars_in": 2062,
+          "chars_out": 2379,
+          "tokens_in": 504,
+          "tokens_out": 580
+        }
+      ],
+      "source_files": 8,
+      "source_chars": 20342
+    },
+    {
+      "ident": "37",
+      "wall_seconds": 172.23271131515503,
+      "llm_seconds": 172.14525723457336,
+      "calls": 18,
+      "chars_in": 43960,
+      "chars_out": 27872,
+      "tokens_in": 7622,
+      "tokens_out": 6182,
+      "tokens_calls": 15,
+      "errors": 0,
+      "by_phase": {
+        "design.py:_route_mode": {
+          "calls": 1,
+          "seconds": 0.4361450672149658,
+          "chars_out": 17,
+          "tokens_in": 108,
+          "tokens_out": 7
+        },
+        "design.py:_generate_manifest": {
+          "calls": 1,
+          "seconds": 8.724616050720215,
+          "chars_out": 1426,
+          "tokens_in": 232,
+          "tokens_out": 369
+        },
+        "intents.py:extract_intentions": {
+          "calls": 1,
+          "seconds": 13.151580810546875,
+          "chars_out": 2093,
+          "tokens_in": 479,
+          "tokens_out": 536
+        },
+        "design.py:_design_module": {
+          "calls": 6,
+          "seconds": 79.41221523284912,
+          "chars_out": 12870,
+          "tokens_in": 3439,
+          "tokens_out": 3233
+        },
+        "service_contract.py:extract_service_contract": {
+          "calls": 1,
+          "seconds": 3.110675811767578,
+          "chars_out": 382,
+          "tokens_in": 392,
+          "tokens_out": 98
+        },
+        "cli_surface.py:classify_intentions": {
+          "calls": 1,
+          "seconds": 3.4238407611846924,
+          "chars_out": 393,
+          "tokens_in": 235,
+          "tokens_out": 126
+        },
+        "design.py:_llm_classify_repo_feasibility": {
+          "calls": 2,
+          "seconds": 22.187952995300293,
+          "chars_out": 3880,
+          "tokens_in": 740,
+          "tokens_out": 937
+        },
+        "method_contract.py:extract_method_contracts": {
+          "calls": 2,
+          "seconds": 22.551308631896973,
+          "chars_out": 3551,
+          "tokens_in": 1997,
+          "tokens_out": 876
+        },
+        "fill.py:_llm_fill": {
+          "calls": 3,
+          "seconds": 19.14692187309265,
+          "chars_out": 3260,
+          "tokens_in": 0,
+          "tokens_out": 0
+        }
+      },
+      "slowest": [
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 19.913321018218994,
+          "chars_in": 5013,
+          "chars_out": 2874,
+          "tokens_in": 1160,
+          "tokens_out": 739
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 18.54116201400757,
+          "chars_in": 1862,
+          "chars_out": 3154,
+          "tokens_in": 457,
+          "tokens_out": 774
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 16.259705066680908,
+          "chars_in": 2115,
+          "chars_out": 2936,
+          "tokens_in": 517,
+          "tokens_out": 710
+        },
+        {
+          "caller": "method_contract.py:extract_method_contracts < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 14.262728929519653,
+          "chars_in": 3969,
+          "chars_out": 2154,
+          "tokens_in": 912,
+          "tokens_out": 535
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 13.523247241973877,
+          "chars_in": 2557,
+          "chars_out": 2230,
+          "tokens_in": 584,
+          "tokens_out": 582
+        },
+        {
+          "caller": "intents.py:extract_intentions < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 13.151580810546875,
+          "chars_in": 2122,
+          "chars_out": 2093,
+          "tokens_in": 479,
+          "tokens_out": 536
+        }
+      ],
+      "source_files": 8,
+      "source_chars": 19893
+    },
+    {
+      "ident": "38",
+      "wall_seconds": 341.89008688926697,
+      "llm_seconds": 341.6891942024231,
+      "calls": 28,
+      "chars_in": 93252,
+      "chars_out": 60696,
+      "tokens_in": 11467,
+      "tokens_out": 7927,
+      "tokens_calls": 20,
+      "errors": 0,
+      "by_phase": {
+        "design.py:_route_mode": {
+          "calls": 1,
+          "seconds": 0.4381990432739258,
+          "chars_out": 17,
+          "tokens_in": 112,
+          "tokens_out": 7
+        },
+        "design.py:_generate_manifest": {
+          "calls": 1,
+          "seconds": 11.014904022216797,
+          "chars_out": 1786,
+          "tokens_in": 236,
+          "tokens_out": 472
+        },
+        "intents.py:extract_intentions": {
+          "calls": 1,
+          "seconds": 9.869524240493774,
+          "chars_out": 1627,
+          "tokens_in": 483,
+          "tokens_out": 391
+        },
+        "design.py:_design_module": {
+          "calls": 7,
+          "seconds": 77.75620436668396,
+          "chars_out": 12202,
+          "tokens_in": 4571,
+          "tokens_out": 3125
+        },
+        "service_contract.py:extract_service_contract": {
+          "calls": 1,
+          "seconds": 2.865511894226074,
+          "chars_out": 375,
+          "tokens_in": 396,
+          "tokens_out": 88
+        },
+        "cli_surface.py:classify_intentions": {
+          "calls": 1,
+          "seconds": 2.9330837726593018,
+          "chars_out": 342,
+          "tokens_in": 209,
+          "tokens_out": 106
+        },
+        "design.py:_llm_classify_repo_feasibility": {
+          "calls": 2,
+          "seconds": 17.497451782226562,
+          "chars_out": 3204,
+          "tokens_in": 680,
+          "tokens_out": 734
+        },
+        "design.py:_design_cli": {
+          "calls": 2,
+          "seconds": 21.612845182418823,
+          "chars_out": 3593,
+          "tokens_in": 1317,
+          "tokens_out": 888
+        },
+        "cli_propagate.py:_llm_resolve_cli_option_mappings": {
+          "calls": 1,
+          "seconds": 1.6697261333465576,
+          "chars_out": 158,
+          "tokens_in": 199,
+          "tokens_out": 51
+        },
+        "method_contract.py:extract_method_contracts": {
+          "calls": 3,
+          "seconds": 51.160823583602905,
+          "chars_out": 8696,
+          "tokens_in": 3264,
+          "tokens_out": 2065
+        },
+        "fill.py:_llm_fill": {
+          "calls": 8,
+          "seconds": 144.8709201812744,
+          "chars_out": 28696,
+          "tokens_in": 0,
+          "tokens_out": 0
+        }
+      },
+      "slowest": [
+        {
+          "caller": "method_contract.py:extract_method_contracts < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 33.456294775009155,
+          "chars_in": 4200,
+          "chars_out": 5734,
+          "tokens_in": 968,
+          "tokens_out": 1340
+        },
+        {
+          "caller": "fill.py:_llm_fill < service_render.py:_render_service_file < manifest.py:_manifest_first_blocks",
+          "seconds": 25.88019824028015,
+          "chars_in": 5647,
+          "chars_out": 5428,
+          "tokens_in": 0,
+          "tokens_out": 0
+        },
+        {
+          "caller": "fill.py:_llm_fill < service_render.py:_render_service_file < manifest.py:_manifest_first_blocks",
+          "seconds": 22.39542317390442,
+          "chars_in": 5443,
+          "chars_out": 4213,
+          "tokens_in": 0,
+          "tokens_out": 0
+        },
+        {
+          "caller": "fill.py:_llm_fill < service_render.py:_render_service_file < manifest.py:_manifest_first_blocks",
+          "seconds": 21.01729989051819,
+          "chars_in": 5443,
+          "chars_out": 4213,
+          "tokens_in": 0,
+          "tokens_out": 0
+        },
+        {
+          "caller": "fill.py:_llm_fill < service_render.py:_render_service_file < manifest.py:_manifest_first_blocks",
+          "seconds": 19.91814875602722,
+          "chars_in": 5647,
+          "chars_out": 4190,
+          "tokens_in": 0,
+          "tokens_out": 0
+        },
+        {
+          "caller": "fill.py:_llm_fill < service_render.py:_render_service_file < manifest.py:_manifest_first_blocks",
+          "seconds": 19.025563955307007,
+          "chars_in": 5647,
+          "chars_out": 3980,
+          "tokens_in": 0,
+          "tokens_out": 0
+        }
+      ],
+      "source_files": 9,
+      "source_chars": 18508
+    },
+    {
+      "ident": "39",
+      "wall_seconds": 385.98582887649536,
+      "llm_seconds": 385.87915444374084,
+      "calls": 24,
+      "chars_in": 77374,
+      "chars_out": 63331,
+      "tokens_in": 15660,
+      "tokens_out": 14753,
+      "tokens_calls": 21,
+      "errors": 0,
+      "by_phase": {
+        "design.py:_route_mode": {
+          "calls": 1,
+          "seconds": 0.44107699394226074,
+          "chars_out": 17,
+          "tokens_in": 119,
+          "tokens_out": 7
+        },
+        "design.py:_generate_manifest": {
+          "calls": 1,
+          "seconds": 11.816877841949463,
+          "chars_out": 1990,
+          "tokens_in": 243,
+          "tokens_out": 507
+        },
+        "intents.py:extract_intentions": {
+          "calls": 1,
+          "seconds": 21.04508900642395,
+          "chars_out": 3371,
+          "tokens_in": 490,
+          "tokens_out": 882
+        },
+        "design.py:_design_module": {
+          "calls": 10,
+          "seconds": 222.14270997047424,
+          "chars_out": 36352,
+          "tokens_in": 8379,
+          "tokens_out": 9116
+        },
+        "service_contract.py:extract_service_contract": {
+          "calls": 1,
+          "seconds": 2.7849531173706055,
+          "chars_out": 334,
+          "tokens_in": 403,
+          "tokens_out": 84
+        },
+        "cli_surface.py:classify_intentions": {
+          "calls": 1,
+          "seconds": 5.770405054092407,
+          "chars_out": 698,
+          "tokens_in": 298,
+          "tokens_out": 228
+        },
+        "design.py:_llm_classify_repo_feasibility": {
+          "calls": 3,
+          "seconds": 23.419427633285522,
+          "chars_out": 4089,
+          "tokens_in": 1150,
+          "tokens_out": 967
+        },
+        "method_contract.py:extract_method_contracts": {
+          "calls": 3,
+          "seconds": 74.34492182731628,
+          "chars_out": 12223,
+          "tokens_in": 4578,
+          "tokens_out": 2962
+        },
+        "fill.py:_llm_fill": {
+          "calls": 3,
+          "seconds": 24.11369299888611,
+          "chars_out": 4257,
+          "tokens_in": 0,
+          "tokens_out": 0
+        }
+      },
+      "slowest": [
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 36.949175119400024,
+          "chars_in": 5742,
+          "chars_out": 5623,
+          "tokens_in": 1367,
+          "tokens_out": 1419
+        },
+        {
+          "caller": "method_contract.py:extract_method_contracts < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 36.70429801940918,
+          "chars_in": 5166,
+          "chars_out": 6073,
+          "tokens_in": 1206,
+          "tokens_out": 1437
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 34.80772590637207,
+          "chars_in": 5903,
+          "chars_out": 5587,
+          "tokens_in": 1404,
+          "tokens_out": 1417
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 34.778913736343384,
+          "chars_in": 6062,
+          "chars_out": 5613,
+          "tokens_in": 1441,
+          "tokens_out": 1417
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 29.726353883743286,
+          "chars_in": 1930,
+          "chars_out": 5100,
+          "tokens_in": 471,
+          "tokens_out": 1260
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 29.278769969940186,
+          "chars_in": 2282,
+          "chars_out": 5181,
+          "tokens_in": 561,
+          "tokens_out": 1268
+        }
+      ],
+      "source_files": 11,
+      "source_chars": 33029
+    },
+    {
+      "ident": "40",
+      "wall_seconds": 63.93486404418945,
+      "llm_seconds": 63.896180391311646,
+      "calls": 10,
+      "chars_in": 22648,
+      "chars_out": 9829,
+      "tokens_in": 3942,
+      "tokens_out": 1915,
+      "tokens_calls": 9,
+      "errors": 0,
+      "by_phase": {
+        "design.py:_route_mode": {
+          "calls": 1,
+          "seconds": 0.44344496726989746,
+          "chars_out": 17,
+          "tokens_in": 122,
+          "tokens_out": 7
+        },
+        "design.py:_generate_manifest": {
+          "calls": 1,
+          "seconds": 4.865520715713501,
+          "chars_out": 758,
+          "tokens_in": 246,
+          "tokens_out": 195
+        },
+        "intents.py:extract_intentions": {
+          "calls": 1,
+          "seconds": 7.088947057723999,
+          "chars_out": 1034,
+          "tokens_in": 493,
+          "tokens_out": 267
+        },
+        "design.py:_design_module": {
+          "calls": 3,
+          "seconds": 24.08853316307068,
+          "chars_out": 3625,
+          "tokens_in": 1591,
+          "tokens_out": 902
+        },
+        "service_contract.py:extract_service_contract": {
+          "calls": 1,
+          "seconds": 3.5014750957489014,
+          "chars_out": 571,
+          "tokens_in": 406,
+          "tokens_out": 116
+        },
+        "cli_surface.py:classify_intentions": {
+          "calls": 1,
+          "seconds": 1.9003751277923584,
+          "chars_out": 203,
+          "tokens_in": 179,
+          "tokens_out": 66
+        },
+        "method_contract.py:extract_method_contracts": {
+          "calls": 1,
+          "seconds": 10.294401168823242,
+          "chars_out": 1688,
+          "tokens_in": 905,
+          "tokens_out": 362
+        },
+        "fill.py:_llm_fill": {
+          "calls": 1,
+          "seconds": 11.713483095169067,
+          "chars_out": 1933,
+          "tokens_in": 0,
+          "tokens_out": 0
+        }
+      },
+      "slowest": [
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 11.835616111755371,
+          "chars_in": 4301,
+          "chars_out": 1631,
+          "tokens_in": 983,
+          "tokens_out": 419
+        },
+        {
+          "caller": "fill.py:_llm_fill < service_render.py:_render_service_file < manifest.py:_manifest_first_blocks",
+          "seconds": 11.713483095169067,
+          "chars_in": 5235,
+          "chars_out": 1933,
+          "tokens_in": 0,
+          "tokens_out": 0
+        },
+        {
+          "caller": "design.py:_design_module < manifest.py:_design_into < manifest.py:_manifest_first_blocks",
+          "seconds": 11.356570959091187,
+          "chars_in": 1929,
+          "chars_out": 1887,
+          "tokens_in": 467,
+          "tokens_out": 458
+        },
+        {
+          "caller": "method_contract.py:extract_method_contracts < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 10.294401168823242,
+          "chars_in": 3982,
+          "chars_out": 1688,
+          "tokens_in": 905,
+          "tokens_out": 362
+        },
+        {
+          "caller": "intents.py:extract_intentions < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 7.088947057723999,
+          "chars_in": 2218,
+          "chars_out": 1034,
+          "tokens_in": 493,
+          "tokens_out": 267
+        },
+        {
+          "caller": "design.py:_generate_manifest < manifest.py:_manifest_first_blocks < run.py:_multi_pass",
+          "seconds": 4.865520715713501,
+          "chars_in": 1082,
+          "chars_out": 758,
+          "tokens_in": 246,
+          "tokens_out": 195
+        }
+      ],
+      "source_files": 8,
+      "source_chars": 12772
+    }
+  ]
+}

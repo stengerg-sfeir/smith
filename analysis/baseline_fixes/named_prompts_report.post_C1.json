@@ -1,0 +1,150 @@
+{
+  "generated_at": "2026-09-18T07:02:55.041179+00:00",
+  "records": [
+    {
+      "ident": "cli_tool",
+      "elapsed_s": 11.2,
+      "exit": 0,
+      "markers": [],
+      "compile_failures": [],
+      "facade": {
+        "status": "pass",
+        "mapped": "5",
+        "pass": "5",
+        "fail": "0"
+      },
+      "functional_failures": [],
+      "conformity_failures": [],
+      "metrics": {},
+      "enumerated_commands": []
+    },
+    {
+      "ident": "expenses",
+      "elapsed_s": 393.9,
+      "exit": 0,
+      "markers": [],
+      "compile_failures": [],
+      "facade": {
+        "status": "pass",
+        "mapped": "14",
+        "pass": "14",
+        "fail": "0"
+      },
+      "functional_failures": [],
+      "conformity_failures": [],
+      "metrics": {
+        "sweep_runs": 42
+      },
+      "enumerated_commands": [
+        "expense category add",
+        "expense category list",
+        "expense category update",
+        "expense category delete",
+        "budget list",
+        "budget add",
+        "budget update",
+        "budget delete",
+        "expense add",
+        "expense list",
+        "expense report monthly",
+        "expense report yearly",
+        "expense export",
+        "expense recurring detect"
+      ]
+    },
+    {
+      "ident": "hello_world",
+      "elapsed_s": 2.0,
+      "exit": 0,
+      "markers": [],
+      "compile_failures": [],
+      "facade": {
+        "status": "no_mapped",
+        "mapped": "0",
+        "pass": "0",
+        "fail": "0"
+      },
+      "functional_failures": [],
+      "conformity_failures": [],
+      "metrics": {},
+      "enumerated_commands": []
+    },
+    {
+      "ident": "inventory",
+      "elapsed_s": 222.7,
+      "exit": 0,
+      "markers": [],
+      "compile_failures": [],
+      "facade": {
+        "status": "pass",
+        "mapped": "11",
+        "pass": "11",
+        "fail": "0"
+      },
+      "functional_failures": [],
+      "conformity_failures": [],
+      "metrics": {
+        "sweep_runs": 33
+      },
+      "enumerated_commands": [
+        "product add",
+        "product list",
+        "product update",
+        "product delete",
+        "product restock",
+        "product report low-stock",
+        "product report value",
+        "category add",
+        "category list",
+        "category update",
+        "category delete"
+      ]
+    },
+    {
+      "ident": "library_system",
+      "elapsed_s": 213.4,
+      "exit": 0,
+      "markers": [],
+      "compile_failures": [],
+      "facade": {
+        "status": "pass",
+        "mapped": "9",
+        "pass": "9",
+        "fail": "0"
+      },
+      "functional_failures": [],
+      "conformity_failures": [],
+      "metrics": {
+        "sweep_runs": 27
+      },
+      "enumerated_commands": [
+        "library book add",
+        "library book list",
+        "library book search",
+        "library member add",
+        "library member list",
+        "library borrow",
+        "library return",
+        "library overdue",
+        "library member history"
+      ]
+    },
+    {
+      "ident": "multi_module",
+      "elapsed_s": 136.9,
+      "exit": 0,
+      "markers": [],
+      "compile_failures": [],
+      "facade": {
+        "status": "pass",
+        "mapped": "5",
+        "pass": "5",
+        "fail": "0"
+      },
+      "functional_failures": [],
+      "conformity_failures": [],
+      "metrics": {},
+      "enumerated_commands": []
+    }
+  ]
+}

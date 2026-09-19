@@ -128,8 +128,19 @@ def _generate_ddl_from_models(model_classes):
 
             columns.append(col_def)
 
-            # Detect foreign key patterns
-            if field_name.endswith("_id") and field_name != "id":
+            # Detect foreign key patterns. A HISTORY table is exempt: its
+            # reference column is historical data, not a live relationship,
+            # and ``ON DELETE CASCADE`` would erase the record of the very
+            # deletion it exists to log — worse, the delete's own audit row
+            # could never survive it (prompt 33: an audit record must be
+            # produced for every deletion). The design names its history
+            # table "Audit*" / "Log*" / "History*", which is the signal here;
+            # the id column itself is kept, as the historical reference.
+            _history = any(
+                word in str(class_name).lower()
+                for word in ("audit", "history", "log")
+            )
+            if field_name.endswith("_id") and field_name != "id" and not _history:
                 base = field_name[: -len("_id")]
                 ref_table = table_map.get(_camel(base)) or _pluralize_table_name(base)
                 foreign_keys.append(

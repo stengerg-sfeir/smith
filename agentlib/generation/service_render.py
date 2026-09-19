@@ -736,6 +736,28 @@ def _service_method_body(m, entities_by_class, exception_names, repo_customs=Non
         for _rep_ent, _rparams in (repo_signatures or {}).get(name, []):
             if not _rparams:
                 return ["        return self.%s_repo.%s()" % (_rep_ent, name)]
+    # A PAGINATED listing is owned by the deterministic paged delegation,
+    # never by an `impl` the design stamped on it. Prompt 16's list_customer
+    # carried an export-shaped impl whose body opened a CSV file NAMED by
+    # page_size — ignoring both page params and its declared return, so the
+    # method returned None. The shape is exact (a list_<entity> taking a page
+    # number AND a page size), so no ordinary CRUD list and no export method
+    # is captured by it.
+    if name.startswith("list_"):
+        _listed = [
+            p.get("name") for p in (m.get("params") or [])
+            if isinstance(p, dict) and p.get("name")
+        ]
+        if (
+            any(p in _PAGE_NUM_PARAMS for p in _listed)
+            and any(p in _PAGE_SIZE_PARAMS for p in _listed)
+        ):
+            _paged = _generic_service_delegation(
+                m, entities_by_class, exception_names, repo_bulk_updates,
+                repo_search_targets, repo_signatures,
+            )
+            if _paged is not None:
+                return _paged
     impl = m.get("impl")
     if isinstance(impl, dict):
         # exception_names travels to the recipe so a row lookup that finds
@@ -1383,7 +1405,28 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
             # failing that DECLINE so the LLM fill handles it — never emit a
             # partial call that silently drops a filter (the expense
             # from_date/to_date loss, library's dropped author/active_only).
-            resolved, unresolved = _resolve_filter_args(m, ent)
+            page_names = [
+                p for p in param_names
+                if p in _PAGE_NUM_PARAMS or p in _PAGE_SIZE_PARAMS
+            ]
+            # An ORDER BY selector is not a filter either: sort_by/order shape
+            # the ROW ORDER, so pairing them with a declared filter emitted an
+            # equality clause instead of an ordering (prompt 15). They are
+            # pulled out here and passed to list() as their own keywords.
+            sort_names = [
+                p for p in param_names
+                if p in (ent.get("sort_params") or [])
+            ]
+            scope_names = page_names + sort_names
+            filt_m = {
+                "params": [
+                    p for p in (m.get("params") or [])
+                    if isinstance(p, dict)
+                    and p.get("name") not in scope_names
+                ]
+            }
+            resolved, unresolved = _resolve_filter_args(filt_m, ent)
+            sort_kw = ", ".join("%s=%s" % (p, p) for p in sort_names)
             if unresolved:
                 # A param the declared filters cannot serve may still be the
                 # NAME of a parent row (the specification writes ``library
@@ -1413,11 +1456,40 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
                     ] + [(bind["fk"], bind["fk"])]
                 call = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
                 lines.append(
-                    "        return self.%s_repo.list(%s)" % (var, call)
+                    "        return self.%s_repo.list(%s)"
+                    % (var, ", ".join(x for x in (call, sort_kw) if x))
                 )
                 return lines
             call = ", ".join("%s=%s" % (fp, mp) for fp, mp in resolved)
-            return ["        return self.%s_repo.list(%s)" % (var, call)]
+            if not page_names:
+                return [
+                    "        return self.%s_repo.list(%s)"
+                    % (var, ", ".join(x for x in (call, sort_kw) if x))
+                ]
+            # Paginated listing (prompt 16): the caller specifies page number
+            # and page size, and the result carries enough to derive the
+            # number of pages. The repository's list() pages its SQL
+            # (LIMIT/OFFSET, see _render_repository_file) and the TOTAL is read
+            # from the design's own unfiltered list() — no query is invented.
+            num = next(p for p in page_names if p in _PAGE_NUM_PARAMS)
+            size = next(p for p in page_names if p in _PAGE_SIZE_PARAMS)
+            paged = ", ".join(
+                x for x in
+                (call, sort_kw,
+                 ", ".join("%s=%s" % (p, p) for p in page_names)) if x
+            )
+            return [
+                "        items = self.%s_repo.list(%s)" % (var, paged),
+                "        total = len(self.%s_repo.list(%s))" % (var, call),
+                "        page_size = %s or total or 1" % size,
+                "        return {",
+                "            \"items\": items,",
+                "            \"page\": %s or 1," % num,
+                "            \"page_size\": page_size,",
+                "            \"total\": total,",
+                "            \"total_pages\": (total + page_size - 1) // page_size,",
+                "        }",
+            ]
         if name == "get_%s_by_id" % var:
             idp = param_names[0] if param_names else "id"
             return ["        return self.%s_repo.get_by_id(%s)" % (var, idp)]
@@ -1649,6 +1721,401 @@ def _generic_service_delegation(m, entities_by_class, exception_names=None, repo
     return None
 
 
+# Spellings a design may use for PAGINATION on a list method. A designed
+# ``list_<entity>(..., page, page_size)`` means "the caller specifies page
+# number and page size" (prompt 16): the repository's ``list()`` must then
+# ACCEPT those params so its SQL pages, and the service must report the total
+# so the caller can derive the number of pages. Only these two families are
+# pagination; ``limit``/``offset`` are deliberately NOT included, because a
+# spec's "top N" is a LIMIT-shaped business rule, not paging.
+_PAGE_NUM_PARAMS = ("page", "page_number", "page_no")
+_PAGE_SIZE_PARAMS = ("page_size", "per_page")
+
+
+# The parameter spellings a design may use for the two halves of an ORDER BY:
+# the COLUMN to order by, and the DIRECTION. Two DISJOINT tuples, so a design
+# that names its direction parameter `order` is never mistaken for one naming
+# the column `order_by`.
+_SORT_COLUMN_PARAMS = ("sort_by", "order_by", "sort_column", "order_column")
+_SORT_DIRECTION_PARAMS = (
+    "order", "sort_order", "sort_dir", "sort_direction", "direction",
+    "ascending",
+)
+
+
+def _sort_spec(m):
+    """(column_param, direction_param) of a designed list method, or None.
+
+    BOTH halves must be present and distinct: a lone ``sort_by`` says WHICH
+    column but not which way, and a lone ``order`` states a direction with
+    nothing to order — neither is an ordering contract.
+    """
+    names = [
+        p.get("name") for p in (m.get("params") or [])
+        if isinstance(p, dict) and p.get("name")
+    ]
+    col = next((p for p in names if p in _SORT_COLUMN_PARAMS), None)
+    direction = next((p for p in names if p in _SORT_DIRECTION_PARAMS), None)
+    if not col or not direction or col == direction:
+        return None
+    return col, direction
+
+
+# A specification that asks a report for BOTH a total and a count states the
+# two in ONE clause ("a report showing total sales amount and number of sales
+# per product", prompt 20). The pair is read from the clause itself — a sum
+# word and a count word in the same sentence. A total here and an inventory
+# count there is not that contract, so the scan is strictly per sentence.
+_REPORT_SUM_WORDS = ("total", "sum", "amount")
+_REPORT_COUNT_WORDS = ("number of", "count of", "how many", "how often")
+
+
+def _prompt_requests_sum_and_count(prompt_text):
+    """True when one clause of the spec asks a report for a sum AND a count."""
+    for sentence in re.split(r"[.;\n]+", prompt_text or ""):
+        low = sentence.lower()
+        if (
+            any(w in low for w in _REPORT_SUM_WORDS)
+            and any(w in low for w in _REPORT_COUNT_WORDS)
+        ):
+            return True
+    return False
+
+
+# A specification that says an entity's total is CALCULATED FROM ITS LINES has
+# already fixed where that number comes from: it is arithmetic on the child
+# rows, not a value the caller can know. Prompt-gated, so an entity that merely
+# STORES a running total (inventory's stock value) is never captured.
+_DERIVED_TOTAL_RE = re.compile(
+    r"(?:total|amount|subtotal)[^.]{0,60}?"
+    r"(?:calculat|comput|deriv|sum)"
+    r"|(?:calculat|comput|deriv)[^.]{0,60}?(?:total|amount)",
+    re.I,
+)
+
+# Field-name tokens that denote a TOTAL rather than a stored measurement.
+_TOTAL_FIELD_TOKENS = ("total", "subtotal")
+
+
+def _is_total_field(name):
+    """True when a field NAME denotes a TOTAL.
+
+    The declared TYPE is deliberately not consulted: the design types a money
+    total as ``str`` as readily as ``float`` (prompt 28's ``total_amount``
+    shipped ``--total-amount TEXT``), and the name is the reliable signal.
+    """
+    low = (name or "").lower()
+    return any(t in low for t in _TOTAL_FIELD_TOKENS)
+
+
+def _line_child_spec(ent_cls, entities_by_class):
+    """The LINES shape for a derived total, or None.
+
+    Two shapes are recognised, both structural (no domain vocabulary):
+
+    * the line carries BOTH a quantity and a price — ``{"child", "fk_field",
+      "value_field", "price_field"}`` (prompt 22's OrderItem: quantity +
+      unit_price);
+    * the line carries a quantity and references ANOTHER entity that carries
+      the price — ``{"child", "fk_field", "value_field", "price_via":
+      {ref_entity, fk_field, price_field}}`` (prompt 28's InvoiceLine:
+      "Each line references a product and quantity").
+
+    The lines entity is the unique designed entity carrying a foreign key to
+    this one and matching one of the two shapes. Ambiguity declines, so a wrong
+    child is never used to compute a total.
+    """
+    out = []
+    for child_cls, child in (entities_by_class or {}).items():
+        if child_cls == ent_cls or not isinstance(child, dict):
+            continue
+        fk_field = None
+        for f in child.get("fields") or []:
+            if not isinstance(f, dict) or not isinstance(f.get("name"), str):
+                continue
+            nm = f["name"]
+            if not nm.endswith("_id") or nm == "id":
+                continue
+            if _camel(nm[: -len("_id")]) == ent_cls:
+                fk_field = nm
+                break
+        if fk_field is None:
+            continue
+        nums = sorted(
+            f["name"] for f in (child.get("fields") or [])
+            if isinstance(f, dict) and isinstance(f.get("name"), str)
+            and f.get("type") in ("int", "float")
+            and f["name"] != "id"
+            and not f["name"].endswith("_id")
+        )
+        child_snake = _snake(child_cls)
+        if len(nums) == 2:
+            out.append({
+                "child": child_snake,
+                "fk_field": fk_field,
+                "value_field": nums[0],
+                "price_field": nums[1],
+            })
+            continue
+        if len(nums) != 1:
+            continue
+        # One numeric column only: it is the quantity, and the price must come
+        # from the entity the line references — accepted only when exactly one
+        # such FK resolves to that entity and it carries exactly one numeric
+        # scalar (its price).
+        ref_fks = sorted(
+            f["name"] for f in (child.get("fields") or [])
+            if isinstance(f, dict) and isinstance(f.get("name"), str)
+            and f["name"].endswith("_id") and f["name"] != fk_field
+            and f["name"] != "id"
+        )
+        priced = []
+        for ref_fk in ref_fks:
+            ref_ent = entities_by_class.get(_camel(ref_fk[: -len("_id")]))
+            if not isinstance(ref_ent, dict):
+                continue
+            ref_nums = sorted(
+                f["name"] for f in (ref_ent.get("fields") or [])
+                if isinstance(f, dict) and isinstance(f.get("name"), str)
+                and f.get("type") in ("int", "float")
+                and f["name"] != "id"
+                and not f["name"].endswith("_id")
+            )
+            if len(ref_nums) == 1:
+                priced.append((ref_fk, ref_ent["name"], ref_nums[0]))
+        if len(priced) != 1:
+            continue
+        ref_fk, ref_cls, price_field = priced[0]
+        out.append({
+            "child": child_snake,
+            "fk_field": fk_field,
+            "value_field": nums[0],
+            "price_via": {
+                "ref_entity": ref_cls,
+                "fk_field": ref_fk,
+                "price_field": price_field,
+            },
+        })
+    return out[0] if len(out) == 1 else None
+
+
+def _apply_derived_total_floors(entities_by_class, designs, prompt_text):
+    """A total the specification DERIVES from lines is not a caller input.
+
+    Two halves, both design-driven:
+
+    * MARK the parent entity's total field, so the CLI surface never offers
+      ``--<total>`` on add/update and the caller is never asked for a number
+      only arithmetic can know (prompt 22's ``--total-amount``, prompt 28's
+      invoice total);
+    * drop a total parameter the service design invented anyway, so add/update
+      cannot demand it a second time.
+
+    Prompt-gated and structural: it fires only when the specification says the
+    total is calculated/derived/computed from the lines AND the design really
+    has a lines entity (an FK plus a quantity and a price). Idempotent, and
+    called early — before the CLI surface is derived, or the option would
+    already be listed.
+    """
+    if not _DERIVED_TOTAL_RE.search(prompt_text or ""):
+        return
+    for ent_cls, ent in (entities_by_class or {}).items():
+        if not isinstance(ent, dict):
+            continue
+        totals = sorted(
+            f["name"] for f in (ent.get("fields") or [])
+            if isinstance(f, dict) and isinstance(f.get("name"), str)
+            and _is_total_field(f["name"])
+        )
+        if len(totals) != 1:
+            continue
+        lines = _line_child_spec(ent_cls, entities_by_class)
+        if lines is None:
+            continue
+        ent["derived_fields"] = [totals[0]]
+        ent["derived_total"] = lines
+        total_field = totals[0]
+        for _path, kind, data in designs or []:
+            if kind != "services" or not isinstance(data, dict):
+                continue
+            for mth in data.get("methods") or []:
+                if not isinstance(mth, dict):
+                    continue
+                mname = mth.get("name") or ""
+                if not mname.startswith(("add_", "create_", "update_")):
+                    continue
+                params = mth.get("params")
+                if not isinstance(params, list):
+                    continue
+                mth["params"] = [
+                    q for q in params
+                    if not (isinstance(q, dict)
+                            and q.get("name") == total_field)
+                ]
+
+
+def _ensure_derived_total_methods(entities_by_class, designs):
+    """Ensure ``calculate_<entity>_total(<pk>)`` renders ``sum_children``.
+
+    The specification says the total "must be calculated from its lines"
+    (prompt 28) / to "calculate the total order amount" (prompt 22). The
+    ``sum_children`` recipe renders exactly that, but nothing generated its
+    impl, so the capability was unreachable. The method is added to — or
+    resolved in place on — the designed service, with the lines entity, its FK
+    and its two per-line numerics read off the design.
+    """
+    for ent_cls, ent in (entities_by_class or {}).items():
+        dt = ent.get("derived_total") if isinstance(ent, dict) else None
+        if not isinstance(dt, dict):
+            continue
+        target = "calculate_%s_total" % _snake(ent_cls)
+        impl = {
+            "kind": "sum_children",
+            "entity": dt["child"],
+            "fk_field": dt["fk_field"],
+            "value_field": dt["value_field"],
+            "parent_id_param": "id",
+        }
+        if dt.get("price_via"):
+            impl["price_via"] = dt["price_via"]
+        else:
+            impl["price_field"] = dt["price_field"]
+        for _path, kind, data in designs or []:
+            if kind != "services" or not isinstance(data, dict):
+                continue
+            methods = data.setdefault("methods", [])
+            found = next(
+                (
+                    m for m in methods
+                    if isinstance(m, dict)
+                    and (
+                        m.get("name") == target
+                        or (m.get("name") or "").startswith("calculate_")
+                    )
+                ),
+                None,
+            )
+            if found is not None:
+                found["impl"] = impl
+                continue
+            methods.append({
+                "name": target,
+                "params": [{"name": "id", "type": "int"}],
+                "returns": "float",
+                "impl": impl,
+            })
+
+
+def _apply_report_count_floors(entities_by_class, designs, prompt_text):
+    """Mark a grouped report that must ALSO carry a count.
+
+    A report whose specification asks for a total and a count of the same rows
+    can only answer both if each group carries both. The shipped report
+    returned ``{product_id: 50.0}`` — the amount with no count — while the
+    specification asked for "total sales amount AND number of sales per
+    product" (prompt 20). The mark rides on the ``sum_by_group`` impl the
+    design already produced for that method, so the recipe that renders it
+    extends IN PLACE: nothing is invented, no unrelated report is touched, and
+    a project whose reports only sum is left exactly as it was.
+    """
+    if not _prompt_requests_sum_and_count(prompt_text):
+        return
+    for _path, kind, data in designs or []:
+        if kind not in ("services", "repositories") or not isinstance(data, dict):
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict):
+                continue
+            impl = m.get("impl")
+            if isinstance(impl, dict) and impl.get("kind") == "sum_by_group":
+                impl["also_count"] = True
+
+
+def _apply_sort_floors(entities_by_class, designs):
+    """Mark, per entity, that its list() must ORDER BY a caller-named column.
+
+    A designed ``list_<entity>`` taking BOTH a column selector and a direction
+    selector IS the deterministic contract the specification's "list products
+    sorted by name, price or quantity, in ascending or descending order"
+    describes (prompt 15). Without the mark the repository's list() has no way
+    to order, so the command always ran ``ORDER BY id`` and the sort columns
+    had even been mistaken for EQUALITY FILTERS.
+
+    The mark is per entity, resolved through the list method's own NAME (an
+    ordering on Product never orders Customers), and the ORDER BY column is
+    WHITELISTED at render time from the entity's own scalar fields, so a
+    caller-supplied column can never reach the SQL text unchecked.
+    """
+    for _path, kind, data in designs or []:
+        if kind != "services" or not isinstance(data, dict):
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            name = m["name"]
+            if not name.startswith("list_"):
+                continue
+            spec = _sort_spec(m)
+            if spec is None:
+                continue
+            ent_snake = name[len("list_"):]
+            ent = entities_by_class.get(_camel(ent_snake))
+            if not isinstance(ent, dict):
+                continue
+            fields = [
+                f.get("name") for f in (ent.get("fields") or [])
+                if isinstance(f, dict) and f.get("name")
+                and f.get("name") != "id"
+                and (f.get("type") or "") in ("str", "int", "float")
+            ]
+            if not fields:
+                continue
+            ent["sort_params"] = list(spec)
+            ent["sort_fields"] = fields
+
+
+def _apply_pagination_floors(entities_by_class, designs):
+    """Mark the entities whose list method PAGINATES.
+
+    The design is the only source: a designed service ``list_<entity>``
+    carrying a page-number AND a page-size param (prompt 16's
+    ``list_customer(page, page_size)``) settles the shape. The mark is
+    per-entity, resolved from the METHOD NAME (``list_customer`` ->
+    ``Customer``), never stamped entity-wide from a global param scan — with
+    three entities, only Customer's list pages.
+
+    Records ``ent["page_filters"] = [<num param>, <size param>]`` for the two
+    renderers that must agree on it: the repository renderer (which appends
+    the params to ``list()`` and pages its SQL) and the service renderer
+    (which forwards them and returns the total). Declared marks are never
+    overwritten.
+    """
+    for path, kind, data in designs:
+        if kind != "services" or not isinstance(data, dict):
+            continue
+        for m in data.get("methods") or []:
+            if not isinstance(m, dict):
+                continue
+            name = m.get("name") or ""
+            if not name.startswith("list_"):
+                continue
+            pnames = [
+                p.get("name") for p in (m.get("params") or [])
+                if isinstance(p, dict) and p.get("name")
+            ]
+            num = next((p for p in pnames if p in _PAGE_NUM_PARAMS), None)
+            size = next((p for p in pnames if p in _PAGE_SIZE_PARAMS), None)
+            if not (num and size):
+                continue
+            stem = name[len("list_"):]
+            for cls, ent in entities_by_class.items():
+                if not isinstance(ent, dict):
+                    continue
+                if _snake(cls) in (stem, stem.rstrip("s")):
+                    ent.setdefault("page_filters", [num, size])
+    return entities_by_class
+
+
 def _apply_filter_floors(entities_by_class, designs):
     """Deterministic floor for entity list_filters, derived ONLY from the
     designed method signatures — never from prompt text or field-name
@@ -1729,6 +2196,34 @@ def _apply_filter_floors(entities_by_class, designs):
             if fname != "id" and fname in uniq_set and fname not in declared:
                 lf.append({"param": fname, "column": fname, "op": "eq"})
                 declared.add(fname)
+
+        # A `<col>_domain` parameter filters a str column by the DOMAIN part of
+        # its value (prompt 12: "filtering by email domain"). It must NOT be an
+        # equality: comparing the whole `email = ?` against a domain matches
+        # nothing at all, so the feature is silently dead.
+        #
+        # TWO paths, both corrected: the DESIGN may have declared it itself —
+        # prompt 12 declares `email_domain` as an `eq` filter over `email` —
+        # and an undeclared one may only appear in a designed method signature.
+        # The declared spec is REWRITTEN in place (the design's own dict), and
+        # only when `<col>` really is a str field of THIS entity, so an
+        # unrelated `_domain` parameter (a bare `domain` search term) is never
+        # captured.
+        for spec in lf:
+            p = spec.get("param") or ""
+            if not p.endswith("_domain"):
+                continue
+            base = p[: -len("_domain")]
+            if base in fields and (fields[base] or {}).get("type") == "str":
+                spec["column"] = base
+                spec["op"] = "like_domain"
+        for p in sorted(uniq_set):
+            if not p.endswith("_domain") or p in declared:
+                continue
+            base = p[: -len("_domain")]
+            if base in fields and (fields[base] or {}).get("type") == "str":
+                lf.append({"param": p, "column": base, "op": "like_domain"})
+                declared.add(p)
 
         # Cross-entity filter: a designed param that is not a field on this
         # entity but IS a field on a JOIN entity that references this entity
@@ -4890,6 +5385,19 @@ def _render_service_file(svc_design, svc_class, designs, entities_by_class,
                 temperature=0.0 if attempt == 0 else LLM_RETRY_TEMPERATURE,
                 extra_system=_FILL_SYSTEM_RULES,
             )
+            if cand is None:
+                # A fill whose every attempt failed to compile comes back as
+                # None. It is a FAILED attempt, not a body: the text rewrites
+                # below parse their input, so `ast.parse(None)` used to raise
+                # `TypeError: compile() arg 1 must be a string` and abort the
+                # whole prompt (18). Skip the attempt instead; when all three
+                # are null the method stays in `reverted`.
+                if verbose:
+                    print(
+                        "    [fill] service.%s: no fill (attempt %d)"
+                        % (name, attempt + 1)
+                    )
+                continue
             cand = _strip_import_enum_validation(cand)
             cand = _unwrap_swallowed_raises(cand)
             repaired_cand = _stamp_missing_required_datetimes(

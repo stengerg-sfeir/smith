@@ -29,7 +29,13 @@ from agentlib.prompts import (
 )
 from agentlib.design import _route_mode
 from agentlib.generation.annotations import add_missing_none_returns
+from agentlib.generation.cli_wiring import fix_click_option_params
 from agentlib.generation.entrypoint import ensure_entry_point
+from agentlib.generation.ownership_guard import (
+    apply_ownership_cli,
+    apply_ownership_guards,
+)
+from agentlib.generation.role_guard import apply_role_cli, apply_role_guards
 from agentlib.checks.ast_utils import (
     _extract_model_ast,
     _check_syntax_and_imports,
@@ -236,6 +242,10 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- Restore designed service signatures (repair may drop CLI params) ----
     _restore_service_signatures(files, design_ctx, verbose)
 
+    # ---- E3 + E4: ownership then role scoping, imposed LAST ----------------
+    _apply_ownership_scope(files, design_ctx, verbose=verbose)
+    _apply_role_scope(files, design_ctx, verbose=verbose)
+
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
@@ -247,6 +257,97 @@ def _multi_pass(prompt_text, verbose=False):
                   % len(model_classes))
 
     return files
+
+
+def _apply_ownership_scope(files, design_ctx, verbose=False):
+    """Impose the specification's ownership rule on the FINAL tree (E3).
+
+    Prompt 38 scopes access to the caller's own rows:
+
+        "Users must authenticate before accessing documents. A user can only
+         read, modify or delete their own documents."
+
+    The tree rendered for it let ANY caller list every document, and offered
+    ``document update --user-id`` as a way to hand a document to somebody else.
+
+    Imposed here, and not during the render phase, because the acting user is
+    no part of the DESIGNED service contract: ``_restore_service_signatures``
+    re-imposes every service method's designed signature (it exists to undo the
+    repair loop's dropped CLI parameters), so a parameter added while rendering
+    is deleted from the ``def`` while its guarded body stays — every guarded
+    call then dies on ``NameError: user_id``. A specification requirement is
+    imposed after the design contract, on what is actually shipped.
+    """
+    rule = design_ctx.get("ownership_rule")
+    if not rule:
+        return
+
+    repo_files = [p for p in design_ctx.get("repo_files") or [] if p in files]
+    repos = {p: files[p] for p in repo_files}
+    for svc_path in design_ctx.get("service_files") or []:
+        source = files.get(svc_path)
+        if not source:
+            continue
+        source, repos, notes = apply_ownership_guards(
+            source, repos, rule, design_ctx.get("exceptions"),
+        )
+        if notes:
+            files[svc_path] = source
+            if verbose:
+                print("    [ownership] %s: %s" % (svc_path, "; ".join(notes)))
+    for repo_path, repo_source in repos.items():
+        files[repo_path] = repo_source
+
+    for cli_path in design_ctx.get("cli_files") or []:
+        cli_source = files.get(cli_path)
+        if not cli_source:
+            continue
+        cli_source, notes = apply_ownership_cli(cli_source, rule)
+        if notes:
+            files[cli_path] = cli_source
+            if verbose:
+                print("    [ownership] %s: %s" % (cli_path, "; ".join(notes)))
+
+
+def _apply_role_scope(files, design_ctx, verbose=False):
+    """Impose the specification's role policy on the FINAL tree (E4).
+
+    Prompt 39: "Administrators can manage products and users. Normal users can
+    create orders and view their own orders but cannot modify products or other
+    users."
+
+    Like the ownership rule, this is a specification requirement rather than
+    part of the designed service contract, so it is imposed after the design
+    signatures have been restored (see ``_apply_ownership_scope``) — and after
+    it, so the two guards never edit the same method signature twice.
+    """
+    rule = design_ctx.get("role_rule")
+    if not rule:
+        return
+
+    repo_files = [p for p in design_ctx.get("repo_files") or [] if p in files]
+    repos = {p: files[p] for p in repo_files}
+    for svc_path in design_ctx.get("service_files") or []:
+        source = files.get(svc_path)
+        if not source:
+            continue
+        source, notes = apply_role_guards(
+            source, rule, design_ctx.get("exceptions"), repos,
+        )
+        if notes:
+            files[svc_path] = source
+            if verbose:
+                print("    [roles] %s: %s" % (svc_path, "; ".join(notes)))
+
+    for cli_path in design_ctx.get("cli_files") or []:
+        cli_source = files.get(cli_path)
+        if not cli_source:
+            continue
+        cli_source, notes = apply_role_cli(cli_source, rule)
+        if notes:
+            files[cli_path] = cli_source
+            if verbose:
+                print("    [roles] %s: %s" % (cli_path, "; ".join(notes)))
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +434,16 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
             and existing.name.endswith(".py")
         ):
             existing.unlink()
+
+    # Click WIRING guarantee on the FINAL output: click binds a callback's
+    # parameters by the option's `dest` (the long name, dashes -> underscores),
+    # so a command written `--list` with a callback parameter `list_flag`
+    # raises `TypeError: cli() got an unexpected keyword argument 'list'` on
+    # EVERY invocation (prompt 03). Deterministic rename of exactly the
+    # parameters click cannot bind; a wired file is untouched.
+    files, rewired = fix_click_option_params(files)
+    if verbose and rewired:
+        print("    Rewired click option parameter(s) in %d file(s)" % rewired)
 
     # Entry-point guarantee on the FINAL output. Two observed ways to lose
     # the dispatch: the LLM repair loop rewrites cli.py and drops its

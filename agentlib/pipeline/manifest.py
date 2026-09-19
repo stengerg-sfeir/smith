@@ -47,6 +47,31 @@ from agentlib.pipeline.cli_spec import (
     surface_command_paths,
 )
 from agentlib.pipeline.value_vocab import spec_enum_values
+from agentlib.pipeline.field_rules import extract_field_rules
+from agentlib.pipeline.amount_rules import extract_amount_ops
+from agentlib.generation.field_guard import apply_field_guards
+from agentlib.generation.state_guard import apply_state_guards
+from agentlib.pipeline.state_rules import extract_state_rules
+from agentlib.generation.overlap_guard import apply_overlap_guard
+from agentlib.pipeline.overlap_rules import extract_overlap_rules
+from agentlib.generation.active_guard import apply_active_guard
+from agentlib.pipeline.active_rules import extract_active_rules
+from agentlib.generation.overlap_guard import _table_from_source
+from agentlib.generation.reference_guard import apply_reference_guard
+from agentlib.pipeline.reference_rules import extract_reference_rules
+from agentlib.generation.audit_guard import (
+    apply_audit_guards,
+    strip_audit_cascade,
+)
+from agentlib.pipeline.audit_rules import extract_audit_rules
+from agentlib.generation.notify_guard import (
+    NOTIFICATIONS_MODULE,
+    apply_notify_guards,
+    render_notifications_module,
+)
+from agentlib.pipeline.notify_rules import extract_notify_rules
+from agentlib.pipeline.ownership_rules import extract_ownership_rule
+from agentlib.pipeline.role_rules import extract_role_rules
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.pipeline.service_contract import (
     extract_service_contract,
@@ -58,6 +83,11 @@ from agentlib.pipeline.service_contract import (
 from agentlib.generation.service_render import (
     _apply_filter_floors,
     _apply_impl_floors,
+    _apply_derived_total_floors,
+    _apply_pagination_floors,
+    _apply_report_count_floors,
+    _apply_sort_floors,
+    _ensure_derived_total_methods,
     _render_service_file,
     attach_contract_impls,
 )
@@ -94,6 +124,40 @@ class _NoEntityScript(Exception):
     project such as a hello-world app). The multi-pass pipeline is
     entity-driven; such a spec degrades to single-pass generation rather
     than failing outright."""
+
+
+def _dedupe_manifest_files(manifest, verbose=False):
+    """Keep ONE manifest entry per file, preserving order.
+
+    The layout LLM sometimes lists the SAME file once per entity it holds —
+    prompt 34's layout declares ``models.py`` TWICE (entity ``order``, then
+    ``order_line``). Every downstream path list is built from ``manifest``
+    (``model_paths``, ``repo_paths``, ``svc_paths``), so a duplicate path is
+    designed TWICE and rendered TWICE, and the second render silently
+    OVERWRITES the first.
+
+    That is exactly how 34 lost the ``Customer`` class: the first
+    ``models.py`` design carried ``Order``/``OrderLine`` AND the
+    back-propagated ``Customer``, the second carried only
+    ``Order``/``OrderLine``, and the second write won — so
+    ``customer_repository.py``'s ``from models import Customer`` could not
+    resolve and the whole prompt aborted before writing anything.
+
+    One file, one entry is an invariant the rest of the pipeline assumes.
+    """
+    seen = set()
+    kept = []
+    for spec in manifest:
+        name = spec.get("file")
+        if name in seen:
+            if verbose:
+                print("    dropped duplicate manifest entry for %s" % name)
+            continue
+        seen.add(name)
+        kept.append(spec)
+    if len(kept) != len(manifest):
+        manifest[:] = kept
+    return len(manifest)
 
 
 def _synthesize_cli_repos(designs, entities_by_class, manifest):
@@ -198,6 +262,62 @@ def _synthesize_cli_repos(designs, entities_by_class, manifest):
                     # Undesigned entity: back-propagate model + repo.
                     _ensure_entity(ref_cls)
                     _ensure_repo(ref_cls)
+
+
+def _drop_orphan_repositories(designs, entities_by_class, manifest,
+                             verbose=False):
+    """Remove repository designs whose OWN entity was never designed.
+
+    A repository file imports its entity from the models module and is the
+    only consumer of that name — ``customer_repository.py`` doing
+    ``from models import Customer`` while ``models.py`` renders only
+    ``Order``/``OrderLine`` is an unresolved import that aborts the whole
+    prompt (34, reproducible: the design invented a Customer repository for a
+    prompt that never mentions customers).
+
+    The entity is resolved from the file stem EXACTLY as the renderer does
+    (``customer_repository`` -> ``Customer``). When that class is absent from
+    ``entities_by_class`` nothing ever designed it, so the repository is
+    over-generation: drop the design and its manifest entry, so no file is
+    rendered and the service header wires no ``self.customer_repo`` (the
+    header is fed by the repository files that survive). A repository whose
+    entity IS designed — every named prompt — is untouched.
+
+    Runs AFTER ``_synthesize_cli_repos``: a repository legitimately needed by
+    a ``--<entity>_id`` option has had its model synthesized by then, so only
+    the genuinely orphaned repositories are removed.
+    """
+    kept = []
+    dropped = []
+    for path, kind, data in designs:
+        if kind != "repositories":
+            kept.append((path, kind, data))
+            continue
+        stem = Path(path).stem
+        ent_snake = (
+            stem[: -len("_repository")] if stem.endswith("_repository") else stem
+        )
+        cls = _camel(ent_snake)
+        if cls in entities_by_class:
+            kept.append((path, kind, data))
+            continue
+        dropped.append((path, cls))
+    if not dropped:
+        return []
+    designs[:] = kept
+    bad_files = {path for path, _ in dropped}
+    manifest[:] = [
+        spec for spec in manifest if spec.get("file") not in bad_files
+    ]
+    for path, cls in dropped:
+        print(
+            "    dropped %s (entity '%s' was never designed)" % (path, cls),
+            file=sys.stderr,
+        )
+    if verbose:
+        for path, cls in dropped:
+            print("      - orphan repository %s -> entity %s" % (path, cls))
+    return dropped
 
 
 def _merge_duplicate_entity(existing, additional):
@@ -411,6 +531,194 @@ def _prune_uncalled_repo_customs(repo_paths, designs, files, service_src,
             files[rp] = _drop_functions(files[rp], dropped_set)
 
 
+def _apply_derived_total_surface(cli_surface, entities_by_class):
+    """Drop a DERIVED total from the CLI surface and add its calculation.
+
+    A surface reaches this function from EITHER path — the derived one
+    (``derive_cli_surface``, which already skips derived fields) or the
+    spec-enumerated one (``build_prompt_cli_surface``, which reads the
+    specification's own option list). Only the first honoured the derivation,
+    so a specification that enumerates its CLI still demanded a total it had
+    just said must be calculated (prompt 28's ``invoice add --total-amount``).
+    Filtering the FINAL surface covers both paths in one place.
+
+    In place; returns the same surface.
+    """
+    if not cli_surface:
+        return cli_surface
+    derived = {
+        f
+        for ent in (entities_by_class or {}).values()
+        if isinstance(ent, dict)
+        for f in (ent.get("derived_fields") or [])
+    }
+    if derived:
+        for c in cli_surface.get("commands") or []:
+            if not isinstance(c, dict):
+                continue
+            opts = c.get("options")
+            if not isinstance(opts, list):
+                continue
+            c["options"] = [
+                o for o in opts
+                if not (
+                    isinstance(o, dict)
+                    and (
+                        o.get("field") in derived
+                        or (isinstance(o.get("name"), str)
+                            and o["name"].lstrip("-").replace("-", "_") in derived)
+                    )
+                )
+            ]
+    commands = cli_surface.setdefault("commands", [])
+    for cls, ent in (entities_by_class or {}).items():
+        if not isinstance(ent, dict) or not ent.get("derived_total"):
+            continue
+        e_snake = _snake(cls)
+        if any(
+            c.get("group") == [e_snake] and c.get("name") == "calculate-total"
+            for c in commands
+        ):
+            continue
+        commands.append({
+            "group": [e_snake],
+            "name": "calculate-total",
+            "options": [
+                {"name": "--id", "required": True, "type": "int", "field": "id"},
+            ],
+            "target": "calculate_%s_total" % e_snake,
+        })
+    return cli_surface
+
+
+def _op_matches(cmd_name, op_name):
+    """True when a command name denotes the operation ``op_name``.
+
+    The specification names the operation as a noun the code spells as a verb
+    ("withdrawals" -> ``withdraw``), and the stem is resolved by
+    ``amount_rules._op_stem``. Exact-or-prefix in either direction keeps a
+    command named ``deposit`` matching the stem ``deposit`` without letting an
+    unrelated command through (a two-letter stem is ignored).
+    """
+    if not cmd_name or not op_name or len(op_name) < 4:
+        return False
+    return cmd_name == op_name or cmd_name.startswith(op_name) or \
+        op_name.startswith(cmd_name)
+
+
+def _apply_amount_op_surface(cli_surface, entities_by_class, amount_ops):
+    """Give each implicit-amount OPERATION its ``--amount`` option.
+
+    The specification names the operation and its direction but never the
+    amount ("Deposits increase the balance and withdrawals decrease it",
+    prompt 31): the amount is therefore the operation's own parameter, and
+    without the option the command cannot be invoked at all (the shipped
+    ``account deposit --id 1`` had no way to say how much). Applied to the
+    FINAL surface, so a specification that ENUMERATES its CLI is covered too —
+    and the service design, which is constrained to this surface, then carries
+    the parameter as well.
+    """
+    if not cli_surface or not amount_ops:
+        return cli_surface
+    for cls, spec in amount_ops.items():
+        e_snake = _snake(cls)
+        for c in cli_surface.get("commands") or []:
+            if not isinstance(c, dict):
+                continue
+            if e_snake not in [str(g) for g in (c.get("group") or [])]:
+                continue
+            if not any(
+                _op_matches(str(c.get("name") or ""), op["name"])
+                for op in spec["ops"]
+            ):
+                continue
+            opts = c.setdefault("options", [])
+            if any(
+                isinstance(o, dict) and o.get("field") == "amount"
+                for o in opts
+            ):
+                continue
+            opts.append({
+                "name": "--amount",
+                "required": True,
+                "type": "int",
+                "field": "amount",
+            })
+    return cli_surface
+
+
+def _ensure_amount_param(method, param):
+    """Make sure the operation accepts the amount the caller types."""
+    params = method.get("params")
+    if not isinstance(params, list):
+        method["params"] = [
+            {"name": "id", "type": "int"}, {"name": param, "type": "float"},
+        ]
+        return
+    for p in params:
+        if isinstance(p, dict) and p.get("name") == param:
+            return
+    params.append({"name": param, "type": "float"})
+
+
+def _ensure_amount_op_methods(entities_by_class, designs, amount_ops):
+    """Attach the deterministic delta body to each implicit-amount operation.
+
+    The body is the ``contract_effects`` recipe over an ``amount_delta``: the
+    anchor row is loaded, the field moves by the caller's signed amount, and a
+    DECREASING operation whose spec states the refusal first checks that the
+    result stays non-negative. Rendered rather than filled because the fill
+    already shipped this method as an unconditional raise
+    ("Withdrawal amount is required but not provided").
+    """
+    if not amount_ops:
+        return
+    for cls, spec in amount_ops.items():
+        e_snake = _snake(cls)
+        field = spec["field"]
+        svc_design = next(
+            (d for p, k, d in designs or []
+             if k == "services" and str(p) == "%s_service.py" % e_snake),
+            None,
+        )
+        if not isinstance(svc_design, dict):
+            continue
+        methods = svc_design.setdefault("methods", [])
+        for op in spec["ops"]:
+            method_name = "%s_%s" % (op["name"], e_snake)
+            impl = {
+                "kind": "contract_effects",
+                "entity": e_snake,
+                "id_param": "id",
+                "effects": [{
+                    "kind": "amount_delta",
+                    "cls": cls,
+                    "field": field,
+                    "sign": op["sign"],
+                    "param": op["amount_param"],
+                    "target": "self",
+                    "non_negative": bool(op.get("non_negative")),
+                }],
+            }
+            method = next(
+                (m for m in methods
+                 if isinstance(m, dict) and m.get("name") == method_name),
+                None,
+            )
+            if method is None:
+                method = {
+                    "name": method_name,
+                    "params": [
+                        {"name": "id", "type": "int"},
+                        {"name": op["amount_param"], "type": "float"},
+                    ],
+                    "returns": "bool",
+                }
+                methods.append(method)
+            _ensure_amount_param(method, op["amount_param"])
+            method["impl"] = impl
+
+
 def _service_is_complex(cli_surface, entities_by_class):
     """True when a single schema-constrained service-design call would exceed
     the 4B model's attention window (~3.1k tokens).
@@ -580,6 +888,12 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             print("    Manifest failed; generation aborted (no fallback)")
         return None, None
     manifest, db_file = _validate_manifest(layout)
+    # One file, one manifest entry: a layout that lists the same file twice
+    # (prompt 34's `models.py` under both `order` and `order_line`) would be
+    # designed and rendered twice, and the SECOND render would silently
+    # overwrite the first — losing the back-propagated `Customer` class and
+    # aborting the prompt on `from models import Customer`.
+    _dedupe_manifest_files(manifest, verbose=verbose)
 
     # Intent-based CLI gate: extract the user intentions ONCE (used both as
     # the deterministic needs-CLI gate and, under Approach B, as the single
@@ -673,6 +987,12 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # renderer or create-recipe reads it (see _normalise_design_defaults).
     _normalise_design_defaults(entities_by_class)
 
+    # A total the specification DERIVES from child rows is marked HERE — before
+    # the CLI surface is derived — so ``--<total>`` is never offered as an input
+    # on add/update (prompt 22/28). The pass runs again after the service design,
+    # once a total parameter the design invented can also be removed.
+    _apply_derived_total_floors(entities_by_class, designs, prompt_text)
+
     # 2.4 Spec-declared field defaults, transcribed from the PROMPT alone.
     # The design LLM is asked to stamp ``"default"`` when the spec declares
     # one, but a 4B model drops it — library_system's ``is_active (default
@@ -682,6 +1002,111 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # Independent source: the prompt states the default, the generated code
     # never feeds this scan, and only a field a designed entity already
     # carries can be stamped.
+    # Spec-declared FIELD VALIDATIONS, transcribed from the prompt alone (C6):
+    # "The email must be valid, age must be between 18 and 70, and salary must
+    # be positive" (prompt 09) states a domain nothing ever enforced — the
+    # shipped add_employee built the row with no check at all. Read once here,
+    # applied to the rendered service below.
+    _field_rules = extract_field_rules(prompt_text, entities_by_class)
+    if _field_rules and verbose:
+        print("    [models] spec field validations: %r" % (_field_rules,))
+
+    # Spec-declared AMOUNT operations (C1) — a delta on a numeric field whose
+    # amount the specification never names ("Deposits increase the balance and
+    # withdrawals decrease it", prompt 31). Read once here; the surface gains
+    # the missing ``--amount`` and the service gains the deterministic delta
+    # body (with the spec's own non-negative refusal) below.
+    _amount_ops = extract_amount_ops(prompt_text, entities_by_class)
+    if _amount_ops and verbose:
+        print("    [models] spec amount operations: %r" % (_amount_ops,))
+
+    # Spec-declared STATE TRANSITIONS (C2) — "A cancelled order cannot be
+    # shipped, and a shipped order cannot be cancelled" (prompt 32). The
+    # shipped operations refused only the IDEMPOTENT repeat; the forbidden
+    # SOURCE states were never checked. Read once here, injected into the
+    # rendered operations below.
+    _state_rules = extract_state_rules(prompt_text, entities_by_class)
+    if _state_rules and verbose:
+        print("    [models] spec state transitions: %r" % (_state_rules,))
+
+    # Spec-declared OVERLAP rule (C3) — "A room cannot have two overlapping
+    # reservations" (prompt 27). Nothing enforced it, so two reservations for
+    # the same room over the same nights both persisted. Read once here; the
+    # reservation repository gains the existence test and the service's create
+    # path gains the refusal below.
+    _overlap_rules = extract_overlap_rules(prompt_text, entities_by_class)
+    if _overlap_rules and verbose:
+        print("    [models] spec overlap rules: %r" % (_overlap_rules,))
+
+    # Spec-declared "at most one ACTIVE row per resource" (C4) — "a book can
+    # have at most one active loan" (prompt 26). Nothing enforced it, so a book
+    # could be on loan twice. Read once here; applied to the rendered loan
+    # repository and service below.
+    _active_rules = extract_active_rules(prompt_text, entities_by_class)
+    if _active_rules and verbose:
+        print("    [models] spec at-most-one-active: %r" % (_active_rules,))
+
+    # Spec-declared REFERENTIAL guard on DELETE (C5) — "A category cannot be
+    # deleted while products still belong to it" (prompt 36). Nothing enforced
+    # it, so a referenced category was deleted and its products orphaned.
+    _reference_rules = extract_reference_rules(prompt_text, entities_by_class)
+    if _reference_rules and verbose:
+        print("    [models] spec referential delete guards: %r"
+              % (_reference_rules,))
+
+    # Spec-declared AUDIT TRAIL (E1) — "Every creation, update and deletion
+    # must also produce an audit record" (prompt 33). The design builds the
+    # audit entity and wires its repository, but nothing ever WRITES a row.
+    # Two halves here: the audit table must not CASCADE (an audit row has to
+    # survive the delete it records — stripped BEFORE models render, since the
+    # DDL is derived from the entity), and the writes are spliced into the
+    # service's create/update/delete below.
+    _audit_rules = extract_audit_rules(prompt_text, entities_by_class)
+    if _audit_rules:
+        for _rule in _audit_rules.values():
+            strip_audit_cascade(entities_by_class, _rule["audit_cls"])
+        if verbose:
+            print("    [models] spec audit trail: %r" % (_audit_rules,))
+
+    # Spec-declared NOTIFICATION requirement (E2) — "When an order is
+    # confirmed, the application must send a notification. Define a
+    # notification service abstraction ..." (prompt 40). The confirmation sent
+    # nothing and no abstraction existed. The rule carries everything the
+    # renderer needs: which method notifies, the id it reports, and the entity
+    # field a notification should be addressed to.
+    _notify_rules = extract_notify_rules(prompt_text, entities_by_class)
+    for _ncls, _nrule in _notify_rules.items():
+        _nrule["entity"] = _ncls
+        _nrule["id_param"] = _snake(_ncls) + "_id"
+        for _f in (entities_by_class.get(_ncls) or {}).get("fields") or []:
+            _fname = (_f or {}).get("name") or ""
+            if _fname.endswith("_id") and _fname != "id":
+                _nrule["recipient_field"] = _fname
+                break
+    if _notify_rules and verbose:
+        print("    [models] spec notification: %r" % (_notify_rules,))
+
+    # Spec-declared OWNERSHIP scoping (E3) — "A user can only read, modify or
+    # delete their own documents" (prompt 38). The baseline rendered a service
+    # where any caller could list every document, and where
+    # ``document update --user-id`` only chose WHICH OWNER TO WRITE, i.e. a way
+    # to hand a document to somebody else. Read once here; carried in
+    # ``design_ctx`` and imposed by the finalize phase (run.py), because it
+    # must survive ``_restore_service_signatures``.
+    _ownership_rule = extract_ownership_rule(prompt_text, entities_by_class)
+    if _ownership_rule and verbose:
+        print("    [models] spec ownership rule: %r" % (_ownership_rule,))
+
+    # Spec-declared ROLE policy (E4) — "Administrators can manage products and
+    # users. Normal users can create orders and view their own orders but
+    # cannot modify products or other users." (prompt 39). The baseline rendered
+    # every command open to anyone: no command identified its caller, and
+    # nothing ever read the role column. Read once here; carried in
+    # ``design_ctx`` and imposed by the finalize phase, like the ownership rule.
+    _role_rule = extract_role_rules(prompt_text, entities_by_class)
+    if _role_rule and verbose:
+        print("    [models] spec role rule: %r" % (_role_rule,))
+
     _spec_defaults = extract_model_defaults(prompt_text)
     if _spec_defaults:
         if verbose:
@@ -852,6 +1277,13 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             intentions, prompt_text, entities_by_class, verbose=verbose
         )
         cli_surface = _merge_cli_surfaces(cli_surface, det_surface)
+    # Both surface paths converge here: a specification that ENUMERATES its
+    # CLI never passed through the derived path, so the derived-total filter
+    # has to run on the FINAL surface.
+    cli_surface = _apply_derived_total_surface(cli_surface, entities_by_class)
+    cli_surface = _apply_amount_op_surface(
+        cli_surface, entities_by_class, _amount_ops
+    )
 
     # 3. repositories (custom methods only; CRUD is generated).
     #
@@ -1156,6 +1588,11 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # the deterministic CRUD delegation would emit an AttributeError at
     # runtime. Synthesize the repo (empty customs -> deterministic CRUD).
     _synthesize_cli_repos(designs, entities_by_class, manifest)
+    # A repository whose OWN entity was never designed can only produce an
+    # unresolved import (`from models import Customer` with no Customer class)
+    # that aborts the whole prompt — drop it rather than ship a broken tree.
+    _drop_orphan_repositories(designs, entities_by_class, manifest,
+                              verbose=verbose)
     # Recompute repo_paths to include any repository file synthesized above.
     repo_paths = [s["file"] for s in manifest if s["kind"] == "repository"]
 
@@ -1184,6 +1621,24 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # designed service/repository signatures actually use. Declarations
     # from the models design always win (see _apply_filter_floors).
     _apply_filter_floors(entities_by_class, designs)
+    # Deterministic floor for PAGINATION: a designed list_<entity> taking
+    # page/page_size marks its entity so the repository's list() accepts
+    # those params (and pages its SQL) and the service returns the total
+    # (prompt 16: "--page/--page-size sans effet ; pas de total de pages").
+    # Runs BEFORE the repositories/services are rendered — both renderers
+    # read the mark off the entity.
+    _apply_pagination_floors(entities_by_class, designs)
+    _apply_sort_floors(entities_by_class, designs)
+    _apply_report_count_floors(entities_by_class, designs, prompt_text)
+    # The derived-total pass runs again now that the service design exists: it
+    # strips any total parameter the design added anyway, and adds the
+    # ``calculate_<entity>_total`` method that computes what is no longer an
+    # input (the ``sum_children`` capability was previously unreachable).
+    _apply_derived_total_floors(entities_by_class, designs, prompt_text)
+    _ensure_derived_total_methods(entities_by_class, designs)
+    # C1: the implicit-amount operations get their deterministic delta body —
+    # the fill shipped ``withdraw_account`` as an unconditional raise.
+    _ensure_amount_op_methods(entities_by_class, designs, _amount_ops)
     # Deterministic floor for service impls on unambiguous aggregate
     # shapes (Dict-returning methods over a single date+numeric entity).
     _apply_impl_floors(entities_by_class, designs)
@@ -1206,6 +1661,11 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                         ],
                         "entities_by_class": entities_by_class,
                         "exception_names": exception_names,
+                        "manifest": [
+                            {"file": s.get("file"), "kind": s.get("kind"),
+                             "entity": s.get("entity")}
+                            for s in manifest
+                        ],
                     },
                     _fh,
                     indent=1,
@@ -1240,6 +1700,17 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         ],
         "db_file": db_file,
         "model_files": list(model_paths),
+        # E4: the role policy travels with the same file sets as E3's
+        # ownership rule, and is imposed at the same place (see run.py).
+        "role_rule": _role_rule,
+        # E3: the ownership rule and the file sets it acts on, handed to the
+        # finalize phase (see run.py). The rule is a SPECIFICATION requirement,
+        # not part of the designed service contract, so it is imposed after the
+        # finalize repairs rather than during the render.
+        "ownership_rule": _ownership_rule,
+        "repo_files": list(repo_paths),
+        "service_files": list(svc_paths),
+        "cli_files": list(cli_paths),
         "exception_files": sorted(
             {p for p, k, d in designs if k == "exceptions"}
         ),
@@ -1366,6 +1837,31 @@ def _manifest_first_blocks(prompt_text, verbose=False):
             method_contracts=method_contracts,
         )
         files[sp] = body
+        # 5.2b C6 — enforce the field domains the SPECIFICATION states. Injected
+        # at the TOP of the entity's create/update bodies, so the rule holds
+        # whichever tier produced the body (deterministic create, impl recipe or
+        # LLM fill) and a re-render never doubles it.
+        # The rules are keyed by the ENTITY class ("Employee"); this service is
+        # named after it plus the module suffix ("EmployeeService"). Resolve the
+        # entity by stripping that suffix, and hand the ENTITY to the injector —
+        # the guard targets `add_employee`, not `add_employee_service`.
+        _rule_cls = svc_class
+        if _rule_cls not in _field_rules and _rule_cls.endswith("Service"):
+            _rule_cls = _rule_cls[: -len("Service")]
+        _rules_for_class = _field_rules.get(_rule_cls)
+        if _rules_for_class:
+            files[sp] = apply_field_guards(
+                body, _rule_cls, _rules_for_class, exception_names
+            )
+        # 5.2c C2 — refuse the state TRANSITIONS the SPECIFICATION forbids. The
+        # guard is spliced AFTER the row is loaded (it reads the current state)
+        # and before the first write, and chained from the file as it stands so
+        # it cannot discard an earlier injection for the same service.
+        _state_for_class = _state_rules.get(_rule_cls)
+        if _state_for_class:
+            files[sp] = apply_state_guards(
+                files[sp], _rule_cls, _state_for_class, exception_names
+            )
         # (#3) adopt bounded repository repairs made while filling this
         # service: the shipped repository file and the service contract
         # must stay consistent (the fill legally calls what was added).
@@ -1378,6 +1874,123 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         _prune_uncalled_repo_customs(
             repo_paths, designs, files, body, prompt_text
         )
+        # 5.2d C3 — enforce the OVERLAP rule the SPECIFICATION states. Placed
+        # AFTER the repository adoption above so the added existence test is
+        # not overwritten by the adopted (pre-edit) repository source.
+        _overlap_rule = _overlap_rules.get(_rule_cls)
+        if _overlap_rule:
+            _item_snake = _snake(_rule_cls)
+            _repo_path = next(
+                (p for p in repo_paths
+                 if Path(p).stem == "%s_repository" % _item_snake),
+                None,
+            )
+            if _repo_path:
+                files[_repo_path], files[sp] = apply_overlap_guard(
+                    files.get(_repo_path) or "", files[sp],
+                    _rule_cls, _overlap_rule, exception_names,
+                )
+        # 5.2e C4 — a resource carries at most ONE active row ("a book can have
+        # at most one active loan", prompt 26). Same placement and same
+        # repository+service edit as C3, chained from the file as it stands.
+        _active_rule = _active_rules.get(_rule_cls)
+        if _active_rule:
+            _item_snake = _snake(_rule_cls)
+            _repo_path = next(
+                (p for p in repo_paths
+                 if Path(p).stem == "%s_repository" % _item_snake),
+                None,
+            )
+            if _repo_path:
+                files[_repo_path], files[sp] = apply_active_guard(
+                    files.get(_repo_path) or "", files[sp],
+                    _rule_cls, _active_rule, exception_names,
+                )
+        # 5.2f C5 — refuse to DELETE a row the specification says is still
+        # referenced ("a category cannot be deleted while products still
+        # belong to it", prompt 36). The check sits on the RESOURCE repository
+        # but queries the ITEM table, whose name is read back from the ITEM
+        # repository's own FROM clause.
+        _ref_rule = _reference_rules.get(_rule_cls)
+        if _ref_rule:
+            _res_snake = _snake(_rule_cls)
+            _item_snake = _ref_rule["item"]
+            _res_repo = next(
+                (p for p in repo_paths
+                 if Path(p).stem == "%s_repository" % _res_snake),
+                None,
+            )
+            _item_repo = next(
+                (p for p in repo_paths
+                 if Path(p).stem == "%s_repository" % _item_snake),
+                None,
+            )
+            _item_table = (
+                _table_from_source(files.get(_item_repo) or "")
+                if _item_repo else None
+            )
+            if _res_repo and _item_table:
+                files[_res_repo], files[sp] = apply_reference_guard(
+                    files.get(_res_repo) or "", files[sp],
+                    _rule_cls, _ref_rule, _item_table, exception_names,
+                )
+        # 5.2h E1 — the AUDIT TRAIL ("every creation, update and deletion must
+        # also produce an audit record", prompt 33). Chained from the file as
+        # it stands, after every other service edit.
+        _audit_rule = _audit_rules.get(_rule_cls)
+        if _audit_rule:
+            files[sp] = apply_audit_guards(files[sp], _rule_cls, _audit_rule)
+
+    # 5.2g C5 (cross-service) — the referential DELETE guard can live in a
+    # service that is NOT the resource's own: prompt 36 hosts
+    # ``delete_category`` on ProductService, the only service the design
+    # created, so a guard keyed to ``category_service.py`` never ran. The
+    # repository check is added once (on the RESOURCE repository), and the
+    # guard is injected into EVERY service that actually carries the delete
+    # method — found by name, not by file.
+    for _ref_cls, _ref_rule in (_reference_rules or {}).items():
+        _res_snake = _snake(_ref_cls)
+        _item_snake = _ref_rule["item"]
+        _res_repo = next(
+            (p for p in repo_paths
+             if Path(p).stem == "%s_repository" % _res_snake),
+            None,
+        )
+        _item_repo = next(
+            (p for p in repo_paths
+             if Path(p).stem == "%s_repository" % _item_snake),
+            None,
+        )
+        _item_table = (
+            _table_from_source(files.get(_item_repo) or "")
+            if _item_repo else None
+        )
+        if not (_res_repo and _item_table):
+            continue
+        for _sp in svc_paths:
+            _src = files.get(_sp) or ""
+            if ("delete_%s" % _res_snake) not in _src and \
+                    ("remove_%s" % _res_snake) not in _src:
+                continue
+            files[_res_repo], files[_sp] = apply_reference_guard(
+                files.get(_res_repo) or "", _src, _ref_cls, _ref_rule,
+                _item_table, exception_names,
+            )
+
+    # 5.2i E2 — the NOTIFICATION requirement ("when an order is confirmed …
+    # send a notification", prompt 40). Two pieces: emit the abstraction
+    # module the specification asks for, and splice the call into whichever
+    # service actually carries the trigger method (found by name, not by the
+    # file the design happened to name).
+    if _notify_rules:
+        files["%s.py" % NOTIFICATIONS_MODULE] = render_notifications_module()
+        for _nrule in _notify_rules.values():
+            for _sp in svc_paths:
+                _src = files.get(_sp) or ""
+                if _nrule["method"] not in _src:
+                    continue
+                files[_sp] = apply_notify_guards(_src, _nrule)
+                break
 
     # 5.3 CLI fallback: when the CLI design failed, keep the deterministic
     # pipeline and generate cli.py via the per-file path instead of
@@ -1402,6 +2015,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                     files[spec["file"]] = content
                 else:
                     print("    %s: %s" % (spec["file"], status), file=sys.stderr)
+
+    # NOTE (E3): the OWNERSHIP rule ("a user can only read, modify or delete
+    # their own documents", prompt 38) is NOT applied here. It has to precede
+    # nothing and follow everything: ``_restore_service_signatures`` (see
+    # run.py) re-imposes the DESIGNED signature of every service method, and the
+    # acting user is no part of that design, so a parameter added during the
+    # render phase is stripped from the ``def`` while its guarded body stays —
+    # every call to ``list_document``/``delete_document`` then raises
+    # ``NameError: user_id``. The rule therefore travels in ``design_ctx`` and is
+    # imposed at the end of the finalize phase, on what is actually shipped.
 
     # Inter-file invariant: a DESIGNED module must never ship blank or
     # class-less. A blank file parses as valid Python with no imports and no

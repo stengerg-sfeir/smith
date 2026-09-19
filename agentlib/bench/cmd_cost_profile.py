@@ -306,6 +306,35 @@ def _write_json(path, profiles):
     print("\njson -> %s" % target)
 
 
+def _failed_profile(ident, exc):
+    """A profile-shaped record for a prompt whose generation RAISED.
+
+    Batch isolation: a prompt that crashes the generator (34's unresolved
+    import, 18's null-fill TypeError) must be reported as ONE failed prompt
+    and must NOT abort the rest of the lot. The record carries every key the
+    summary and the JSON writer read, so a failed run still produces a
+    complete, comparable artefact instead of no file at all.
+    """
+    return {
+        "ident": ident,
+        "wall_seconds": 0.0,
+        "llm_seconds": 0.0,
+        "calls": 0,
+        "chars_in": 0,
+        "chars_out": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "tokens_calls": 0,
+        "errors": 1,
+        "failed": True,
+        "failure": "%s: %s" % (type(exc).__name__, exc),
+        "by_phase": {},
+        "slowest": [],
+        "source_files": 0,
+        "source_chars": 0,
+    }
+
+
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prompt", action="append", required=True,
@@ -313,7 +342,24 @@ def main(argv: list[str] | None = None):
     parser.add_argument("--json", default=None, metavar="PATH",
                         help="also write the per-prompt numbers as JSON")
     args = parser.parse_args(argv)
-    profiles = [profile_prompt(ident) for ident in args.prompt]
+    profiles = []
+    for ident in args.prompt:
+        # SystemExit is caught alongside Exception on purpose: a missing
+        # prompt file is reported with `raise SystemExit(...)` inside
+        # `profile_prompt`, and SystemExit derives from BaseException, so an
+        # `except Exception` would let it end the whole batch (measured:
+        # `--prompt zzz_nonexistent` printed the message and shipped no
+        # summary at all). KeyboardInterrupt is deliberately NOT caught, so
+        # Ctrl-C still stops the run.
+        try:
+            profiles.append(profile_prompt(ident))
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - batch isolation
+            # One prompt's failure must never cancel the prompts after it:
+            # record it and keep going, so the batch and its JSON are always
+            # complete (this is how 18's crash used to take 19/20 down).
+            print("\n=== %s ===" % ident)
+            print("  FAILED: %s: %s" % (type(exc).__name__, exc))
+            profiles.append(_failed_profile(ident, exc))
 
     print("\n=== summary ===")
     for profile in profiles:

@@ -429,6 +429,17 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     # --- declared filter API (from the entity design's list_filters) --------
     filter_specs = _declared_filters(ent)
     filter_params = [(p, None) for p, _, _ in filter_specs]
+    # Pagination (see _apply_pagination_floors): the design's list method
+    # takes page/page_size, so list() ACCEPTS them and pages its SQL. They are
+    # not filters — they never add a WHERE clause — so they ride beside
+    # filter_params rather than through it.
+    page_names = list((ent or {}).get("page_filters") or [])
+    # Sorting (see _apply_sort_floors): the design's list method takes a column
+    # selector and a direction selector, so list() ACCEPTS both and orders by
+    # the caller's column — WHITELISTED from the entity's own scalar fields, so
+    # a caller-supplied column can never reach the SQL text unchecked.
+    sort_names = list((ent or {}).get("sort_params") or [])
+    sort_fields = list((ent or {}).get("sort_fields") or [])
     # Cross-table filter columns (filtering by a JOIN entity's column, e.g.
     # Post filtered by PostTag.tag_id — prompt 23's "posts by tag") need a
     # JOIN so the list() SQL qualifies the column with the join alias instead
@@ -479,8 +490,15 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     _FRAG = {
         "eq": " AND %s = ?", "gte": " AND %s >= ?", "lte": " AND %s <= ?",
         "eq_true": " AND %s = 1", "gt_zero": " AND %s > 0",
+        "like_domain": " AND %s LIKE ?",
     }
-    _BOUND_OPS = {"eq", "gte", "lte"}
+    _BOUND_OPS = {"eq", "gte", "lte", "like_domain"}
+    # The VALUE a `<col>_domain` filter binds: a domain matches the END of the
+    # column's value, so the bound term is "%" + the caller's domain — never
+    # the bare domain (equal-match against a whole address matches nothing) and
+    # never an unanchored LIKE (which would match the domain anywhere inside
+    # the address, e.g. inside a longer unrelated domain).
+    _BIND_EXPR = {"like_domain": lambda q: '"%%" + str(%s)' % q}
     # "Below the referenced row's threshold" filters (see
     # _flag_threshold_spec): the compared column lives on THIS table, the
     # threshold on the row this entity's foreign key points at, so they need
@@ -508,7 +526,10 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         for p, col, r in below_specs
     ]
     filter_where = [
-        (_FRAG[op] % qualified.get(col, col), p, op in _BOUND_OPS)
+        (
+            _FRAG[op] % qualified.get(col, col), p, op in _BOUND_OPS,
+            _BIND_EXPR.get(op, lambda q: q)(p),
+        )
         for p, col, op in filter_specs
         if op in _FRAG
     ]
@@ -579,8 +600,11 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     L.append("            ).fetchall()")
     L.append("            return [%s(**dict(r)) for r in rows]" % model)
     L.append("")
-    if filter_params:
-        sig = ", ".join("%s: Optional[Any] = None" % p[0] for p in filter_params)
+    if filter_params or page_names or sort_names:
+        sig_parts = ["%s: Optional[Any] = None" % p[0] for p in filter_params]
+        sig_parts += ["%s: Optional[int] = None" % p for p in page_names]
+        sig_parts += ["%s: Optional[str] = None" % p for p in sort_names]
+        sig = ", ".join(sig_parts)
         L.append("    def list(self, %s) -> List[%s]:" % (sig, model))
         L.append("        with self.db.connect() as conn:")
         if join_clauses:
@@ -591,14 +615,14 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
         else:
             L.append('            query = "SELECT * FROM %s WHERE 1=1"' % table)
         L.append("            params: List[Any] = []")
-        for frag, expr, bound in filter_where:
+        for frag, expr, bound, bind_expr in filter_where:
             guard = (
                 "if %s is not None:" % expr if bound else "if %s:" % expr
             )
             L.append("            " + guard)
             L.append("                query += %r" % frag)
             if bound:
-                L.append("                params.append(%s)" % expr)
+                L.append("                params.append(%s)" % bind_expr)
         # Below-threshold flags bind no value: the flag being truthy is the
         # whole condition, so guard on truthiness (never "is not None" — a
         # click flag defaults to False and False means "no filter").
@@ -606,9 +630,38 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
             L.append("            if %s:" % expr)
             L.append("                query += %r" % frag)
         order_col = "%s.id" % ent_snake if join_clauses else "id"
+        if sort_names:
+            # ORDER BY the caller's column, resolved through a WHITELIST of
+            # this entity's own scalar fields (joined-table columns carry the
+            # entity alias so a joined query stays unambiguous). An unknown or
+            # absent selector falls back to the deterministic id order.
+            alias = (ent_snake + ".") if join_clauses else ""
+            column_map = {f: alias + f for f in sort_fields}
+            L.append("            sortable = %r" % (column_map,))
+            L.append(
+                "            column = sortable.get(%s, %r)"
+                % (sort_names[0], order_col)
+            )
+            L.append(
+                "            order = ' ORDER BY ' + column + ' ' + ('DESC' if "
+                "str(%s or '').lower().startswith('desc') else 'ASC')"
+                % sort_names[1]
+            )
+        else:
+            L.append("            order = \" ORDER BY %s\"" % order_col)
+        if page_names:
+            # A page is only requested when a page size is given; LIMIT/OFFSET
+            # must follow the ORDER BY, so it is appended to the ordering
+            # clause rather than to the WHERE fragment.
+            num, size = page_names[0], page_names[1]
+            L.append("            if %s is not None:" % size)
+            L.append("                order += \" LIMIT ? OFFSET ?\"")
+            L.append(
+                "                params.extend([%s, ((%s or 1) - 1) * %s])"
+                % (size, num, size)
+            )
         L.append(
-            "            rows = conn.execute(query + \" ORDER BY %s\", params).fetchall()"
-            % order_col
+            "            rows = conn.execute(query + order, params).fetchall()"
         )
         L.append("            return [%s(**dict(r)) for r in rows]" % model)
     else:

@@ -28,11 +28,53 @@ from ..recipe_types import Recipe
 from .common import missing_row_guard
 
 
+def _non_negative_guard(field, effect, exception_names):
+    """Refuse a delta that would drive ``field`` below zero.
+
+    The specification states the refusal itself — "A withdrawal must be
+    rejected if it would make the balance negative" (prompt 31) — and the
+    design declares an exception for it. The class is chosen by the design's
+    OWN naming (``InsufficientFundsError`` mentions neither the field nor the
+    rule, so the search is deliberately broad: funds/balance/negative first,
+    then the generic validation names, then the builtin ``ValueError``), never
+    from domain vocabulary in the renderer.
+    """
+    names = [n for n in (exception_names or []) if isinstance(n, str)]
+    exc = None
+    for want in ("insufficient", "fund", "balance", "negative",
+                 "invalid", "validation", "value"):
+        for name in sorted(names):
+            if want in name.lower():
+                exc = name
+                break
+        if exc:
+            break
+    if exc is None:
+        exc = "ValueError"
+    param = effect["param"]
+    return [
+        "        if (row.%s or 0) < float(%s if %s is not None else 0):"
+        % (field, param, param),
+        "            raise %s(%r)" % (exc, "%s would become negative" % field),
+    ]
+
+
 def _field_expr(recv, field, effect):
     """The value expression written for one effect, on receiver ``recv``."""
     kind = effect["kind"]
     if kind == "counter_delta":
         return "(%s.%s or 0) + %d" % (recv, field, effect["delta"])
+    if kind == "amount_delta":
+        # The amount is the CALLER's own parameter (no literal in the
+        # specification): "Deposits increase the balance and withdrawals
+        # decrease it" names only the direction, so the value is `amount`,
+        # signed by the operation. ``float()`` because the design types the
+        # CLI's numeric options as text as often as not.
+        param = effect["param"]
+        return (
+            "(%s.%s or 0) + (%s * float(%s if %s is not None else 0))"
+            % (recv, field, effect["sign"], param, param)
+        )
     if kind == "flag_toggle":
         return "not %s.%s" % (recv, field)
     if kind in ("flag_set", "status_set"):
@@ -110,6 +152,10 @@ def _h_contract_effects(m, impl, ent, entities_by_class, exception_names=None):
             expr = _field_expr("row", field, eff)
             if expr is None:
                 return None
+            if eff.get("non_negative"):
+                # The refusal is emitted BEFORE the update so nothing is
+                # written when the operation would overdraw.
+                lines += _non_negative_guard(field, eff, exception_names)
             lines.append(
                 "        self.%s_repo.update(%s, {'%s': %s})"
                 % (anchor_var, idp, field, expr)
