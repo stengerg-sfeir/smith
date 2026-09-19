@@ -135,35 +135,45 @@ def _drop_argument_edit(node, parameter):
     return (line, col, line, end_col, "")
 
 
-def _option_line_edit(cli_source, parameter):
-    """The edit deleting the ``@….option('--<parameter>', ...)`` line."""
-    try:
-        tree = ast.parse(cli_source)
-    except SyntaxError:
-        return None
-    lines = cli_source.split("\n")
-    for node in ast.walk(tree):
-        for decorator in getattr(node, "decorator_list", []):
-            if not isinstance(decorator, ast.Call):
-                continue
-            function = decorator.func
-            name = (
-                function.attr if isinstance(function, ast.Attribute)
-                else function.id if isinstance(function, ast.Name) else None
-            )
-            if name != "option":
-                continue
-            strings = [
-                argument.value for argument in decorator.args
-                if isinstance(argument, ast.Constant)
-                and isinstance(argument.value, str)
-            ]
-            if _option_dest(strings) != parameter:
-                continue
-            if decorator.lineno != decorator.end_lineno:
-                continue
-            if decorator.lineno > len(lines):
-                continue
+def _callback_owning(cli_tree, method):
+    """The CLI function whose body calls ``<something>.<method>(...)``.
+
+    The option to delete belongs to THIS function: several commands declare
+    their own ``--id`` (``sale update --id`` next to ``sale report --id``), so
+    an option looked up by name alone would be removed from the wrong command
+    and the one the law is about would keep demanding its input.
+    """
+    for node in ast.walk(cli_tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr == method
+            ):
+                return node
+    return None
+
+
+def _option_line_of(callback, parameter):
+    """The line index of ``callback``'s own ``--<parameter>`` option."""
+    for decorator in getattr(callback, "decorator_list", []):
+        if not isinstance(decorator, ast.Call):
+            continue
+        function = decorator.func
+        name = (
+            function.attr if isinstance(function, ast.Attribute)
+            else function.id if isinstance(function, ast.Name) else None
+        )
+        if name != "option" or decorator.lineno != decorator.end_lineno:
+            continue
+        strings = [
+            argument.value for argument in decorator.args
+            if isinstance(argument, ast.Constant)
+            and isinstance(argument.value, str)
+        ]
+        if _option_dest(strings) == parameter:
             return decorator.lineno - 1
     return None
 
@@ -208,34 +218,32 @@ def _rewrite(service_source, cli_source):
     signature_edits = []
     line_deletions = set()
     for method, parameter in dropped:
-        for node in ast.walk(cli_tree):
-            if not isinstance(node, ast.Call):
-                continue
-            function = node.func
-            if not isinstance(function, ast.Attribute) or function.attr != method:
-                continue
-            keyword = next(
-                (keyword for keyword in node.keywords
-                 if keyword.arg == parameter),
-                None,
-            )
-            if keyword is None:
-                continue
-            edit = _drop_keyword_edit(node, keyword)
-            if edit is not None:
-                call_edits.append(edit)
-        for node in ast.walk(cli_tree):
-            if not isinstance(node, ast.FunctionDef):
-                continue
-            names = [arg.arg for arg in _params(node)]
-            if parameter not in names:
-                continue
-            edit = _drop_argument_edit(node, parameter)
+        callback = _callback_owning(cli_tree, method)
+        if callback is None:
+            continue
+        for node in ast.walk(callback):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == method
+            ):
+                keyword = next(
+                    (keyword for keyword in node.keywords
+                     if keyword.arg == parameter),
+                    None,
+                )
+                if keyword is None:
+                    continue
+                edit = _drop_keyword_edit(node, keyword)
+                if edit is not None:
+                    call_edits.append(edit)
+        if parameter in [arg.arg for arg in _params(callback)]:
+            edit = _drop_argument_edit(callback, parameter)
             if edit is not None:
                 signature_edits.append(edit)
-            line = _option_line_edit(cli_source, parameter)
-            if line is not None:
-                line_deletions.add(line)
+        line = _option_line_of(callback, parameter)
+        if line is not None:
+            line_deletions.add(line)
     if not call_edits and not signature_edits and not line_deletions:
         return service_source, cli_source, []
     # Splices FIRST: a single-line edit preserves the line COUNT, so the
@@ -259,33 +267,51 @@ def _rewrite(service_source, cli_source):
     return service_candidate, cli_candidate, dropped
 
 
+def _presentation_files(files, cli_files):
+    """Every command-line module actually shipped, design list or not.
+
+    The design's ``cli_files`` can name ``cli.py`` while the commands the
+    program RUNS live in ``main.py`` (the entry point ``entry_of`` resolves) —
+    editing the file nobody executes changes nothing. Both spellings are
+    collected, from the files that really exist.
+    """
+    found = [path for path in (cli_files or []) if path in files]
+    for path in files:
+        name = path.replace("\\", "/").rsplit("/", 1)[-1]
+        if name in ("main.py", "cli.py") and path not in found:
+            found.append(path)
+    return found
+
+
 def apply_invented_input_guards(files, service_files, cli_files):
     """Remove every invented mandatory input of this design.
+
+    EVERY command-line module is tried (``cli.py`` and ``main.py``), because a
+    design whose commands live in ``main.py`` while ``cli.py`` also exists
+    would otherwise be edited in the file nobody runs. A second application is
+    a no-op — the parameter is already gone from the service by then.
 
     ``files`` is ``{path: source}``. Returns ``(files, notes)``.
     """
     notes = []
     for service_path in service_files or []:
-        cli_path = next(
-            (path for path in cli_files or [] if path in files),
-            None,
-        )
-        if cli_path is None:
-            continue
-        service_source = files.get(service_path)
-        if not service_source:
-            continue
-        service_candidate, cli_candidate, dropped = _rewrite(
-            service_source, files[cli_path],
-        )
-        if not dropped:
-            continue
-        files[service_path] = service_candidate
-        files[cli_path] = cli_candidate
-        notes.append(
-            "%s: dropped %s" % (
-                service_path,
-                ", ".join("%s(%s)" % pair for pair in dropped),
+        for cli_path in _presentation_files(files, cli_files):
+            service_source = files.get(service_path)
+            cli_source = files.get(cli_path)
+            if not service_source or not cli_source:
+                continue
+            service_candidate, cli_candidate, dropped = _rewrite(
+                service_source, cli_source,
             )
-        )
+            if not dropped:
+                continue
+            files[service_path] = service_candidate
+            files[cli_path] = cli_candidate
+            notes.append(
+                "%s (%s): dropped %s" % (
+                    service_path,
+                    cli_path,
+                    ", ".join("%s(%s)" % pair for pair in dropped),
+                )
+            )
     return files, notes

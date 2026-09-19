@@ -73,6 +73,16 @@ class %(impl)s(%(abstraction)s):
 
     def __init__(self, logger: Optional[logging.Logger] = None) -> None:
         self.logger = logger or logging.getLogger("notifications")
+        # A logger with NO handler discards INFO records — Python's
+        # last-resort handler prints WARNING and above only — so the
+        # notification the specification asks to LOG would leave no trace at
+        # all and the feature would be invisible. One stream handler, attached
+        # to this module's own logger and never to the root.
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter("%%(message)s"))
+            self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
 
     def notify(self, recipient: str, message: str) -> None:
         self.logger.info("notification to %%s: %%s", recipient, message)

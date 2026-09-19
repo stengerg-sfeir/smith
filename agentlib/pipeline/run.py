@@ -31,7 +31,9 @@ from agentlib.design import _route_mode
 from agentlib.generation.annotations import add_missing_none_returns
 from agentlib.generation.arithmetic_literals import fix_arithmetic_precision
 from agentlib.generation.click_prompts import drop_unneeded_prompts
+from agentlib.generation.bulk_binding_guard import apply_bulk_binding_guards
 from agentlib.generation.cli_wiring import fix_click_option_params
+from agentlib.generation.command_service_guard import apply_command_service_guards
 from agentlib.generation.delegation_guard import apply_delegation_guards
 from agentlib.generation.entrypoint import ensure_entry_point
 from agentlib.generation.export_guard import apply_export_guards
@@ -40,6 +42,9 @@ from agentlib.generation.invented_input_guard import apply_invented_input_guards
 from agentlib.generation.ownership_guard import (
     apply_ownership_cli,
     apply_ownership_guards,
+)
+from agentlib.generation.repository_interface_guard import (
+    apply_repository_interface_guards,
 )
 from agentlib.generation.role_guard import apply_role_cli, apply_role_guards
 from agentlib.generation.softdelete_guard import apply_soft_delete_guards
@@ -268,11 +273,20 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- 19: an export that writes a summary instead of the rows ---------
     _apply_exports(files, design_ctx, verbose=verbose)
 
+    # ---- 30: the repository INTERFACE the specification names ------------
+    _apply_repository_interface(files, design_ctx, prompt_text, verbose=verbose)
+
+    # ---- 20: the command is wired to the service named after it -----------
+    _apply_command_services(files, design_ctx, verbose=verbose)
+
     # ---- 20: an invented REQUIRED input the code never reads --------------
     _apply_invented_inputs(files, design_ctx, verbose=verbose)
 
     # ---- 35: a create-only validation living in an update path -----------
     _apply_update_validations(files, design_ctx, verbose=verbose)
+
+    # ---- 35: SQL placeholders and their bound values ----------------------
+    _apply_bulk_bindings(files, design_ctx, verbose=verbose)
 
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
@@ -348,11 +362,64 @@ def _apply_update_validations(files, design_ctx, verbose=False):
     says every field but the ids is optional.
     """
     files, notes = apply_update_validation_guards(
-        files, design_ctx.get("service_files") or [],
+        files,
+        design_ctx.get("service_files") or [],
+        design_ctx.get("repo_files") or [],
     )
     if notes and verbose:
         for note in notes:
             print("    [update validation] %s" % note)
+
+
+def _apply_bulk_bindings(files, design_ctx, verbose=False):
+    """Bind exactly the values the SQL clause was built from (prompt 35).
+
+    The shipped bulk update appended its SET clause conditionally and then
+    bound every parameter at once, so one supplied column produced two markers
+    and six values: ``sqlite3.ProgrammingError: Incorrect number of bindings
+    supplied`` on every call.
+    """
+    files, notes = apply_bulk_binding_guards(
+        files, design_ctx.get("repo_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [bulk binding] %s" % note)
+
+
+def _apply_repository_interface(files, design_ctx, prompt_text, verbose=False):
+    """Create the repository interface a specification demands (prompt 30).
+
+    "The application must have a repository interface, a SQLite implementation
+    and a service layer." The interface is the deliverable the specification
+    names FIRST, and the shipped tree had none: the service depended on the
+    concrete SQLite class. Created only for a prompt that asks for one, so no
+    other design grows a module it never requested.
+    """
+    if "repository interface" not in (prompt_text or "").lower():
+        return
+    files, notes = apply_repository_interface_guards(
+        files, design_ctx.get("repo_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [repository interface] %s" % note)
+
+
+def _apply_command_services(files, design_ctx, verbose=False):
+    """Wire each command to the service module named after it (prompt 20).
+
+    ``sale report`` must produce the per-product report the specification
+    asks for; the manifest declared ``sale_report_service`` for exactly that,
+    and the CLI wired the general service with a compulsory ``--id`` instead.
+    """
+    files, notes = apply_command_service_guards(
+        files,
+        design_ctx.get("cli_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [command service] %s" % note)
 
 
 def _apply_invented_inputs(files, design_ctx, verbose=False):

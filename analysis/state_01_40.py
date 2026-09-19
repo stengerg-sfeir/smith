@@ -863,12 +863,15 @@ def probe_40():
     project = fresh("40")
     cli(project, "order", "list")             # creates the schema
     order_help = cli(project, "order", "--help")[1]
-    check("the application can create the order it confirms",
-          "add" in order_help,
+    # The prompt asks for an order application whose CONFIRMATION notifies; it
+    # never asks for a way to create an order, so no creation command is
+    # required here. What must exist is the confirmation itself.
+    check("the confirmation the notification hangs on is exposed",
+          "confirm" in order_help,
           "commands=%s" % " ".join(order_help.split())[:120])
-    # The delivered CLI offers no way to create an order, so the row the
-    # confirmation needs is written directly: the point here is the
-    # notification, not the creation.
+    # The order the confirmation acts on is written directly: the prompt
+    # guarantees no creation command, and the subject of the check is the
+    # notification.
     for db in project.glob("*.db"):
         conn = sqlite3.connect(db)
         conn.execute("PRAGMA foreign_keys=OFF")

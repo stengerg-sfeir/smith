@@ -88,15 +88,22 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
 
     # Every generated CLI reads and writes through the repository layer, so a
     # user-visible UNIQUE / FOREIGN KEY violation (a duplicate isbn, an unknown
-    # --author-id) must never reach the user as a raw traceback. sqlite3 is
-    # imported so the command body can catch IntegrityError; the project's own
-    # DESIGNED exception classes are imported too, so the domain errors the
+    # --author-id) must never reach the user as a raw traceback. It is caught
+    # as ``IntegrityViolation``, the DOMAIN error the persistence layer raises
+    # when the store refuses a write — the CLI imports NO driver. The project's
+    # own DESIGNED exception classes are imported too, so the domain errors the
     # specification asks for (CategoryNotFoundError, BookNotAvailableError, …)
     # are REPORTED, not dumped. Before this, `expense add --category 999` and
     # `library member add` with a duplicate email printed a full Python
     # traceback — the opposite of the "proper error handling with custom
-    # exception classes" the specification asks for.
-    lines = ["import sqlite3", "import click", "from database import Database"]
+    # exception classes" the specification asks for. Prompts 29 and 30 make the
+    # separation explicit ("repositories must contain persistence logic", "the
+    # CLI ... must not access SQLite directly"), and a CLI that imports the
+    # driver to name its error is reaching straight past its own layers.
+    lines = [
+        "import click",
+        "from database import Database, IntegrityViolation",
+    ]
     _exc_names = sorted({
         n for n in (exception_names or [])
         if isinstance(n, str) and n.isidentifier()
@@ -287,7 +294,7 @@ def _render_cli_file(design, svc_class, entities_by_class, service_methods,
         # custom exception classes, and a repository write can additionally
         # raise a plain IntegrityError. Both become a one-line stderr message
         # and a non-zero exit instead of a Python traceback.
-        _caught = ["sqlite3.IntegrityError"] + _exc_names
+        _caught = ["IntegrityViolation"] + _exc_names
         _caught_src = (
             _caught[0] if len(_caught) == 1
             else "(%s)" % ", ".join(_caught)
