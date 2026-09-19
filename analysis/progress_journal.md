@@ -1074,3 +1074,32 @@ comme le fait déjà le remplissage de service (`LARGE_STUB_SET = 1`).
 Les deux échecs n'affectent **pas** la mesure 01–40 : le prompt 59 est hors de
 son périmètre, et les 40 prompts numérotés restent à **78/78** (voir
 `analysis/numbered_01_40_report_v3.md`).
+### Protocole des 6 nommés — mesuré après N11/N12 (19/09, 22:56)
+
+Les lois N11 et N12 touchent des modules que **tous** les prompts traversent
+(`service_render`, `pipeline/design`, `command_service_guard`), donc le
+protocole nommés est la mesure qui décide : il régénère les six prompts dans un
+sous-processus et relit chaque application.
+
+    [named-prompts] 6/6 prompt(s) clean
+
+| prompt | marqueurs | compile | fonctionnel | conforme | façade |
+|--------|-----------|---------|-------------|----------|--------|
+| `cli_tool` | 0 | OK | PASS | PASS | 9/9 |
+| `expenses` | 0 | OK | PASS | PASS | pass |
+| `hello_world` | 0 | OK | PASS | PASS | `no_mapped` (attendu : pas de façade CLI) |
+| `inventory` | 0 | OK | PASS | PASS | pass |
+| `library_system` | 0 | OK | PASS | PASS | 9/9 |
+| `multi_module` | 0 | OK | PASS | PASS | 5/5 |
+
+**Aucun marqueur interdit** (`reject | dropped | still stubbed | reverted |
+sanitized`) sur aucun des six, et les six compilent. Rapport complet :
+`analysis/named_prompts_report.md`.
+
+### État des vérifications à la fin de la passe
+
+| mesure | portée | résultat |
+|--------|--------|----------|
+| prompts 01–40, arbres régénérés par le code final | 78 vérifications | **78/78**, 40/40 conformes |
+| prompts nommés, régénérés par le code final | 6 prompts, 4 axes | **6/6 clean**, 0 marqueur |
+| campagne complète (60 numérotés + 6 nommés) | 66 prompts | 64 réussis ; **46** réparé par N12 ; **59** reste en échec d'échelle (caractérisé plus haut) |

@@ -130,3 +130,26 @@ La sonde efface les `.db` du projet avant chaque prompt (identifiants et totaux
 reproductibles), lit la surface réelle de chaque application (`<groupe> add
 --help`) pour ne remplir que les options que **cette** application déclare
 requises, et n'exige jamais un nom de champ qu'elle aurait elle-même supposé.
+## Mesure finale (19/09, 22:38) — le code d'aujourd'hui, sur des arbres d'aujourd'hui
+
+Le chiffre de 78/78 ci-dessus a d'abord été obtenu sur des arbres produits par
+le générateur tel qu'il était à 14:45. Les lois N11 et N12 — et le
+resserrement de la garde N7 — ont été écrites **après**, et elles touchent des
+modules que **tous** les prompts traversent (`service_render`,
+`pipeline/design`, `command_service_guard`). La mesure a donc été refaite de
+bout en bout, sur des arbres **régénérés par le code final** :
+
+    for n in $(seq -w 1 40); do python3 agent.py --prompt $n; done   # 20:36 → 22:37
+    python3 analysis/state_01_40.py
+
+Résultat : **78/78 vérifications, 40/40 prompts conformes** — identique, sans
+aucune régression. Sortie brute conservée :
+`analysis/baseline_fixes/state_01_40_final_code.txt`.
+
+    verdicts: {'01': '1/1', …, '40': '2/2'}   TOTAL 78/78 checks
+
+Les deux lois écrites pendant cette passe sont consignées au journal
+(`analysis/progress_journal.md`, sections **N11** et **N12**) : N11 supprime un
+crash qui emportait un prompt entier (`params[0]` lu sur une méthode sans
+paramètre), N12 réécrit un nom de méthode emprunté à sa commande
+(`payment/list` → `list_payment`) au lieu de déclarer le prompt en échec.

@@ -136,20 +136,20 @@ puis le suivant.
 | E3 | propriété : acteur exigé sur `list`/`update`/`delete`, liste restreinte à l'acteur, refus `PermissionError` | ✅ | **38 : OK** (A ne voit ni ne modifie ni ne supprime le document de B ; acteur inconnu refusé ; B réussit) — 12/12 | 6/6 clean |
 | E4 | rôles : `--actor-id` exigé sur les écritures `product`/`user`, rôle administrateur vérifié, un utilisateur normal ne modifie que son propre compte | ✅ | **39 : OK** (produit refusé à un non-admin, l'admin réussit ; son compte modifiable, celui d'un autre non ; acteur inconnu refusé ; `order list` ne montre que les siennes) — 28/28 | 6/6 clean |
 
-### N — balayage fonctionnel des 40 prompts numérotés (19/09, 56/71)
+### N — balayage fonctionnel des 40 prompts numérotés (19/09, **78/78 — 40/40 conformes**)
 
-Mesure sur arbres **régénérés** : `/tmp/state_01_40.py`, rapport
-`analysis/numbered_01_40_report_v2.md`, sortie brute
-`analysis/baseline_fixes/state_01_40_fresh.txt`. 29 prompts sur 40 conformes.
+Mesure sur arbres **régénérés par le code final** : `analysis/state_01_40.py`,
+rapport `analysis/numbered_01_40_report_v3.md`, sortie brute
+`analysis/baseline_fixes/state_01_40_final_code.txt`.
 
-| # | Correctif (prompt) | Code | Mesure prompt |
-|---|--------------------|------|---------------|
-| N1 | calcul décimal (la calculatrice reste entière) — **02** | ❌ | `7 2 divide` → `Result: 3` |
-| N2 | `--list` sans saisie interactive (option `prompt=`) — **03** | ❌ | `--list` → `Task to add: Aborted!` (rc=1) |
-| N3 | suppression logique réellement utilisée (`deleted_at`) — **14** | ❌ | `project delete` puis `SELECT * FROM projects` → aucune ligne |
-| N4 | commande de création quand le spéc n'énumère que des filtres — **17** | ❌ | groupe `product` : `filter/list/search/specify`, aucun `add` |
-| N5 | import de fichier effectif **et** rejet signalé — **18** | ❌ | import rc=0, `contacts` inchangé, aucun message |
-| N6 | export = les données, pas un résumé — **19** | ❌ | `tasks.json` = `{total_tasks, completed_tasks, …}` |
+| # | Correctif (prompt) | Code | Mesure prompt (état final) |
+|---|--------------------|------|----------------------------|
+| N1 | calcul décimal (la calculatrice reste entière) — **02** | ✅ | `7 2 divide` → `3.5` ; division par zéro signalée (2/2) |
+| N2 | `--list` sans saisie interactive (option `prompt=`) — **03** | ✅ | `--list` s'exécute sans rien demander (1/1) |
+| N3 | suppression logique réellement utilisée (`deleted_at`) — **14** | ✅ | la ligne survit, le listage l'oublie (2/2) |
+| N4 | commande de création quand le spéc n'énumère que des filtres — **17** | ✅ | `product add` présent ; 7/7 sur recherche + filtres |
+| N5 | import de fichier effectif **et** rejet signalé — **18** | ✅ | la ligne valide est importée, l'invalide rejetée **avec message**, l'existant intact (4/4) |
+| N6 | export = les données, pas un résumé — **19** | ✅ | `tasks.json` porte les lignes ; l'import restaure ce que l'export a écrit (3/3) |
 | N7 | paramètre d'entrée non dérivable : ne pas l'exiger (et l'utiliser s'il existe) — **20**, **22** | ✅ | `sale report` → `{1: {'total': 50.0, 'count': 2}}`, sans `--id` |
 | N8 | mise à jour partielle (« only the quantity ») — **35** | ✅ | `bulk-update --ids 1 --stock-quantity 9` → `True`, `stock_quantity=9` |
 | N9 | notification observable (logging configuré) — **40** | ✅ | `order confirm --id 1` → `notification to 1: confirmed order 1` |
@@ -183,3 +183,25 @@ Notes d'exécution :
 - La passe 1 (`/tmp/named_run1.log`) n'a **jamais tourné** : la ligne `nohup …` a été avalée
   par un shell resté sur une invite de continuation de guillemet. Aucun fichier n'a été écrit
   par cette passe ; la baseline `analysis/baseline_fixes/…pre_R1.*` reste valide.
+### Passe finale du protocole nommés (19/09, 22:56) — `python3 bench.py named`
+
+Les lois N11 et N12 touchent `service_render`, `pipeline/design` et
+`command_service_guard` — des modules que **tous** les prompts traversent. Le
+protocole nommés (qui régénère les six prompts dans un sous-processus et relit
+chaque application) donne :
+
+    [named-prompts] 6/6 prompt(s) clean
+
+| prompt | marqueurs | compile | fonctionnel | conforme |
+|--------|-----------|---------|-------------|----------|
+| `cli_tool` | 0 | OK | PASS | PASS |
+| `expenses` | 0 | OK | PASS | PASS |
+| `hello_world` | 0 | OK | PASS | PASS |
+| `inventory` | 0 | OK | PASS | PASS |
+| `library_system` | 0 | OK | PASS | PASS |
+| `multi_module` | 0 | OK | PASS | PASS |
+
+Rapport : `analysis/named_prompts_report.md`. Ajouté à la mesure des 40 prompts
+numérotés (**78/78** sur arbres régénérés par le code final,
+`analysis/baseline_fixes/state_01_40_final_code.txt`), l'état des vérifications
+est : **40/40 prompts numérotés conformes, 6/6 nommés clean**.

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-19T09:07:10.874525+00:00",
+  "generated_at": "2026-09-19T20:56:33.281187+00:00",
   "records": [
     {
       "ident": "cli_tool",
@@ -20,7 +20,7 @@
     },
     {
       "ident": "expenses",
-      "elapsed_s": 406.7,
+      "elapsed_s": 348.7,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -71,7 +71,7 @@
     },
     {
       "ident": "inventory",
-      "elapsed_s": 244.5,
+      "elapsed_s": 223.9,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -102,7 +102,7 @@
     },
     {
       "ident": "library_system",
-      "elapsed_s": 255.0,
+      "elapsed_s": 201.7,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
@@ -131,7 +131,7 @@
     },
     {
       "ident": "multi_module",
-      "elapsed_s": 137.8,
+      "elapsed_s": 129.3,
       "exit": 0,
       "markers": [],
       "compile_failures": [],
