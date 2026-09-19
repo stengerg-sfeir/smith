@@ -66,17 +66,15 @@ def _class_defining(service_source, method):
     return None, None
 
 
-def _callback_owning(cli_tree, method):
-    for node in ast.walk(cli_tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        for sub in ast.walk(node):
-            if (
-                isinstance(sub, ast.Call)
-                and isinstance(sub.func, ast.Attribute)
-                and sub.func.attr == method
-            ):
-                return node
+def _instantiation(callback, class_name):
+    """The callback's own ``<class_name>(...)`` call, if it has one."""
+    for node in ast.walk(callback):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == class_name
+        ):
+            return node
     return None
 
 
@@ -119,18 +117,23 @@ def _option_lines(callback, parameter):
     return found
 
 
-def _rewire(files, cli_path, service_path, method):
-    """Rewire one command to the command-specific service. Returns a note."""
+def _rewire(files, cli_path, service_path, method, callback):
+    """Rewire ONE callback to the command-specific service.
+
+    ``callback`` is the command's own callback — the one whose name matched the
+    module — never a callback found again by method name, which could belong to
+    a different command that happens to call a method of the same name.
+
+    The rewiring is ALL OR NOTHING: it happens only when the callback really
+    instantiates the class the module declares. Otherwise the command would keep
+    the class it had while losing the keywords the new method does not accept —
+    the worst of both.
+    """
     cli_source = files[cli_path]
     class_name, new_params = _class_defining(files[service_path], method)
     if not class_name or new_params is None:
         return None
-    try:
-        cli_tree = ast.parse(cli_source)
-    except SyntaxError:
-        return None
-    callback = _callback_owning(cli_tree, method)
-    if callback is None:
+    if _instantiation(callback, class_name) is None:
         return None
     alias = _alias_for(class_name, _command_fragment(callback))
     edits = []
@@ -235,7 +238,8 @@ def apply_command_service_guards(files, cli_files):
                 if service_path is None or service_path == cli_path:
                     continue
                 for method in methods:
-                    note = _rewire(files, cli_path, service_path, method)
+                    note = _rewire(files, cli_path, service_path, method,
+                                   callback)
                     if note:
                         notes.append(note)
                         rewired = True
