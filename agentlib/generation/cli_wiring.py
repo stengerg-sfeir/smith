@@ -23,6 +23,23 @@ import ast
 import keyword
 
 
+def _call_kind(node):
+    """``"argument"``/``"option"`` for a click decorator call, else None.
+
+    Shared by the wiring, arithmetic-precision and prompt laws: each of them
+    has to recognise a click declaration on ANY receiver (``click.option``)
+    and on a bare imported name (``@option``).
+    """
+    if not isinstance(node, ast.Call):
+        return None
+    fn = node.func
+    if isinstance(fn, ast.Attribute) and fn.attr in ("argument", "option"):
+        return fn.attr
+    if isinstance(fn, ast.Name) and fn.id in ("argument", "option"):
+        return fn.id
+    return None
+
+
 def _option_dest(names):
     """The callback parameter name click derives from an option's declarations.
 

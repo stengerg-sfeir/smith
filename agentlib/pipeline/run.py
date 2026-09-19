@@ -29,6 +29,8 @@ from agentlib.prompts import (
 )
 from agentlib.design import _route_mode
 from agentlib.generation.annotations import add_missing_none_returns
+from agentlib.generation.arithmetic_literals import fix_arithmetic_precision
+from agentlib.generation.click_prompts import drop_unneeded_prompts
 from agentlib.generation.cli_wiring import fix_click_option_params
 from agentlib.generation.entrypoint import ensure_entry_point
 from agentlib.generation.ownership_guard import (
@@ -36,6 +38,7 @@ from agentlib.generation.ownership_guard import (
     apply_ownership_guards,
 )
 from agentlib.generation.role_guard import apply_role_cli, apply_role_guards
+from agentlib.generation.softdelete_guard import apply_soft_delete_guards
 from agentlib.checks.ast_utils import (
     _extract_model_ast,
     _check_syntax_and_imports,
@@ -246,6 +249,9 @@ def _multi_pass(prompt_text, verbose=False):
     _apply_ownership_scope(files, design_ctx, verbose=verbose)
     _apply_role_scope(files, design_ctx, verbose=verbose)
 
+    # ---- 14: soft delete, imposed on the rendered repositories -------------
+    _apply_soft_delete_scope(files, design_ctx, verbose=verbose)
+
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
@@ -307,6 +313,29 @@ def _apply_ownership_scope(files, design_ctx, verbose=False):
             files[cli_path] = cli_source
             if verbose:
                 print("    [ownership] %s: %s" % (cli_path, "; ".join(notes)))
+
+
+def _apply_soft_delete_scope(files, design_ctx, verbose=False):
+    """Impose the specification's soft-delete rule on the FINAL tree.
+
+    Prompt 14: "Deleting a project must be implemented as a soft delete: the
+    project remains in the database but is no longer returned by normal
+    listing operations."
+
+    Imposed here, on what is actually shipped, because the rule rewrites the
+    RENDERED SQL: the repository's delete becomes an UPDATE that stamps the
+    design's own ``deleted_at`` column, and every listing gains the filter that
+    hides the stamped rows.
+    """
+    rules = design_ctx.get("soft_delete_rule")
+    if not rules:
+        return
+    files, notes = apply_soft_delete_guards(
+        files, design_ctx.get("repo_files"), rules,
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [soft delete] %s" % note)
 
 
 def _apply_role_scope(files, design_ctx, verbose=False):
@@ -444,6 +473,24 @@ def process_prompt(prompt_name, prompt_path, verbose=True):
     files, rewired = fix_click_option_params(files)
     if verbose and rewired:
         print("    Rewired click option parameter(s) in %d file(s)" % rewired)
+
+    # Arithmetic precision on the FINAL output: a calculator that is offered
+    # division cannot be integer-only. Prompt 02 shipped `type=click.INT`
+    # operands AND `num1 // num2`, so `7 2 divide` printed 3. Confined to a
+    # file that dispatches on the operation NAME (add/subtract/multiply plus
+    # divide) — a program that divides by a count on purpose is untouched.
+    files, realigned = fix_arithmetic_precision(files)
+    if verbose and realigned:
+        print("    Made arithmetic real in %d file(s)" % realigned)
+
+    # Interactive-prompt guarantee: click's `prompt=` belongs to a REQUIRED
+    # value. On an optional option it makes the WHOLE command interactive
+    # whenever that option is omitted, so `todo_app.py --list` (prompt 03)
+    # stopped at "Task to add:" and aborted. Only an option that never
+    # declares `required=True` loses its prompt.
+    files, unasked = drop_unneeded_prompts(files)
+    if verbose and unasked:
+        print("    Dropped %d unneeded prompt(s)" % unasked)
 
     # Entry-point guarantee on the FINAL output. Two observed ways to lose
     # the dispatch: the LLM repair loop rewrites cli.py and drops its

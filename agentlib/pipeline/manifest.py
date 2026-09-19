@@ -72,6 +72,7 @@ from agentlib.generation.notify_guard import (
 from agentlib.pipeline.notify_rules import extract_notify_rules
 from agentlib.pipeline.ownership_rules import extract_ownership_rule
 from agentlib.pipeline.role_rules import extract_role_rules
+from agentlib.pipeline.softdelete_rules import extract_soft_delete_rules
 from agentlib.pipeline.cli_propagate import _reconcile_cli_design
 from agentlib.pipeline.service_contract import (
     extract_service_contract,
@@ -1107,6 +1108,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if _role_rule and verbose:
         print("    [models] spec role rule: %r" % (_role_rule,))
 
+    # Spec-declared SOFT DELETE (14) — "Deleting a project must be implemented
+    # as a soft delete: the project remains in the database but is no longer
+    # returned by normal listing operations." The design carries the
+    # ``deleted_at`` column but deletes the row outright and never filters on
+    # it. Read once here; imposed on the rendered repositories by the finalize
+    # phase (run.py), after every renderer has run.
+    _soft_delete_rule = extract_soft_delete_rules(prompt_text, entities_by_class)
+    if _soft_delete_rule and verbose:
+        print("    [models] spec soft delete: %r" % (_soft_delete_rule,))
+
     _spec_defaults = extract_model_defaults(prompt_text)
     if _spec_defaults:
         if verbose:
@@ -1703,6 +1714,9 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         # E4: the role policy travels with the same file sets as E3's
         # ownership rule, and is imposed at the same place (see run.py).
         "role_rule": _role_rule,
+        # 14: the spec's soft-delete requirement, imposed on the repositories
+        # by the finalize phase (see run.py).
+        "soft_delete_rule": _soft_delete_rule,
         # E3: the ownership rule and the file sets it acts on, handed to the
         # finalize phase (see run.py). The rule is a SPECIFICATION requirement,
         # not part of the designed service contract, so it is imposed after the
