@@ -942,3 +942,57 @@ salles avec le **même** `room-number`, ce qui faisait échouer la seconde.
 
 Le plan de correction (`analysis/generator_fix_plan.md`) reçoit les lignes
 `N1`–`N10` correspondant à ces onze prompts.
+---
+
+## Session 2 — les lois « création non demandée » et « frontière de couches »
+
+Onze prompts mesurés, dix lois écrites. Chaque loi est une **règle structurelle**
+appliquée à l'arbre rendu, pas un correctif ponctuel : elle nomme la forme du
+défaut et refuse de s'appliquer quand cette forme n'est pas là (chaque garde
+vérifie que le fichier recollé compile, sinon elle ne touche à rien).
+
+Lois acquises, mesures à l'appui :
+
+- **N1 (02)** `agentlib/generation/arithmetic_literals.py` — un programme qui
+  offre la division ne peut pas être entier. `7 2 divide` → `3.5` (2/2).
+- **N2 (03)** `agentlib/generation/click_prompts.py` — `prompt=` n'appartient
+  qu'à une option REQUISE ; `--list` ne demande plus de saisie (1/1).
+- **N3 (14)** `agentlib/generation/softdelete_guard.py` — la suppression devient
+  un `UPDATE` sur la colonne `deleted_at` du design et tout listage filtre les
+  lignes estampillées (2/2).
+- **N4 (17)** `agentlib/generation/delegation_guard.py` — un service qui
+  n'utilise pas son paramètre là où le dépôt expose la même méthode avec
+  exactement ces paramètres : la délégation était prévue, elle est rétablie
+  (7/7 : quatre filtres, leur combinaison, la recherche).
+- **N5 (18)** / **N6 (19)** `import_guard.py`, `export_guard.py` — un import
+  laissé en `return []` et un export qui ne nomme aucun champ de l'entité sont
+  tous deux des corps à réécrire depuis le dataclass (4/4 et 3/3).
+- **N7 (20)** `command_service_guard.py` — le design avait fourni
+  `sale_report_service` (agrégat par produit, sans `id`) et le CLI câblait
+  l'autre service avec un `--id` obligatoire. La commande est désormais câblée
+  au module **nommé d'après elle** : `sale report` → `sale_report_service.py`,
+  import aliasé, options que le service n'accepte pas retirées (2/2).
+- **N8 (35)** `update_validation_guard.py` + `bulk_binding_guard.py` — deux
+  défauts distincts dans une même opération. D'abord la règle de CRÉATION
+  (`Required field 'name' is missing`) copiée dans la mise à jour ; ensuite une
+  clause `SET` construite conditionnellement et **tous** les paramètres liés
+  d'un coup (7 valeurs pour 2 marqueurs), puis liés dans le désordre. La loi lie
+  exactement les valeurs que les conditions ont choisies, dans l'ordre où
+  l'instruction les lit (`values + list(ids)`) — mesuré : `stock_quantity=9`.
+- **N9 (40)** `notify_guard.py` — le logger du service de notification n'avait
+  ni handler ni niveau, donc la notification promise ne laissait **aucune
+  trace** : un handler est attaché au logger du module. Mesure :
+  `notification to 1: confirmed order 1`.
+- **N10 (29, 30)** `naming.py` + `cli_render.py` + `repository_interface_guard.py`
+  — le CLI connaissait SQLite pour nommer l'erreur qu'il rattrapait. La couche
+  de persistance traduit désormais `sqlite3.IntegrityError` en
+  `IntegrityViolation` (erreur de domaine) et le CLI ne rattrape que celle-ci :
+  la présentation n'importe plus aucun pilote. Pour **30** seulement, la loi
+  synthétise l'interface réclamée (`TaskRepositoryInterface(ABC)`) depuis
+  l'implémentation livrée et la fait implémenter par elle.
+
+Deux artefacts de sonde corrigés en cours de route, à ne pas confondre avec des
+défauts du générateur : la sonde 40 exigeait une commande de création d'ordre
+que le prompt **ne demande pas** (elle vérifie maintenant que la confirmation
+existe, et la notification qu'elle émet), et la sonde 19 attendait le mot
+« error » là où l'import signale « not imported ».

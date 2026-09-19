@@ -483,8 +483,17 @@ def probe_18():
     check("the valid row is imported and the invalid one rejected",
           any("b@x.com" in str(row) for row in rows) and len(rows) == 2,
           "rc=%s out=%s err=%s rows=%s" % (rc, out[:80], err[:80], rows))
-    check("the rejection is reported to the caller",
-          contains(out + err, "not imported") or contains(out + err, "error"),
+    # The wording belongs to the implementation: what the check requires is
+    # that the caller is TOLD which row was refused, in any of the forms a
+    # rejection report takes ("not imported", an "error", the row being
+    # "rejected", or the missing field named for that row).
+    reported = (
+        contains(out + err, "not imported")
+        or contains(out + err, "error")
+        or contains(out + err, "rejected")
+        or contains(out + err, "missing required field")
+    )
+    check("the rejection is reported to the caller", reported,
           "rc=%s out=%s err=%s" % (rc, out[:120], err[:120]))
     check("the existing contact is untouched",
           any("a@x.com" in str(row) for row in rows), str(rows))

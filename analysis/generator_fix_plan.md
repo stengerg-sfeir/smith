@@ -150,10 +150,26 @@ Mesure sur arbres **régénérés** : `/tmp/state_01_40.py`, rapport
 | N4 | commande de création quand le spéc n'énumère que des filtres — **17** | ❌ | groupe `product` : `filter/list/search/specify`, aucun `add` |
 | N5 | import de fichier effectif **et** rejet signalé — **18** | ❌ | import rc=0, `contacts` inchangé, aucun message |
 | N6 | export = les données, pas un résumé — **19** | ❌ | `tasks.json` = `{total_tasks, completed_tasks, …}` |
-| N7 | paramètre d'entrée non dérivable : ne pas l'exiger (et l'utiliser s'il existe) — **20**, **22** | ❌ | `sale report` refusé sans `--id` ; `get_sale_report(id)`/`get_order_report(id)` ignorent `id` |
-| N8 | mise à jour partielle (« only the quantity ») — **35** | ❌ | `bulk-update --ids 1 --stock-quantity 9` → `Required field 'name' is missing` |
-| N9 | notification observable (logging configuré) + création de l'entité à confirmer — **40** | ❌ | `order confirm --id 1` → `True`, aucune trace émise |
-| N10 | frontière CLI/persistance : pas de `sqlite3` dans le CLI, dépôt abstrait — **29**, **30** | ❌ | `import sqlite3` dans `cli.py` ; ni `ABC` ni `Protocol` |
+| N7 | paramètre d'entrée non dérivable : ne pas l'exiger (et l'utiliser s'il existe) — **20**, **22** | ✅ | `sale report` → `{1: {'total': 50.0, 'count': 2}}`, sans `--id` |
+| N8 | mise à jour partielle (« only the quantity ») — **35** | ✅ | `bulk-update --ids 1 --stock-quantity 9` → `True`, `stock_quantity=9` |
+| N9 | notification observable (logging configuré) — **40** | ✅ | `order confirm --id 1` → `notification to 1: confirmed order 1` |
+| N10 | frontière CLI/persistance : pas de `sqlite3` dans le CLI, dépôt abstrait — **29**, **30** | ✅ | `IntegrityViolation` (erreur de domaine) ; `TaskRepositoryInterface(ABC)` créée et implémentée |
+
+Modules des lois N7–N10 (tous dans `agentlib/generation/`) :
+
+- **N7** — `command_service_guard.py` : câble la commande au service **nommé d'après
+  elle** (`sale report` → `sale_report_service.py`), alias d'import, options que ce
+  service n'accepte pas retirées ; `invented_input_guard.py` conserve la règle
+  complémentaire (paramètre requis que nul ne lit).
+- **N8** — `update_validation_guard.py` (la règle de CRÉATION ne vit pas dans une mise à
+  jour) **et** `bulk_binding_guard.py` (les valeurs liées sont exactement celles que les
+  conditions de la clause ont choisies, dans l'ordre où l'instruction les lit).
+- **N9** — `notify_guard.py` : un handler est attaché au logger du module de notification,
+  sans quoi les enregistrements INFO sont jetés et la fonctionnalité reste invisible.
+- **N10** — `naming.py` (`IntegrityViolation` traduite dans la couche de persistance) +
+  `cli_render.py` (le CLI ne rattrape que l'erreur de domaine, n'importe plus le pilote)
+  + `repository_interface_guard.py` (interface `ABC` synthétisée depuis l'implémentation
+  livrée, qui l'implémente) — appliqué **seulement** quand le prompt nomme l'interface.
 
 Notes d'exécution :
 
