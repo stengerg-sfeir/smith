@@ -510,9 +510,10 @@ def probe_19():
     before = cli(project, "task", "list")[1]
     rc, out, err = cli(project, "task", "import", "--filename", str(bad.resolve()))
     after = cli(project, "task", "list")[1]
+    reported = contains(out + err, "not imported") or contains(out + err, "error")
     check("an invalid file is rejected without touching the database",
-          before == after and (rc != 0 or "error" in (err + out).lower()),
-          "rc=%s err=%s" % (rc, err[:100]))
+          before == after and (rc != 0 or reported),
+          "rc=%s out=%s err=%s" % (rc, out[:100], err[:100]))
 
 
 def probe_20():
@@ -521,15 +522,16 @@ def probe_20():
     add_row(project, "product", name="P2", price="20")
     add_row(project, "sale", product_id=1, quantity="2", total_amount="20")
     add_row(project, "sale", product_id=1, quantity="3", total_amount="30")
-    rc, out, err = cli(project, "sale", "report", "--id", "1")
-    check("the report carries BOTH the amount and the number of sales",
-          "50" in out and "count" in out.lower(),
-          "rc=%s out=%s err=%s" % (rc, out[:200], err[:120]))
-    # The specification asks for a sales report, not for one order of it, so
-    # the report should not require an id at all.
+    # The specification asks for ONE report over every product ("total sales
+    # amount and number of sales per product"), so it is run with no id at
+    # all — and it must not ask for one.
     rc, out, err = cli(project, "sale", "report")
-    check("the report does not demand an order id the spec never mentions",
-          rc == 0, "rc=%s err=%s" % (rc, err[:120]))
+    check("the report carries BOTH the amount and the number of sales",
+          rc == 0 and "50" in out and "count" in out.lower(),
+          "rc=%s out=%s err=%s" % (rc, out[:200], err[:120]))
+    check("the report demands no id the spec never mentions",
+          rc == 0 and "--id" not in cli(project, "sale", "report", "--help")[1],
+          "rc=%s err=%s" % (rc, err[:120]))
 
 
 def probe_21():

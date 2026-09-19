@@ -27,6 +27,7 @@ inventing an import.
 import ast
 
 _STUB_CONSTANTS = ([], {}, None, "", 0, False)
+_FILE_NAMES = ("open", "csv", "json", "load", "loads", "DictReader", "readlines")
 
 
 def _entity_stem(path):
@@ -69,6 +70,23 @@ def _is_stub(node):
         if isinstance(exc, ast.Name):
             name = exc.id
         return name == "NotImplementedError"
+    return False
+
+
+def _reads_file(node):
+    """True when the method's body itself opens or parses a file.
+
+    An import that hands the work to something else
+    (``self.task_repo.import_tasks(filename)``) or answers with nothing cannot
+    be implementing the import: it is a stub, or a delegation to a reader whose
+    format is fixed (prompt 19's repository splits the file on COMMAS while the
+    export writes JSON). The deterministic body replaces both.
+    """
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Name) and sub.id in _FILE_NAMES:
+            return True
+        if isinstance(sub, ast.Attribute) and sub.attr in _FILE_NAMES:
+            return True
     return False
 
 
@@ -225,7 +243,9 @@ def _rewrite(service_source, model_source, stem):
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):
             continue
-        if not node.name.startswith("import") or not _is_stub(node):
+        if not node.name.startswith("import"):
+            continue
+        if not (_is_stub(node) or not _reads_file(node)):
             continue
         def_line = lines[node.lineno - 1]
         if not def_line.rstrip().endswith(":"):

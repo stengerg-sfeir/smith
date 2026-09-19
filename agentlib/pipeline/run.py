@@ -36,12 +36,16 @@ from agentlib.generation.delegation_guard import apply_delegation_guards
 from agentlib.generation.entrypoint import ensure_entry_point
 from agentlib.generation.export_guard import apply_export_guards
 from agentlib.generation.import_guard import apply_import_guards
+from agentlib.generation.invented_input_guard import apply_invented_input_guards
 from agentlib.generation.ownership_guard import (
     apply_ownership_cli,
     apply_ownership_guards,
 )
 from agentlib.generation.role_guard import apply_role_cli, apply_role_guards
 from agentlib.generation.softdelete_guard import apply_soft_delete_guards
+from agentlib.generation.update_validation_guard import (
+    apply_update_validation_guards,
+)
 from agentlib.checks.ast_utils import (
     _extract_model_ast,
     _check_syntax_and_imports,
@@ -264,6 +268,12 @@ def _multi_pass(prompt_text, verbose=False):
     # ---- 19: an export that writes a summary instead of the rows ---------
     _apply_exports(files, design_ctx, verbose=verbose)
 
+    # ---- 20: an invented REQUIRED input the code never reads --------------
+    _apply_invented_inputs(files, design_ctx, verbose=verbose)
+
+    # ---- 35: a create-only validation living in an update path -----------
+    _apply_update_validations(files, design_ctx, verbose=verbose)
+
     # ---- Phase 4: deterministic database.py from the final model AST ----
     model_classes = _extract_model_ast(files, paths=design_ctx.get("model_files"))
     if model_classes:
@@ -325,6 +335,44 @@ def _apply_ownership_scope(files, design_ctx, verbose=False):
             files[cli_path] = cli_source
             if verbose:
                 print("    [ownership] %s: %s" % (cli_path, "; ".join(notes)))
+
+
+def _apply_update_validations(files, design_ctx, verbose=False):
+    """Remove a CREATE-only rule from an update path (prompt 35).
+
+    The shipped bulk update required ``name`` and ``price`` —
+    ``product bulk-update --ids 1 --stock-quantity 9`` answered "Required
+    field 'name' is missing" — because the create recipe's required-field loop
+    had been copied into the update method. Updating changes a SUBSET; the
+    whole-row rule belongs to creation, and the method's own signature already
+    says every field but the ids is optional.
+    """
+    files, notes = apply_update_validation_guards(
+        files, design_ctx.get("service_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [update validation] %s" % note)
+
+
+def _apply_invented_inputs(files, design_ctx, verbose=False):
+    """Drop an invented mandatory input the code never reads (prompt 20).
+
+    ``sale report`` shipped as ``--id`` REQUIRED, while ``get_sale_report``
+    aggregated every sale into ``{product: total, count}`` and never read the
+    id: the report could not be run without supplying a value that changes
+    nothing. Removal needs both halves — the parameter is unread AND the click
+    option is ``required=True`` — and is applied to the three places that must
+    agree: the service signature, the option, and the call.
+    """
+    files, notes = apply_invented_input_guards(
+        files,
+        design_ctx.get("service_files") or [],
+        design_ctx.get("cli_files") or [],
+    )
+    if notes and verbose:
+        for note in notes:
+            print("    [invented input] %s" % note)
 
 
 def _apply_exports(files, design_ctx, verbose=False):
