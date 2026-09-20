@@ -809,6 +809,79 @@ def _managed_ops_floor(commands, prompt_text, entities_by_class):
     return expanded
 
 
+# A specification that says ONE ENTITY CONTAINS ANOTHER ("Customers can place
+# orders containing products") is stating that the user must be able to put the
+# contained thing INTO the container. A design that models this with a LINE
+# entity (OrderItem: order_id, product_id, quantity) leaves the containment
+# uncreatable, because the join floor below skips every entity that carries a
+# surrogate id — a pure join has no data of its own, a line does — and no other
+# floor gives the line a command. Measured: prompt 53's `order add` took only
+# --customer-id and no command named a product.
+_CONTAIN_LINE_RE = re.compile(
+    r"\bcontain(?:s|ing|ed)?\b"
+    r"|\bquantit(?:y|ies)\b|\bqty\b",
+    re.IGNORECASE,
+)
+
+
+def _contained_line_floor(commands, prompt_text, entities_by_class):
+    """Give the LINE entity of a stated containment its add/list commands.
+
+    Structural only: the line entity (an entity with a surrogate id) mentions
+    two designed entities by foreign key, BOTH of which the prompt names, and
+    the prompt states a containment or a quantity. Then the line is creatable
+    and listable — the minimum a containment needs to be usable at all.
+
+    It never invents a line: the entity has to be in the design already. It
+    never touches a pure join entity (no id): that is the other floor's case.
+    """
+    text = prompt_text or ""
+    if not text or not entities_by_class:
+        return commands
+    if not _CONTAIN_LINE_RE.search(text):
+        return commands
+    low = text.lower()
+    seen = {
+        ((c.get("group") or [""])[0], c.get("name"))
+        for c in (commands or [])
+        if isinstance(c, dict)
+    }
+    expanded = list(commands or [])
+    for cls, ent in entities_by_class.items():
+        if not isinstance(ent, dict):
+            continue
+        if not any(
+            isinstance(f, dict) and f.get("name") == "id"
+            for f in (ent.get("fields") or [])
+        ):
+            continue  # a pure join entity belongs to the other floor
+        refs = {
+            _camel(str(f.get("name"))[: -len("_id")])
+            for f in (ent.get("fields") or [])
+            if isinstance(f, dict) and isinstance(f.get("name"), str)
+            and f["name"].endswith("_id") and f["name"] != "id"
+        }
+        refs = {ref for ref in refs if ref in entities_by_class}
+        if len(refs) < 2:
+            continue
+        # Every entity the line points at must be NAMED by the prompt: the
+        # containment the specification states is what puts them in scope.
+        if not all(_named_in(low, _snake(ref)) for ref in refs):
+            continue
+        snake = _snake(cls)
+        for op in ("add", "list"):
+            if (snake, op) in seen:
+                continue
+            seen.add((snake, op))
+            expanded.append({
+                "group": [snake],
+                "name": op,
+                "options": _derive_options(op, ent),
+                "target": _crud_target(op, snake),
+            })
+    return expanded
+
+
 def _crud_floor(commands, prompt_text, entities_by_class):
     """Expand a prompt's explicit CRUD into full add/list/update/delete.
 
@@ -1214,6 +1287,9 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
     # only thing that can put it back
     # (analysis/diagnosis_llm_vs_deterministic.md).
     commands = _managed_ops_floor(commands, prompt_text, entities_by_class)
+    # Containment stated in prose ("orders containing products") must reach the
+    # LINE entity the design built for it, or the containment is not creatable.
+    commands = _contained_line_floor(commands, prompt_text, entities_by_class)
     if not commands:
         return None
     return {"commands": commands}
