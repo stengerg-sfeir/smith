@@ -1103,3 +1103,40 @@ sanitized`) sur aucun des six, et les six compilent. Rapport complet :
 | prompts 01–40, arbres régénérés par le code final | 78 vérifications | **78/78**, 40/40 conformes |
 | prompts nommés, régénérés par le code final | 6 prompts, 4 axes | **6/6 clean**, 0 marqueur |
 | campagne complète (60 numérotés + 6 nommés) | 66 prompts | 64 réussis ; **46** réparé par N12 ; **59** reste en échec d'échelle (caractérisé plus haut) |
+## Correctif « management/containment floor » (20/09, 11:00)
+
+**Loi appliquée** : pour une spécification qui **n'énumère pas** sa ligne de
+commande, les opérations que sa **prose** demande doivent exister. Le filet
+`_managed_ops_floor` (`agentlib/pipeline/cli_surface.py`) garantit, pour chaque
+entité que le prompt nomme :
+
+- sous un verbe de gestion (`manage`, `administer`, `maintain`, `keep track of`,
+  `track`, `record`) : `add`, `list`, `update`, `delete` ;
+- sous un verbe de contenance (`contain(s|ing)`, `including`, `consist of`) :
+  `add`, `list` — car l'enfant ne peut être contenu s'il ne peut être créé.
+
+Garde-fous : (1) **jamais** pour une spécification qui énumère sa ligne de
+commande — la surface énumérée est un contrat, et l'ajouter serait une
+non-conformité (la garde est le même lecteur que la porte `cli-conformity`) ;
+(2) seules les entités **nommées par le prompt** sont concernées ; (3) seuls les
+verbes que le prompt emploie — une spécification en lecture seule (« search by
+name, filter by category », prompt 17) n'a aucun verbe de gestion et n'est pas
+touchée.
+
+**Preuve d'unité** (sur le design réellement produit pour 42, dump
+`NEUROSYM_DUMP_DESIGNS`) :
+
+| entrée | commandes ajoutées par le filet |
+|--------|----------------------------------|
+| texte réel de 42 | `purchase add/list/update/delete` (+ customer) |
+| texte de 17 (lecture seule) | **aucune** |
+| texte de 43 | `task add/list` (+ project) |
+
+**Effet bout-en-bout mesuré** : 42 régénéré → le groupe `purchase` passe de
+`list, total` à **`add, delete, list, total, update`** ; `customer report --id`
+renvoie `total_purchases: 50.0, purchase_count: 2` sur les deux achats semés par
+la sonde. **Sonde 42 : 4/4** (avant le correctif : 2/4, les deux échecs étant
+précisément l'achat non enregistrable et la dépense non calculable).
+
+Témoin de non-régression en lecture seule : **17** — la spécification demande
+recherche et filtres, aucun verbe de gestion ; le filet n'ajoute rien.

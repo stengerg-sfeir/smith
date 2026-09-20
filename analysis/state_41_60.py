@@ -99,6 +99,21 @@ _EXTRA_VALUES = {
 }
 
 
+def _fits(metavar, value):
+    """True when ``value`` can be typed into an option of that declared type."""
+    meta = (metavar or "").upper()
+    text = str(value).strip()
+    if "INT" in meta:
+        return text.lstrip("-").isdigit()
+    if "FLOAT" in meta or "DECIMAL" in meta:
+        try:
+            float(text)
+        except ValueError:
+            return False
+        return True
+    return True
+
+
 def _generic_value(option, metavar):
     """A value a USER could type for an option the table does not know.
 
@@ -136,8 +151,20 @@ def create(project, candidates, **overrides):
         ):
             key = option.replace("-", "_")
             value = overrides.get(key)
+            # The caller's own value is subject to the same type rule as the
+            # table's: a probe that passed `priority="high"` to an INTEGER
+            # option would report the application's clean click refusal as a
+            # defect.
+            if value is not None and not _fits(metavar, value):
+                value = None
             if value is None:
                 value = _EXTRA_VALUES.get(option) or VALUES.get(option)
+                # A value from the table is only usable when it FITS the
+                # option's declared type: "--priority INTEGER" refuses "high"
+                # at parse time, which would read as an application defect
+                # while it is the probe typing a word into a number.
+                if value is not None and not _fits(metavar, value):
+                    value = None
             if value is None:
                 value = _generic_value(option, metavar)
             if value is None:
@@ -243,14 +270,25 @@ def probe_42():
     check("the purchase history of a customer is reachable",
           history is not None,
           "cmd=%s" % (history,))
-    spent = find_command(project, "total", "spent", "spending", "sum")
+    # "determine how much they have spent" is a CUSTOMER-level figure: the
+    # command that carries it is the one on the customer group that reports the
+    # customer with their purchases ("customer report --id 1"), not a
+    # per-purchase total. The two seeded purchases are 30 and 20, so the figure
+    # the prompt asks for is 50.
+    spent = None
+    for command in subcommands(project, "customer"):
+        if command in ("report", "history", "summary", "spending", "total"):
+            spent = ("customer", command)
+            break
+    if spent is None:
+        spent = find_command(project, "report", "total", "spent", "spending")
     check("a 'how much has been spent' capability exists",
           spent is not None, "cmd=%s" % (spent,))
     if spent is not None:
         rc, out, err = cli(project, spent[0], spent[1], "--id", "1")
         check("how much a customer has spent is reported",
               rc == 0 and "50" in out,
-              "cmd=%s rc=%s out=%s err=%s" % (" ".join(spent), rc, out[:80],
+              "cmd=%s rc=%s out=%s err=%s" % (" ".join(spent), rc, out[:120],
                                               err[:80]))
     else:
         check("how much a customer has spent is reported", False,

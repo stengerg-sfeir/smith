@@ -678,6 +678,137 @@ def _extract_explicit_commands(intentions, entities_by_class):
 
 # --- main derivation --------------------------------------------------------
 
+# A specification that does NOT enumerate its command line still ASKS for
+# operations — it says so in prose. Intent extraction is LLM-based and omits
+# some of them: on prompt 42 the design it produced had ``add_customer`` but no
+# purchase creation at all, although the prompt says "manage customers and
+# their purchases" (analysis/diagnosis_llm_vs_deterministic.md). Nothing
+# deterministic put the missing operation back unless the prompt happened to
+# contain the literal word "CRUD".
+_MANAGE_RE = re.compile(
+    r"\b(manage|manages|managing|management|administer|administers|"
+    r"maintain|maintains|keep\s+track\s+of|keeps\s+track\s+of|track|tracks|"
+    r"record|records)\b",
+    re.IGNORECASE,
+)
+# Containment is the other way a specification asks for a child entity to be
+# creatable: "projects contain tasks", "orders containing products". The child
+# cannot be contained unless it can first be created.
+_CONTAIN_RE = re.compile(
+    r"\b(contain|contains|containing|including|consist(?:s|ing)?\s+of)\b",
+    re.IGNORECASE,
+)
+# The operations the floor GUARANTEES. Creation and listing, never more: the
+# defect it exists for is an entity the specification asks to manage but that
+# cannot be recorded at all (prompt 42's purchase, 47's person, 49's employee).
+# update/delete are NOT added here — a specification that wants them says so
+# (or says "CRUD", which ``_crud_floor`` turns into the full set), and adding
+# destructive commands a prompt never asked for is its own defect.
+_MANAGE_OPS = ("add", "list")
+_CONTAIN_OPS = ("add", "list")
+# A specification opens by announcing its domain ("Build a tool for managing a
+# software team's work.") and names the entities in the sentences that follow
+# (prompt 47: "The team needs projects, tasks and people"), so the verb scopes
+# the WHOLE prompt — the entity set is always the design's, never the prompt's,
+# and only entities the prompt actually names are in scope.
+_MANAGE_WIDE_OPS = _MANAGE_OPS
+# Irregular plurals: the naive ``+"s"`` rule misses "people"/"children", so a
+# prompt naming its entity in the plural would not be recognised as naming it
+# at all (prompt 47's Person vs "people").
+_IRREGULAR_PLURALS = {
+    "person": "people", "child": "children", "man": "men", "woman": "women",
+    "foot": "feet", "tooth": "teeth", "mouse": "mice", "goose": "geese",
+}
+
+
+def _named_in(text_low, snake):
+    """True when the prompt names that entity, as a word, in any number.
+
+    Word boundaries matter: a substring test would match "library" inside a
+    longer word, and give a command to an entity the prompt never named.
+    """
+    for token in (snake, _plural(snake), _IRREGULAR_PLURALS.get(snake)):
+        if token and re.search(r"\b%s\b" % re.escape(token), text_low):
+            return True
+    return False
+
+
+def _managed_ops_floor(commands, prompt_text, entities_by_class):
+    """Ensure the operations a NON-ENUMERATING prompt asks for in prose exist.
+
+    A specification that enumerates its command line IS its surface: adding to
+    it is a conformity failure, so this floor never touches one (the guard is
+    the same reader the conformity gate uses). Otherwise, for every sentence
+    that uses a management verb on an entity the prompt names, the operations
+    that verb implies are guaranteed — so an LLM omission (a designed entity in
+    read-only shape) can no longer reach the CLI as a missing command.
+
+    Only entities the prompt actually NAMES are in scope, and only the verbs
+    the prompt actually uses: a read-only specification ("search by name,
+    filter by category") has no management verb and is left untouched.
+    """
+    text = prompt_text or ""
+    if not text or not entities_by_class:
+        return commands
+    try:
+        # Imported here, not at module scope: this module is imported by the
+        # design phase, and cli_spec imports the design phase back.
+        from agentlib.pipeline.cli_spec import build_prompt_cli_surface
+
+        if build_prompt_cli_surface(text, entities_by_class) is not None:
+            return commands
+    except Exception:  # noqa: BLE001 - a guard must never break generation
+        return commands
+    seen = {
+        ((c.get("group") or [""])[0], c.get("name"))
+        for c in (commands or [])
+        if isinstance(c, dict)
+    }
+    expanded = list(commands or [])
+
+    def add(snake, ent, op):
+        if (snake, op) in seen:
+            return
+        seen.add((snake, op))
+        expanded.append({
+            "group": [snake],
+            "name": op,
+            "options": _derive_options(op, ent),
+            "target": _crud_target(op, snake),
+        })
+
+    whole = text.lower()
+    manages = bool(_MANAGE_RE.search(whole))
+    contains = bool(_CONTAIN_RE.search(whole))
+    for sentence in re.split(r"(?<=[.?!;])\s+|\n+", text):
+        low = sentence.lower()
+        if not low.strip():
+            continue
+        if _MANAGE_RE.search(low):
+            local = _MANAGE_OPS
+        elif _CONTAIN_RE.search(low):
+            local = _CONTAIN_OPS
+        else:
+            local = ()
+        for cls, ent in entities_by_class.items():
+            snake = _snake(cls)
+            if not _named_in(low, snake):
+                continue
+            for op in local:
+                add(snake, ent, op)
+    # The widened (whole-prompt) scope: creation and listing for every entity
+    # the prompt names, whenever the prompt manages or contains anything.
+    if manages or contains:
+        wide = _MANAGE_WIDE_OPS if manages else _CONTAIN_OPS
+        for cls, ent in entities_by_class.items():
+            snake = _snake(cls)
+            if not _named_in(whole, snake):
+                continue
+            for op in wide:
+                add(snake, ent, op)
+    return expanded
+
+
 def _crud_floor(commands, prompt_text, entities_by_class):
     """Expand a prompt's explicit CRUD into full add/list/update/delete.
 
@@ -700,9 +831,8 @@ def _crud_floor(commands, prompt_text, entities_by_class):
     expanded = list(commands or [])
     for cls, ent in entities_by_class.items():
         snake = _snake(cls)
-        plural = _plural(snake)
         # Only entities the prompt names are in scope for the CRUD contract.
-        if not (snake in low or plural in low):
+        if not _named_in(low, snake):
             continue
         for op in ("add", "list", "update", "delete"):
             if (snake, op) in seen:
@@ -1077,6 +1207,13 @@ def derive_cli_surface(intentions, prompt_text, entities_by_class,
     # customer"), but CRUD always means add/list/update/delete for every
     # entity the prompt names, so any missing operation is re-added here.
     commands = _crud_floor(commands, prompt_text, entities_by_class)
+    # Management/containment floor: for a specification that does NOT enumerate
+    # its command line, the operations its own prose asks for must exist. The
+    # LLM omitting the creation of an entity it designed read-only is exactly
+    # the defect this catches — and the literal word "CRUD" is no longer the
+    # only thing that can put it back
+    # (analysis/diagnosis_llm_vs_deterministic.md).
+    commands = _managed_ops_floor(commands, prompt_text, entities_by_class)
     if not commands:
         return None
     return {"commands": commands}
