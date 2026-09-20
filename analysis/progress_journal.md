@@ -1183,3 +1183,96 @@ désormais la **virgule finale** quand il n'y a qu'une colonne.
 | 43 | 2/3 | **3/3** |
 | 47 | 1/3 | **3/3** |
 | 49 | 1/3 | **3/3** |
+## Quatre lois de GÉNÉRATEUR, et un filet d'hôte (20/09, 14h00–15h00)
+
+Chacune part d'un défaut **mesuré** sur les cibles 41–60, chacune est déterministe,
+et chacune est éprouvée en unité *avant* toute régénération.
+
+### L1 — une contenance énoncée doit rendre la ligne créable
+
+**Défaut mesuré (53).** Le prompt dit « Customers can place orders containing
+products ». La conception a bien bâti une entité de ligne — `OrderItem(order_id,
+product_id, quantity)` — mais **aucune commande ne la crée** : la surface
+livrée n'avait que `order add --customer-id`, et rien ne nommait un produit.
+Cause : le filet « join » existant ne traite que les entités SANS `id` (une table
+de liaison pure), et personne d'autre ne donne une commande à une ligne.
+
+**Loi (`cli_surface._contained_line_floor`).** Une entité avec `id` qui référence
+**deux** entités que le prompt NOMME, quand le prompt énonce une contenance ou une
+quantité, reçoit `add` + `list`. Aucune ligne n'est inventée (elle doit être dans
+la conception), et une table de liaison pure reste l'affaire du filet existant.
+**Unité** : 53 → `order_item add/list` ; 17 → rien.
+
+### L2 — créer une ligne déplace le compteur qu'elle vise (et refuse le manque)
+
+**Défaut mesuré (53).** « A customer must not be able to place an order if any
+product has insufficient stock. When an order is successfully created, the
+corresponding stock quantities must be decreased. » Rien ne refusait, rien ne
+décrémentait.
+
+**Loi (`pipeline.stock_rules` + `generation.stock_guard`).** La phrase de mouvement
+donne le SENS ; le lien est **structurel** : la ligne référence deux entités
+nommées, l'une porte un champ numérique `stock|inventory|copies|count`, la ligne
+porte la quantité. La garde s'épisse **en tête** de `add_<ligne>` (dans *n'importe
+quel* service — 53 ne rend aucun `order_item_service.py` : le CLI appelle
+`add_order_item` sur le service des commandes) : refus AVANT l'écriture, puis
+mouvement par l'`update()` du dépôt de l'entité visée.
+**Unité** : refus + décrément rendus, idempotents, no-op ailleurs.
+
+### L3 — annuler remet les quantités
+
+**Défaut mesuré (56, 60).** « cancelling an order must restore its product
+quantities » / « Cancelling a confirmed order releases the reserved stock » : rien
+ne remontait le compteur.
+
+**Loi (`_restore_rule` + `stock_guard.apply_stock_restore`).** La clause de retour
+donne l'OPÉRATION (« cancelling » → `cancel`) ; la garde parcourt les lignes de
+l'opération (`get_all()` + filtre sur la FK du conteneur, donc **jamais** dépendante
+des filtres que `list()` déclare) et ajoute la quantité de chaque ligne.
+**Unité** : rendue sur `cancel_order`, idempotente. Le premier essai a été **pris en
+défaut par le test** : je filtrais sur la FK du compteur (`product_id`) au lieu de
+celle du conteneur (`order_id`) — corrigé.
+
+### L4 — une paire comparée est refusée inversée, l'égalité est acceptée
+
+**Défaut mesuré (54).** « Each appointment must always end after it starts, but
+the application must also support appointments whose start and end time are
+identical. » Deux moitiés manquaient :
+
+- la paire était marquée `auto:"now"` par la conception, donc **invisible** de la
+  surface (voir plus bas) ;
+- le CREATE ne comparait rien : le seul contrôle écrit par la conception
+  (`if start_time >= end_time`) vivait dans une méthode de LECTURE
+  (`validate_appointment`), jamais appelée par `add`.
+
+**Loi 1 (`pipeline.pair_rules`)** : une paire d'horodatages que le prompt COMPARE
+est une ENTRÉE — on lui retire `auto` (avant la dérivation de la surface).
+**Loi 2 (`generation.pair_guard`)** : le create refuse une fin qui TRIE avant son
+début, avec un `<` **strict** puisque le prompt autorise explicitement l'égalité.
+**Unité** : 54 (nettoyé), 17 (rien), 45 (nettoyé) ; garde rendue, idempotente.
+
+### L5 — chaque entité que la CLI adresse a un service HÔTE
+
+**Défaut mesuré (53).** La surface dérivée contenait bien `customer add/list`,
+mais l'arbre livré n'avait **aucune** commande `customer` : le manifeste de 53 ne
+déclarait qu'UN service (`order_service.py`), et `cli_spec.align_surface_to_design`
+ne garde que les commandes qu'un service conçu héberge. Résultat : une table
+`customers` créée, aucun moyen d'y écrire — et donc `order add` échouait sur
+`FOREIGN KEY constraint failed`, ce qui rendait la contenance inutilisable.
+
+**Loi (`manifest._synthesize_cli_services`).** Avant la conception des services,
+toute entité que la surface FINALE adresse et qui n'a pas de `<entité>_service.py`
+en reçoit un (vide : la conception le remplit, contrainte par la surface). Miroir
+exact de `_synthesize_cli_repos`, qui faisait déjà cela pour les dépôts. Un
+manifeste qui déclare déjà ses services n'est pas touché.
+
+### Deux défauts de sonde corrigés au passage (la règle : la sonde n'invente rien)
+
+1. **53** exigeait `order add --product-id --quantity`, alors que la conception a
+   choisi une entité de ligne : les DEUX formes sont des lectures légitimes de
+   « orders containing products ». La sonde accepte désormais celle qui existe.
+   (Même liberté donnée à 56.)
+2. **54** lisait le code de retour à l'index 1 d'un tuple qui portait le groupe
+   DEUX fois (bug de `create_with_times`) : elle rapportait des refus inexistants.
+   Corrigé ; le verdict réel de 54 est passé de 2/3 (faux) à 2/3 (vrai, autre
+   cause : voir L4).

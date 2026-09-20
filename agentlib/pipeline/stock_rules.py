@@ -57,7 +57,8 @@ _RESTORE_RE = re.compile(
     r"\b(cancel\w*|cancelling|return\w*|refund\w*|reject\w*|void\w*|"
     r"release\w*|restore\w*)\b"
     r"[^.]{0,80}?"
-    r"\b(restor|releas|increas|replenish|refund|return|add(?:ed)?\s+back)"
+    r"\b(restor|releas|increas|replenish|refund|return|availab|"
+    r"add(?:ed)?\s+back)"
     r"\w*\b",
     re.IGNORECASE,
 )
@@ -66,6 +67,16 @@ _RESTORE_RE = re.compile(
 _OP_RE = re.compile(
     r"\b(cancel|return|refund|reject|void|release)\w*\b", re.IGNORECASE
 )
+# A counter the DESIGN itself named after availability ("available_copies"):
+# maintaining it on a lending/selling line is what makes the prompt's "know
+# which books are available" (prompt 41) true — an unmaintained figure lies.
+_AVAIL_TOKENS = ("available",)
+# The relations that move such a counter even when the prompt states no
+# movement verb of its own (it states the RELATION: "keep track of loans").
+_LINE_TOKENS = ("loan", "borrow", "reservation", "checkout", "rent", "rental")
+# A return-bearing operation named after the COUNTER itself rather than the
+# container it lives in ("when it is returned" -> return_book).
+_COUNTER_OP_PREFIXES = ("return", "refund", "checkin", "check_in", "release")
 
 
 def _names_entity(text_low, cls):
@@ -124,11 +135,18 @@ def extract_stock_rules(prompt_text, entities_by_class):
     text = prompt_text or ""
     if not text or not entities_by_class:
         return {}
-    if not _MOVE_RE.search(text):
-        return {}
-    sign = _sign(text)
-    if not sign:
-        return {}
+    has_move = bool(_MOVE_RE.search(text))
+    sign = _sign(text) if has_move else 0
+    avail_move = False
+    if not has_move or not sign:
+        # No movement verb: still a movement when the counter is the DESIGN's
+        # own availability figure ("available_copies") and the prompt states
+        # the RELATION ("keep track of loans") — an unmaintained availability
+        # figure makes "know which books are available" false (prompt 41/52).
+        if not re.search(r"\bavailab\w*", text, re.IGNORECASE):
+            return {}
+        avail_move = True
+        sign = -1
     refuse = sign < 0 and bool(_INSUFFICIENT_RE.search(text))
     low = text.lower()
     rules = {}
@@ -143,13 +161,21 @@ def extract_stock_rules(prompt_text, entities_by_class):
         refs = _fk_refs(ent, entities_by_class)
         if len(refs) < 2:
             continue
+        # A line with no quantity of its own moves the counter by ONE (a loan
+        # is a single copy — prompts 41/52); allowing the absence invents
+        # nothing, the movement is still the prompt's own statement.
         qty_field = _numeric_field(ent, _QTY_TOKENS)
-        if not qty_field:
-            continue
         for fk_param, ref_cls in sorted(refs.items()):
             ref_ent = entities_by_class[ref_cls]
-            stock_field = _numeric_field(ref_ent, _STOCK_TOKENS, exclude=(qty_field,))
+            stock_field = _numeric_field(
+                ref_ent, _STOCK_TOKENS, exclude=(qty_field,)
+            )
             if not stock_field:
+                continue
+            # With no movement verb, only the design's OWN availability figure
+            # may move: an unmaintained `available_copies` makes the prompt's
+            # "know which books are available" (41) a lie.
+            if avail_move and "available" not in stock_field:
                 continue
             # Every entity the line points at must be NAMED by the prompt: the
             # containment the specification states is what puts them in scope.
@@ -197,24 +223,36 @@ def _restore_rule(text, containers, line_cls, line_fk, qty_field, refs,
     if not op_m:
         return None
     low = (text or "").lower()
-    for container_cls in containers:
-        if not _names_entity(low, container_cls):
-            continue
-        return {
-            "cls_container": container_cls,
-            "container_snake": _snake(container_cls),
-            "cls_line": line_cls,
-            "line_snake": _snake(line_cls),
-            "line_fk": line_fk,
-            # The line's OWN foreign key to the counter entity (product_id):
-            # the return path reads the counter row THROUGH it.
-            "line_ref_fk": next(
-                (f for f, r in refs.items() if r == ref_cls), None
-            ),
-            "qty_field": qty_field,
-            "cls_ref": ref_cls,
-            "ref_snake": _snake(ref_cls),
-            "stock_field": stock_field,
-            "op": op_m.group(1).lower(),
-        }
-    return None
+    op = op_m.group(1).lower()
+    counter_fk = next((f for f, r in refs.items() if r == ref_cls), None)
+    if op.startswith(_COUNTER_OP_PREFIXES):
+        # The operation names the COUNTER ("when it is returned" ->
+        # return_book): the host is the moved entity, and the line is filtered
+        # on the line's own FK to it.
+        if not _names_entity(low, ref_cls):
+            return None
+        host_cls = ref_cls
+        host_fk = counter_fk
+    else:
+        # The operation names the CONTAINER (cancel_order): the host is the
+        # container, and the line is filtered on the line's FK to it.
+        host_cls = next(
+            (c for c in containers if _names_entity(low, c)), None
+        )
+        if host_cls is None:
+            return None
+        host_fk = line_fk
+    if not host_fk or not counter_fk:
+        return None
+    return {
+        "host_snake": _snake(host_cls),
+        "host_fk": host_fk,
+        "counter_fk": counter_fk,
+        "cls_line": line_cls,
+        "line_snake": _snake(line_cls),
+        "qty_field": qty_field,
+        "cls_ref": ref_cls,
+        "ref_snake": _snake(ref_cls),
+        "stock_field": stock_field,
+        "op": op,
+    }

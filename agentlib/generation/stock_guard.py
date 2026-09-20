@@ -94,9 +94,12 @@ def service_guard_lines(rule, method_name, args, exception_names):
     fk = rule["fk_param"]
     qty_field = rule["qty_field"]
     fk_arg = _arg_for(args, fk)
-    qty_arg = _arg_for(args, qty_field)
-    if not fk_arg or not qty_arg:
+    qty_arg = _arg_for(args, qty_field) if qty_field else None
+    if not fk_arg:
         return None
+    # A line with no quantity of its own moves the counter by ONE: a loan is a
+    # single copy (prompts 41/52), and the move is still the prompt's own.
+    qty_arg = qty_arg or "1"
     ref_snake = rule["ref_snake"]
     field = rule["stock_field"]
     sign = "-" if rule["sign"] < 0 else "+"
@@ -156,13 +159,19 @@ def restore_guard_lines(restore, args):
     Returns None when the operation's own container argument cannot be
     resolved — a guard is dropped rather than invented.
     """
-    container = restore["container_snake"]
-    id_arg = _arg_for(args, container + "_id") or _arg_for(args, "id")
-    line_ref_fk = restore.get("line_ref_fk")
-    if not id_arg or not line_ref_fk:
+    # The operation names its HOST: a cancellation names the container
+    # (cancel_order), a return names the counter itself ("when it is returned"
+    # -> return_book). Both walk the container's lines and move the counter;
+    # only the filter column and the host argument differ.
+    host = restore.get("host_snake") or restore.get("container_snake") or ""
+    id_arg = _arg_for(args, host + "_id") or _arg_for(args, "id")
+    line_ref_fk = restore.get("counter_fk") or restore.get("line_ref_fk")
+    line_fk = restore.get("host_fk") or restore.get("line_fk")
+    if not id_arg or not line_ref_fk or not line_fk:
         return None
-    line_fk = restore["line_fk"]
-    qty = restore["qty_field"]
+    qty = restore.get("qty_field")
+    # A line with no quantity of its own hands back ONE (a loan).
+    amount = ("_line.%s" % qty) if qty else "1"
     ref_snake = restore["ref_snake"]
     field = restore["stock_field"]
     row = "_stock_%s" % ref_snake
@@ -175,8 +184,8 @@ def restore_guard_lines(restore, args):
         "            %s = self.%s_repo.get_by_id(_line.%s)"
         % (row, ref_snake, line_ref_fk),
         "            if %s is not None:" % row,
-        "                self.%s_repo.update(%s.id, {'%s': (%s or 0) + _line.%s})"
-        % (ref_snake, row, field, counter, qty),
+        "                self.%s_repo.update(%s.id, {'%s': (%s or 0) + %s})"
+        % (ref_snake, row, field, counter, amount),
     ]
 
 
@@ -191,11 +200,13 @@ def apply_stock_restore(svc_source, restore, exception_names=None):
         return svc_source
     if _RESTORE_MARKER in svc_source:
         return svc_source
+    # The operation may be named after EITHER end: `cancel_order` (the
+    # container) or `return_book` ("when it is returned" — the counter).
     op = restore.get("op") or ""
-    container = restore.get("container_snake") or ""
-    if not op or not container:
+    host = (restore.get("host_snake") or restore.get("container_snake") or "")
+    if not op or not host:
         return svc_source
-    for name in ("%s_%s" % (op, container), "%s_%s" % (container, op)):
+    for name in ("%s_%s" % (op, host), "%s_%s" % (host, op)):
         args = _service_args(svc_source, name)
         if args is None:
             continue
