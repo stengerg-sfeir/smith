@@ -1140,3 +1140,46 @@ précisément l'achat non enregistrable et la dépense non calculable).
 
 Témoin de non-régression en lecture seule : **17** — la spécification demande
 recherche et filtres, aucun verbe de gestion ; le filet n'ajoute rien.
+## Deux défauts de GÉNÉRATEUR trouvés en vérifiant les cibles (20/09, 13:00)
+
+### N1 — clause `FOREIGN KEY` : le nom de table venait de la colonne, pas de la classe
+
+`task add` (prompt 47) mourait sur `sqlite3.OperationalError: no such table:
+main.assigned_to_users`. Deux chemins dérivaient le nom de table différemment :
+
+- la DDL le construisait depuis le **nom de classe** : `AssignedToUser` →
+  `assignedtousers` (et c'est bien cette table qui est créée, et que le dépôt
+  utilise) ;
+- la clause `FOREIGN KEY` le déduisait du **nom de colonne** :
+  `_pluralize_table_name("assigned_to_user")` → `assigned_to_users`.
+
+SQLite accepte une référence pendante à la création (aucun contrôle avant la
+première écriture) : l'erreur n'apparaît qu'au premier `INSERT` de l'enfant.
+Corrigé dans `agentlib/naming.py` (`_generate_ddl_from_models`) et
+`agentlib/generation/model_render.py` (`_repo_columns`) : on **camelise d'abord**
+la racine, donc un FK mono-mot reste identique (`project_id` → `Project` →
+`projects`) et un FK multi-mots rejoint la table que le `CREATE` a faite.
+
+**Mesure** : clause relue `REFERENCES assignedtousers` ; sonde 47 **1/3 → 3/3**.
+
+### N2 — un INSERT à UNE colonne liait la valeur, pas un 1-uplet
+
+`category add --name C1` (prompt 60) mourait sur
+`sqlite3.ProgrammingError: Incorrect number of bindings supplied. The current
+statement uses 1, and there are 2 supplied.` Le rendu émettait
+`(category.name)` : en Python, **ce n'est pas un tuple** — sqlite3 itère alors la
+chaîne caractère par caractère (« C1 » = 2 valeurs). `repo_render.py` ajoute
+désormais la **virgule finale** quand il n'y a qu'une colonne.
+
+**Mesure en unité** (`/tmp/test_single_col.py`) : `category` →
+`(category.name,)` ; `product` → `(product.name, product.price)` **inchangé**
+(octet pour octet pour le multi-colonnes).
+
+### Effet cumulé sur les cibles
+
+| prompt | baseline | après N1+N2 et le filet |
+|--------|----------|--------------------------|
+| 42 | 2/4 | 3/4 (`purchase add` ; l'agrégat client reste, cf. diagnostic §5) |
+| 43 | 2/3 | **3/3** |
+| 47 | 1/3 | **3/3** |
+| 49 | 1/3 | **3/3** |
