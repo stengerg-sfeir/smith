@@ -90,7 +90,58 @@ décrivent un domaine et des comportements. Tout ce qui doit exister est alors
    *inférer*. 41–60 est le premier lot qui exige l'inférence — et c'est là que ça
    casse.
 
-## 5. Ce que cela implique pour l'ordre des correctifs
+## 5. Le correctif (appliqué)
+
+`_managed_ops_floor` (`agentlib/pipeline/cli_surface.py`) : pour une spécification
+qui **n'énumère pas** sa ligne de commande (le lecteur de la porte
+`cli-conformity` sert de garde), **chaque entité que le prompt nomme** gagne
+`add` et `list` dès que le prompt **gère** (`manage`, `administer`, `maintain`,
+`keep track of`, `track`, `record`) ou **contient** (`contain(s|ing)`,
+`including`, `consist of`) quelque chose. `add`/`list` **seulement** :
+`update`/`delete` ne sont jamais synthétisés ici — le mot `CRUD` littéral
+continue de les produire via `_crud_floor`. Deux corrections de reconnaissance au
+passage : la correspondance d'entité est **bornée au mot** (une sous-chaîne
+donnait des commandes à des entités jamais nommées) et comprend les **pluriels
+irréguliers** (47 écrit « people » pour `Person`).
+
+Empreinte mesurée sur les arbres existants : `add`/`list` uniquement, aucun
+`update`/`delete` ajouté nulle part.
+
+### Effet bout-en-bout (prompts régénérés)
+
+| prompt | avant | après | ce qui a changé |
+|--------|-------|-------|-----------------|
+| 42 | 2/4 | 3/4 | groupe `purchase` : `list,total` → **`add,list,total`** |
+| 43 | 2/3 | **3/3** | `task add` apparaît |
+| 47 | 1/3 | **3/3** | `person add`, `task add` (+ **fix de nommage**, §5bis) |
+| 49 | 1/3 | **3/3** | `employee add` fonctionne |
+
+### 5bis. Défaut de générateur trouvé en vérifiant 47
+
+`task add` échouait avec `sqlite3.OperationalError: no such table:
+main.assigned_to_users`. Cause : **deux dérivations divergentes du nom de table**.
+La DDL construisait la table depuis le **nom de classe** (`AssignedToUser` →
+`assignedtousers`) tandis que la clause `FOREIGN KEY` la déduisait du **nom de
+colonne** (`_pluralize_table_name("assigned_to_user")` → `assigned_to_users`).
+SQLite accepte une référence pendante à la création et échoue au premier INSERT
+de l'enfant. Corrigé dans `agentlib/naming.py` et
+`agentlib/generation/model_render.py` (on camelise d'abord la racine, donc
+`project_id` → `Project` → `projects` reste inchangé).
+
+### Ce que le correctif NE couvre pas (classes de défauts distinctes, mesurées)
+
+- **42** : l'agrégat « combien a dépensé le client ». Le groupe `purchase` est
+  créé et l'historique s'affiche, mais `customer report --id` renvoie le client
+  **et la liste** de ses achats **sans le total** (`get_customer_report` ne somme
+  pas). C'est du **service**, pas de la surface.
+- **53, 55, 56, 60** : lignes de commande + mouvement de stock (ni `order add`
+  avec produit/quantité, ni `order_item add`).
+- **54** : `appointment add` n'expose aucune heure de début/fin.
+- **60** : `category add` plante (`Incorrect number of bindings supplied`).
+- **50** : `registration add` → `FOREIGN KEY constraint failed`.
+- **57** : `document add` → `NOT NULL constraint failed: documents.file_path`.
+
+## 6. Ce que cela implique pour l'ordre des correctifs
 
 Le correctif n'est pas « meilleur prompt LLM » en premier : c'est **généraliser
 le filet** (retirer la dépendance au mot CRUD ; pour chaque entité que le prompt

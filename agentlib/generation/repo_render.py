@@ -547,6 +547,12 @@ def _render_repository_file(ent_snake, design, entities_by_class, exception_name
     insert_cols = ", ".join(col_names)
     placeholders = ", ".join("?" for _ in col_names)
     insert_vals = ", ".join("%s.%s" % (ent_snake, c) for c in col_names)
+    # A ONE-column insert needs a trailing comma: `(category.name)` is the
+    # VALUE, not a 1-tuple, so sqlite3 iterates the string character by
+    # character and raises "Incorrect number of bindings supplied" (prompt
+    # 60's `category add`, whose Category has a single non-id column).
+    if len(col_names) == 1:
+        insert_vals += ","
 
     L = []
     L.append('"""%s data access."""' % repo)
