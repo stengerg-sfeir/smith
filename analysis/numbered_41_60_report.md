@@ -4,6 +4,19 @@ Mesure demandée : **régénérer 41–60 (59 exclu) puis retester fonctionnalit
 conformité**. Aucune ligne du générateur n'a été touchée ; le seul ajout est
 l'instrument de mesure `analysis/state_41_60.py`.
 
+## Les deux chiffres, d'abord
+
+| Axe | Compte | Prompts |
+|-----|--------|---------|
+| **Fonctionnels** (tourne ; aucune commande exposée ne plante ni ne remonte d'erreur SQL brute ; les opérations exposées font ce qu'elles annoncent) | **14 / 19** | 42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 56, 58 |
+| **Défaut fonctionnel** | **5 / 19** | **41** (le nombre « disponible » n'est pas tenu), **50** (inscription : clé étrangère non satisfiable), **55** (la vente ne touche pas le stock, la survente passe), **57** (`document add` : erreur SQL brute), **60** (`category add` : plantage) |
+| **Conformes (lecture littérale)** | **10 / 19** | 42, 43, 44, 45, 46, 47, 48, 49, 51, 57 |
+| Conformes **et** fonctionnels | **9 / 19** | les conformes sauf **57** (sa conformité — CLI indépendante de la persistance — tient, mais son `document add` échoue) |
+
+Les deux axes sont indépendants : **52, 53, 54, 56, 58** fonctionnent (rien ne
+plante) tout en violant un énoncé du prompt ; **41, 50, 55, 57, 60** sont les
+seuls à porter un défaut de fonctionnement.
+
 ## Deux lectures, et pourquoi elles donnent deux verdicts
 
 Une remarque juste a été faite : **« ce que le prompt ne spécifie pas n'est pas un
