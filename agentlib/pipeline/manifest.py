@@ -311,7 +311,12 @@ def _synthesize_cli_services(designs, entities_by_class, manifest, cli_surface,
         if stem in existing:
             continue
         file_name = stem + ".py"
-        designs.append((file_name, "services", {"methods": []}))
+        # ONLY the manifest entry: the service-design loop iterates
+        # ``svc_paths`` (built from the manifest) and designs every path it
+        # finds, so an empty ``designs`` placeholder would pre-empt that call
+        # and hand the reconcile an empty service (measured on prompt 54: the
+        # propagated add_appointment synthesis then failed and the whole
+        # ``appointment add`` command was dropped).
         existing.add(stem)
         manifest.append({
             "file": file_name,

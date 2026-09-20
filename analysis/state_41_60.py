@@ -212,6 +212,46 @@ def exposes(help_text, *candidates):
 
 
 
+def presented_available(text, title):
+    """True when the listing presents ``title`` as AVAILABLE.
+
+    The prompt asks "which books are available"; an application answers either
+    with a dedicated availability listing (the title is absent) or with an
+    availability column (the title shows a positive figure). Both are honest
+    readings, so the probe accepts both — but a row carrying ZERO is neither,
+    and a plain listing of every title presents them all as available.
+    """
+    lines = [ln for ln in (text or "").splitlines() if title in ln]
+    if not lines:
+        return False
+    for line in lines:
+        m = re.search(
+            r"(available\w*|copies|stock|quantity|qty)\s*[=:]\s*(-?\d+)",
+            line, re.IGNORECASE,
+        )
+        if m is None:
+            return True  # no figure: its presence IS the presentation
+        if int(m.group(2)) > 0:
+            return True
+    return False
+
+
+def declared_argv(help_text, **wanted):
+    """``--opt value`` for the wanted options the command actually DECLARES.
+
+    A probe must never pass an option the application does not expose: doing so
+    gets click's "No such option" and reports a defect that is the probe's own.
+    Returns the argv fragment (possibly empty).
+    """
+    argv = []
+    for name, value in wanted.items():
+        option = name.replace("_", "-")
+        if value is None or ("--" + option) not in help_text:
+            continue
+        argv += ["--" + option, str(value)]
+    return argv
+
+
 def stock_of(project, table="products"):
     """Every stock-ish column of ``table``, as one list of values."""
     columns = [
@@ -247,8 +287,13 @@ def probe_41():
     check("the application answers which books are available",
           label is not None, "listing=%s" % shown[:120])
     if label is not None:
+        # "make it easy to know which books are available": the listing may
+        # carry an availability COLUMN (the figure must drop) or omit the row
+        # (the title must be absent). Either answer is honest; a positive
+        # figure for a book on loan is not.
         check("a borrowed book no longer appears as available",
-              "B1" not in shown, "%s -> %s" % (label, shown[:120]))
+              not presented_available(shown, "B1"),
+              "%s -> %s" % (label, shown[:120]))
 
 
 def probe_42():
@@ -586,19 +631,27 @@ def probe_52():
         return
     if label is not None:
         check("a borrowed book is not presented as available",
-              "B1" not in during, "%s -> %s" % (label, during[:120]))
+              not presented_available(during, "B1"),
+              "%s -> %s" % (label, during[:120]))
     returned = find_command(project, "return")
     if returned is None:
         check("the book can be returned", False, "no return command")
         return
-    rc, out, err = cli(project, returned[0], returned[1], "--id", "1",
-                       "--loan-id", "1", "--book-id", "1")
+    # Only the options the command DECLARES are passed: handing click an
+    # option it does not expose gets "No such option" and would report the
+    # probe's own mistake as an application defect.
+    ret_help = cli(project, returned[0], returned[1], "--help")[1]
+    argv = declared_argv(ret_help, id=1, loan_id=1, book_id=1,
+                         borrow_record_id=1)
+    rc, out, err = cli(project, returned[0], returned[1], *argv)
     check("the book can be returned", rc == 0,
-          "cmd=%s rc=%s err=%s" % (" ".join(returned), rc, err[:100]))
+          "cmd=%s argv=%s rc=%s err=%s" % (" ".join(returned), argv, rc,
+                                           err[:100]))
     if label is not None:
         after = availability_view(project, "book")[1]
         check("the returned book is available again",
-              "B1" in after, "%s -> %s" % (label, after[:120]))
+              presented_available(after, "B1"),
+              "%s -> %s" % (label, after[:120]))
 def first_number(values):
     """The first value of ``values`` as a float, or None when there is none."""
     for value in values:
