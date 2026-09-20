@@ -60,6 +60,8 @@ from agentlib.generation.overlap_guard import apply_overlap_guard
 from agentlib.pipeline.overlap_rules import extract_overlap_rules
 from agentlib.generation.active_guard import apply_active_guard
 from agentlib.pipeline.active_rules import extract_active_rules
+from agentlib.generation.stock_guard import apply_stock_guard
+from agentlib.pipeline.stock_rules import extract_stock_rules
 from agentlib.generation.overlap_guard import _table_from_source
 from agentlib.generation.reference_guard import apply_reference_guard
 from agentlib.pipeline.reference_rules import extract_reference_rules
@@ -1068,6 +1070,16 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     if _active_rules and verbose:
         print("    [models] spec at-most-one-active: %r" % (_active_rules,))
 
+    # Spec-declared STOCK MOVEMENT (L2) — "A customer must not be able to
+    # place an order if any product has insufficient stock. When an order is
+    # successfully created, the corresponding stock quantities must be
+    # decreased" (prompt 53). The LINE the design built for the containment
+    # was not creatable at all (see _contained_line_floor) and nothing moved
+    # the counter. Read once here; applied to the rendered create path below.
+    _stock_rules = extract_stock_rules(prompt_text, entities_by_class)
+    if _stock_rules and verbose:
+        print("    [models] spec stock movement: %r" % (_stock_rules,))
+
     # Spec-declared REFERENTIAL guard on DELETE (C5) — "A category cannot be
     # deleted while products still belong to it" (prompt 36). Nothing enforced
     # it, so a referenced category was deleted and its products orphaned.
@@ -1941,6 +1953,19 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                     files.get(_repo_path) or "", files[sp],
                     _rule_cls, _active_rule, exception_names,
                 )
+        # 5.2h L2 — creating a LINE moves the counter it points at ("... the
+        # corresponding stock quantities must be decreased", prompt 53). The
+        # create method may live in ANY service (53 renders no
+        # order_item_service.py: the CLI calls add_order_item on the order
+        # service), so the guard is OFFERED to every rendered service and
+        # applied where the method exists — apply_stock_guard is a no-op
+        # otherwise, and the marker makes it idempotent.
+        for _line_cls, _stock_rule in _stock_rules.items():
+            for _sp in svc_paths:
+                if _sp in files:
+                    files[_sp] = apply_stock_guard(
+                        files[_sp], _line_cls, _stock_rule, exception_names
+                    )
         # 5.2f C5 — refuse to DELETE a row the specification says is still
         # referenced ("a category cannot be deleted while products still
         # belong to it", prompt 36). The check sits on the RESOURCE repository
