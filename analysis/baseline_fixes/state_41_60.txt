@@ -1,0 +1,94 @@
+== 41 ==
+    PASS a book and a member can be recorded | book=(0, '1') member=(0, '1')
+    PASS a loan can be recorded against them | rc=0 err=
+    PASS the application answers which books are available | listing=[Book(title='B1', author='A', isbn='1', available_copies=1, id=1, created_at='2026-09-20T09:58:52.097852', updated_at='2
+    FAIL a borrowed book no longer appears as available | book list -> [Book(title='B1', author='A', isbn='1', available_copies=1, id=1, created_at='2026-09-20T09:58:52.097852', updated_at='2
+== 42 ==
+    FAIL a customer's purchases can be recorded | group= rc=1 err=no add command among ('purchase', 'purchases', 'sale', 'sales', 'order', 'orders')
+    PASS the purchase history of a customer is reachable | cmd=('purchase', 'list')
+    PASS a 'how much has been spent' capability exists | cmd=('purchase', 'total')
+    FAIL how much a customer has spent is reported | cmd=purchase total rc=1 out= err=Error: Purchase with id 1 not found
+== 43 ==
+    PASS a project can be recorded | rc=0 err=
+    FAIL a task carries a priority and a status | rc=1 err=no add command among ('task', 'tasks')
+    PASS what needs attention is reachable (status/priority filter or report) | task list help=usage: main.py task list [options]
+
+  task/list
+
+options:
+   report=None
+== 44 ==
+    PASS products and customers can be recorded | product=(0, '1') customer=(0, '1')
+    FAIL a sale can be recorded | group= rc=1 err=no add command among ('sale', 'sales', 'order', 'orders')
+    PASS what has been sold is reachable | cmd=sale list rc=0 err=
+    PASS what is still in stock is readable on the product | columns=['stock_quantity'] values=[0]
+== 45 ==
+    PASS a booking can be made | group=booking rc=0 err=
+    PASS the same room cannot be booked twice for the same period | rc=1 err=Error: UNIQUE constraint failed: bookings.check_in_date, bookings.check_out_date, bookings.room_id
+    PASS a different room may be booked for that period | rc=0 err=
+== 46 ==
+    PASS a client and an invoice can be recorded | group=invoice rc=0 err=
+    PASS which invoices are outstanding is reachable | cmd=('invoice', 'list')
+    PASS an outstanding view can be listed | cmd=invoice list rc=0 err=
+    PASS recording the payment reaches the invoice view | before=[Invoice(client_id=1, invoice_number='Invoice Number', due_d after=[Invoice(client_id=1, invoice_number='Invoice Number', due_d
+== 47 ==
+    FAIL a person and a task can be recorded | person=1 err=no add command among ('person', 'people', 'user', 'users', 'employee', 'employees', 'member', 'members')
+    FAIL a task can be assigned to a person | rc=1 err=no add command among ('task', 'tasks')
+    PASS who is responsible for what is reachable | report=('person', 'assign') listing=[]
+== 48 ==
+    PASS a book can be added | rc=0 err=
+    PASS a book can be found | cmd=book search rc=0 out=[Book(title='Dune', author='Herbert', isbn='I1', publication_year=2000, availabl err=
+    PASS books can be organized (a category/collection/shelf field) | usage: main.py book list [options]
+
+  book/list
+
+options:
+  --title text
+  --author text
+  --genre t
+    PASS the information survives the next execution | rc=0 out=[Book(title='Dune', author='Herbert', isbn='I1', publication_year=2000, availabl
+== 49 ==
+    FAIL employees can be attached to departments | rc=1 err=no add command among ('employee', 'employees')
+    FAIL an employee listing can be narrowed to one department | out=[]
+    PASS an employee can be found quickly | cmd=department search rc=0 err=
+== 50 ==
+    PASS an event declares a participant limit | options=['--title', '--description', '--max-participants', '--help']
+    PASS an event with a participant limit can be created | rc=0 err=
+    PASS a command registers a person for an event
+    FAIL the first registrations are accepted | rcs=[1, 1, 1]
+    PASS a registration beyond the participant limit is prevented | rcs=[1, 1, 1]
+== 51 ==
+    PASS a product can be created with a SKU | rc=0 err=
+    PASS the same SKU is refused inside one category | rc=1 err=Error: UNIQUE constraint failed: products.sku, products.category
+    PASS the same SKU is allowed in a different category | rc=0 err=
+== 52 ==
+    PASS a book can be borrowed by a member | group=borrow_record rc=0 err=
+    FAIL the availability listing is reachable | listing=
+    FAIL the application offers a book listing | book commands=['add', 'return']
+== 53 ==
+    FAIL order add takes a product and a quantity | options=['--customer-id', '--help']
+== 54 ==
+    FAIL appointment add takes a start and an end time | options=['--title', '--description', '--is-active', '--help']
+== 55 ==
+    PASS a product records an initial stock of 5 | stock_opt=stock-quantity rc=0 stock=5.0
+    PASS the sale command takes a product and a quantity | cmd=sale add options=['--product-id', '--quantity', '--sale-price', '--user-id', '--help']
+    FAIL a sale of 2 leaves the stock at 3 | rc=0 before=5.0 after=5.0 err=
+    FAIL selling more than the stock is refused and changes nothing | rc=0 after=5.0 final=5.0 err=
+== 56 ==
+    PASS products can be searched | cmd=product search rc=0 err=
+    FAIL an order can be given products (order add, or a line command) | order add options=['--customer-id', '--status', '--cancelled-at', '--help'] line=None
+== 57 ==
+    FAIL a document can be recorded through the CLI | group=document rc=1 err=Error: NOT NULL constraint failed: documents.file_path
+    PASS the business logic sits in a service, not in the CLI | ['author_repository', 'cli', 'database', 'document_repository', 'document_service', 'exceptions', 'main', 'models']
+    PASS the CLI reaches no persistence mechanism of its own | entry=main.py
+== 58 ==
+    FAIL a customer can be recorded | rc=1 err=no add command among ('customer', 'customers')
+    PASS customers can be listed with no external service running | rc=0 err=
+    FAIL the external-information capability is reachable | no command names an external lookup
+== 60 ==
+    FAIL categories and products can be managed | category=(1, '') product=(1, '')
+    FAIL order add takes a product and a quantity | options=[]
+
+verdicts: {'41': '3/4', '42': '2/4', '43': '2/3', '44': '3/4', '45': '3/3', '46': '4/4', '47': '1/3', '48': '4/4', '49': '1/3', '50': '4/5', '51': '3/3', '52': '1/3', '53': '0/1', '54': '0/1', '55': '2/4', '56': '1/2', '57': '2/3', '58': '1/3', '60': '0/2'}
+TOTAL 37/59 checks
+NOTE: prompt 59 is not probed - its generation fails at scale (output-budget truncation in the repair loop); see analysis/progress_journal.md
