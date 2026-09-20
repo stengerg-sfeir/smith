@@ -530,6 +530,7 @@ def probe_50():
               "no command names an event and a person")
         return
     check("a command registers a person for an event", True)
+    assert event_opt is not None and person_opt is not None
     outcomes = []
     for index in range(1, 4):
         rc, out, err = cli(project, register[0], register[1],
@@ -648,26 +649,52 @@ def probe_53():
     create(project, ("product", "products"), name="P1", price="10",
            stock_quantity="5")
     create(project, ("customer", "customers"), email="c@x")
+    # "orders containing products" may legitimately be modelled EITHER as a
+    # LINE command (order_item add --order-id --product-id --quantity, the
+    # design's own choice here) or as a one-shot order creation. The probe
+    # demands only that ONE of the two exists and works end to end: an earlier
+    # version hard-coded the one-shot shape and so failed a correct app.
+    line_help = cli(project, "order_item", "add", "--help")[1]
     order_help = cli(project, "order", "add", "--help")[1]
-    product_opt = exposes(order_help, "product-id", "product", "item-id")
-    quantity_opt = exposes(order_help, "quantity", "qty", "count")
-    check("order add takes a product and a quantity",
-          product_opt is not None and quantity_opt is not None,
-          "options=%s" % re.findall(r"--[\w-]+", order_help)[:8])
-    if product_opt is None or quantity_opt is None:
+
+    def _takes_a_product(help_text):
+        return (
+            exposes(help_text, "product-id", "product", "item-id") is not None
+            and exposes(help_text, "quantity", "qty", "count") is not None
+        )
+
+    if _takes_a_product(line_help):
+        line_group = ("order_item", "order_items")
+    elif _takes_a_product(order_help):
+        line_group = ("order", "orders")
+    else:
+        line_group = None
+    check("placing something in an order with a product and a quantity is "
+          "expressible",
+          line_group is not None,
+          "order_item=%s order=%s" % (
+              re.findall(r"--[\w-]+", line_help)[:8],
+              re.findall(r"--[\w-]+", order_help)[:8]))
+    if line_group is None:
         return
+    if line_group[0] == "order_item":
+        # The line shape needs its container to exist first.
+        container = create(project, ("order", "orders"), customer_id=1)
+        check("an order can be created to hold the line", container[1] == 0,
+              "rc=%s err=%s" % (container[1], container[3][:120]))
     before = first_number(stock_of(project)[1])
-    too_much = create(project, ("order", "orders"), customer_id=1,
-                      product_id=1, product="1", item_id="1", quantity="10",
+    too_much = create(project, line_group, customer_id=1, product_id=1,
+                      product="1", item_id="1", order_id=1, quantity="10",
                       qty="10", count="10")
-    check("an order beyond the available stock is refused", too_much[1] != 0,
+    check("a request beyond the available stock is refused", too_much[1] != 0,
           "group=%s rc=%s err=%s" % (too_much[0], too_much[1], too_much[3][:120]))
-    placed = create(project, ("order", "orders"), customer_id=1, product_id=1,
-                    product="1", item_id="1", quantity="2", qty="2", count="2")
-    check("an order within the stock is accepted", placed[1] == 0,
+    placed = create(project, line_group, customer_id=1, product_id=1,
+                    product="1", item_id="1", order_id=1, quantity="2",
+                    qty="2", count="2")
+    check("a request within the stock is accepted", placed[1] == 0,
           "group=%s rc=%s err=%s" % (placed[0], placed[1], placed[3][:120]))
     after = first_number(stock_of(project)[1])
-    check("the stock is decreased by the order",
+    check("the stock is decreased by the request",
           before is not None and after is not None and after < before,
           "before=%s after=%s" % (before, after))
 
@@ -790,20 +817,37 @@ def probe_56():
         listing = cli(project, "product", "list")[1]
         check("products can be searched", "P1" in listing,
               "no search command; listing=%s" % listing[:80])
+    # Same freedom as probe 53: the products of an order may live in a LINE
+    # command or on the order creation itself. Both are legitimate models of
+    # "an order can be given products"; the probe accepts either.
     order_help = cli(project, "order", "add", "--help")[1]
-    product_opt = exposes(order_help, "product-id", "product", "item-id")
-    quantity_opt = exposes(order_help, "quantity", "qty", "count")
-    line_cmd = find_command(project, "order_item", "order-line", "line")
+    line_help = cli(project, "order_item", "add", "--help")[1]
+
+    def _takes_a_product(help_text):
+        return (
+            exposes(help_text, "product-id", "product", "item-id") is not None
+            and exposes(help_text, "quantity", "qty", "count") is not None
+        )
+
+    if _takes_a_product(line_help):
+        line_group = ("order_item", "order_items")
+    elif _takes_a_product(order_help):
+        line_group = ("order", "orders")
+    else:
+        line_group = None
     check("an order can be given products (order add, or a line command)",
-          (product_opt is not None and quantity_opt is not None)
-          or line_cmd is not None,
-          "order add options=%s line=%s"
-          % (re.findall(r"--[\w-]+", order_help)[:8], line_cmd))
-    if product_opt is None or quantity_opt is None:
+          line_group is not None,
+          "order add options=%s order_item options=%s"
+          % (re.findall(r"--[\w-]+", order_help)[:8],
+             re.findall(r"--[\w-]+", line_help)[:8]))
+    if line_group is None:
         return
+    if line_group[0] == "order_item":
+        create(project, ("order", "orders"), customer_id=1)
     before = first_number(stock_of(project)[1])
-    placed = create(project, ("order", "orders"), customer_id=1, product_id=1,
-                    product="1", item_id="1", quantity="2", qty="2", count="2")
+    placed = create(project, line_group, customer_id=1, product_id=1,
+                    product="1", item_id="1", order_id=1, quantity="2",
+                    qty="2", count="2")
     check("an order can be placed", placed[1] == 0,
           "group=%s rc=%s err=%s" % (placed[0], placed[1], placed[3][:120]))
     cancel = find_command(project, "cancel")
