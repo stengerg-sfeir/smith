@@ -56,6 +56,7 @@ from agentlib.pipeline.pair_rules import (
     apply_time_pair_inputs,
     extract_time_pairs,
 )
+from agentlib.generation.pair_guard import apply_time_pair_guard
 from agentlib.generation.overlap_guard import apply_overlap_guard
 from agentlib.pipeline.overlap_rules import extract_overlap_rules
 from agentlib.generation.active_guard import apply_active_guard
@@ -272,6 +273,57 @@ def _synthesize_cli_repos(designs, entities_by_class, manifest):
                     # Undesigned entity: back-propagate model + repo.
                     _ensure_entity(ref_cls)
                     _ensure_repo(ref_cls)
+
+
+def _synthesize_cli_services(designs, entities_by_class, manifest, cli_surface,
+                             verbose=False):
+    """Ensure a HOST service file exists for every entity the CLI addresses.
+
+    The CLI renderer resolves a command's service by its GROUP entity
+    (``<entity>_service.py``), and ``cli_spec.align_surface_to_design`` keeps
+    only the commands some designed service hosts. So a layout that declares
+    ONE service for a surface that addresses four entities silently loses the
+    other three's commands: prompt 53's layout designed ``order_service.py``
+    alone, and ``customer add``/``product add`` vanished from the shipped CLI
+    even though ``models.py`` declares their tables — the app could not create
+    a customer at all, so no order could ever be placed.
+
+    One service file per addressed entity is the invariant the CLI renderer
+    assumes. Added only when missing, and only for entities the FINAL surface
+    actually addresses, so a layout that already declared its services is
+    untouched.
+    """
+    if not cli_surface or not entities_by_class:
+        return []
+    existing = {
+        Path(path).stem
+        for path, kind, _ in designs
+        if kind in ("services", "service")
+    }
+    added = []
+    for c in cli_surface.get("commands") or []:
+        if not isinstance(c, dict):
+            continue
+        cls = _command_entity(c, entities_by_class)
+        if not cls:
+            continue
+        stem = _snake(cls) + "_service"
+        if stem in existing:
+            continue
+        file_name = stem + ".py"
+        designs.append((file_name, "services", {"methods": []}))
+        existing.add(stem)
+        manifest.append({
+            "file": file_name,
+            "role": "business logic",
+            "kind": "service",
+            "entity": _snake(cls),
+            "imports_from": ["models", "exceptions"],
+        })
+        added.append(file_name)
+        if verbose:
+            print("    [design] synthesized missing service %s" % file_name)
+    return added
 
 
 def _drop_orphan_repositories(designs, entities_by_class, manifest,
@@ -1397,6 +1449,8 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # genuinely ambiguous prompts (data model not aligned with CLI section);
     # the two LLM design passes (service + CLI) may still disagree on NEW
     # commands, and that divergence is reconciled deterministically here.
+    _synthesize_cli_services(designs, entities_by_class, manifest, cli_surface,
+                             verbose=verbose)
     svc_paths = [s["file"] for s in manifest if s["kind"] == "service"]
     # INTERNAL CONTRACT anchor: extract the service methods the SPEC explicitly
     # declares (evidence-closed) and make them a design requirement — the
@@ -1976,6 +2030,23 @@ def _manifest_first_blocks(prompt_text, verbose=False):
                 if _stock_rule.get("restore"):
                     files[_sp] = apply_stock_restore(
                         files[_sp], _stock_rule["restore"]
+                    )
+        # 5.2i L4 — the ORDER of a compared time pair ("Each appointment must
+        # always end after it starts … must also support appointments whose
+        # start and end time are identical", prompt 54). Nothing refused a
+        # backwards pair on the create path (the one check the design wrote sat
+        # in an unrelated method), so an appointment could end before it began.
+        for _pair_cls, _pair in _time_pairs.items():
+            _pair_names = (
+                (_pair[0] or {}).get("name"),
+                (_pair[1] or {}).get("name"),
+            )
+            if not all(_pair_names):
+                continue
+            for _sp in svc_paths:
+                if _sp in files:
+                    files[_sp] = apply_time_pair_guard(
+                        files[_sp], _pair_cls, _pair_names, exception_names
                     )
         # 5.2f C5 — refuse to DELETE a row the specification says is still
         # referenced ("a category cannot be deleted while products still

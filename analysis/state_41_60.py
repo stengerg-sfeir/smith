@@ -637,7 +637,10 @@ def create_with_times(project, candidates, start, end, **overrides):
                 extra[key] = start
             elif key.startswith(("end", "finish", "to_")):
                 extra[key] = end
-        return (group,) + create(project, (group,), **extra)
+        # create() already returns (group, rc, out, err): prefixing the group
+        # again shifted every index by one, so the probe read the GROUP as the
+        # return code and reported refusals that never happened.
+        return create(project, (group,), **extra)
     return "", 1, "", "no add command among %s" % (candidates,)
 
 
