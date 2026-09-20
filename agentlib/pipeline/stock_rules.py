@@ -49,6 +49,24 @@ _STOCK_TOKENS = ("stock", "inventory", "copies", "count", "quantity", "qty", "un
 _QTY_TOKENS = ("quantity", "qty", "units", "count", "amount")
 _NUMERIC = ("int", "float")
 
+# The RETURN leg: "cancelling an order must restore its product quantities"
+# (prompt 56), "Cancelling a confirmed order releases the reserved stock"
+# (prompt 60). The operation is named by the first verb of the clause, and the
+# movement verb confirms the direction.
+_RESTORE_RE = re.compile(
+    r"\b(cancel\w*|cancelling|return\w*|refund\w*|reject\w*|void\w*|"
+    r"release\w*|restore\w*)\b"
+    r"[^.]{0,80}?"
+    r"\b(restor|releas|increas|replenish|refund|return|add(?:ed)?\s+back)"
+    r"\w*\b",
+    re.IGNORECASE,
+)
+# The operation verb of a clause, restricted to the operations that can carry a
+# return (an arbitrary word is never taken for an operation name).
+_OP_RE = re.compile(
+    r"\b(cancel|return|refund|reject|void|release)\w*\b", re.IGNORECASE
+)
+
 
 def _names_entity(text_low, cls):
     snake = _snake(cls)
@@ -137,6 +155,13 @@ def extract_stock_rules(prompt_text, entities_by_class):
             # containment the specification states is what puts them in scope.
             if not all(_names_entity(low, r) for r in refs.values()):
                 continue
+            others = [r for f, r in refs.items() if f != fk_param]
+            # The FK that ties the line to its CONTAINER (order_id) — the one
+            # the return path filters on. It is NOT the counter's own FK
+            # (product_id), which is what reads the counter row.
+            container_fk = next(
+                (f for f, r in refs.items() if f != fk_param), None
+            )
             rules[cls] = {
                 "cls_line": cls,
                 "line_snake": _snake(cls),
@@ -147,6 +172,49 @@ def extract_stock_rules(prompt_text, entities_by_class):
                 "fk_param": fk_param,
                 "sign": sign,
                 "refuse": refuse,
+                # The container the line lives in, and the operation that hands
+                # the quantities BACK (only when the prompt states that move).
+                "restore": _restore_rule(text, others, cls, container_fk,
+                                         qty_field, refs, ref_cls, stock_field),
             }
             break
     return rules
+
+
+def _restore_rule(text, containers, line_cls, line_fk, qty_field, refs,
+                  ref_cls, stock_field):
+    """The 'cancelling restores the quantities' operation, or None.
+
+    Only produced when the prompt STATES the return AND names the container the
+    lines hang from — the operation then moves the counter by each line's own
+    quantity. Nothing is invented: without the clause, or without a container
+    the prompt names, there is no rule.
+    """
+    m = _RESTORE_RE.search(text or "")
+    if not m:
+        return None
+    op_m = _OP_RE.search(m.group(0))
+    if not op_m:
+        return None
+    low = (text or "").lower()
+    for container_cls in containers:
+        if not _names_entity(low, container_cls):
+            continue
+        return {
+            "cls_container": container_cls,
+            "container_snake": _snake(container_cls),
+            "cls_line": line_cls,
+            "line_snake": _snake(line_cls),
+            "line_fk": line_fk,
+            # The line's OWN foreign key to the counter entity (product_id):
+            # the return path reads the counter row THROUGH it.
+            "line_ref_fk": next(
+                (f for f, r in refs.items() if r == ref_cls), None
+            ),
+            "qty_field": qty_field,
+            "cls_ref": ref_cls,
+            "ref_snake": _snake(ref_cls),
+            "stock_field": stock_field,
+            "op": op_m.group(1).lower(),
+        }
+    return None

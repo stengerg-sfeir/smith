@@ -142,3 +142,64 @@ def apply_stock_guard(svc_source, cls_line, rule, exception_names):
         if guard:
             svc_source = inject_guards(svc_source, create_name, guard)
     return svc_source
+
+
+_RESTORE_MARKER = "# stock restore (spec)"
+
+
+def restore_guard_lines(restore, args):
+    """The return-path lines for the operation that hands the quantities back.
+
+    The lines of the container are walked with the deterministic repository API
+    only (``get_all()`` then a filter on the line's own foreign key), so the
+    guard never depends on which filters the design declared on ``list()``.
+    Returns None when the operation's own container argument cannot be
+    resolved — a guard is dropped rather than invented.
+    """
+    container = restore["container_snake"]
+    id_arg = _arg_for(args, container + "_id") or _arg_for(args, "id")
+    line_ref_fk = restore.get("line_ref_fk")
+    if not id_arg or not line_ref_fk:
+        return None
+    line_fk = restore["line_fk"]
+    qty = restore["qty_field"]
+    ref_snake = restore["ref_snake"]
+    field = restore["stock_field"]
+    row = "_stock_%s" % ref_snake
+    counter = "%s.%s" % (row, field)
+    return [
+        "        " + _RESTORE_MARKER,
+        "        for _line in self.%s_repo.get_all():" % restore["line_snake"],
+        "            if _line.%s != %s:" % (line_fk, id_arg),
+        "                continue",
+        "            %s = self.%s_repo.get_by_id(_line.%s)"
+        % (row, ref_snake, line_ref_fk),
+        "            if %s is not None:" % row,
+        "                self.%s_repo.update(%s.id, {'%s': (%s or 0) + _line.%s})"
+        % (ref_snake, row, field, counter, qty),
+    ]
+
+
+def apply_stock_restore(svc_source, restore, exception_names=None):
+    """Return ``svc_source`` with the return path enforced, or it unchanged.
+
+    The operation is ``<op>_<container>`` (``cancel_order``); it may live in ANY
+    service, so this is offered to every rendered service and applied where the
+    method exists — a no-op otherwise, and idempotent through its own marker.
+    """
+    if not restore or not svc_source:
+        return svc_source
+    if _RESTORE_MARKER in svc_source:
+        return svc_source
+    op = restore.get("op") or ""
+    container = restore.get("container_snake") or ""
+    if not op or not container:
+        return svc_source
+    for name in ("%s_%s" % (op, container), "%s_%s" % (container, op)):
+        args = _service_args(svc_source, name)
+        if args is None:
+            continue
+        guard = restore_guard_lines(restore, args)
+        if guard:
+            svc_source = inject_guards(svc_source, name, guard)
+    return svc_source

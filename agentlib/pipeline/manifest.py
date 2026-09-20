@@ -60,7 +60,10 @@ from agentlib.generation.overlap_guard import apply_overlap_guard
 from agentlib.pipeline.overlap_rules import extract_overlap_rules
 from agentlib.generation.active_guard import apply_active_guard
 from agentlib.pipeline.active_rules import extract_active_rules
-from agentlib.generation.stock_guard import apply_stock_guard
+from agentlib.generation.stock_guard import (
+    apply_stock_guard,
+    apply_stock_restore,
+)
 from agentlib.pipeline.stock_rules import extract_stock_rules
 from agentlib.generation.overlap_guard import _table_from_source
 from agentlib.generation.reference_guard import apply_reference_guard
@@ -1962,9 +1965,17 @@ def _manifest_first_blocks(prompt_text, verbose=False):
         # otherwise, and the marker makes it idempotent.
         for _line_cls, _stock_rule in _stock_rules.items():
             for _sp in svc_paths:
-                if _sp in files:
-                    files[_sp] = apply_stock_guard(
-                        files[_sp], _line_cls, _stock_rule, exception_names
+                if _sp not in files:
+                    continue
+                files[_sp] = apply_stock_guard(
+                    files[_sp], _line_cls, _stock_rule, exception_names
+                )
+                # The RETURN leg, when the specification states it ("cancelling
+                # an order must restore its product quantities", 56/60): the
+                # cancel operation hands each line's quantity back.
+                if _stock_rule.get("restore"):
+                    files[_sp] = apply_stock_restore(
+                        files[_sp], _stock_rule["restore"]
                     )
         # 5.2f C5 — refuse to DELETE a row the specification says is still
         # referenced ("a category cannot be deleted while products still
