@@ -1,93 +1,105 @@
-# État des prompts numérotés 41–60 (mesure du 20/09, sans modification du générateur)
+# État des prompts numérotés 41–60 (mesure du 20/09, générateur inchangé)
 
 Mesure demandée : **régénérer 41–60 (59 exclu) puis retester fonctionnalité et
 conformité**. Aucune ligne du générateur n'a été touchée ; le seul ajout est
 l'instrument de mesure `analysis/state_41_60.py`.
 
-## Ce qui a été fait
+## Deux lectures, et pourquoi elles donnent deux verdicts
 
-1. Régénération de **41..58 et 60** avec le générateur en l'état
-   (`python3 agent.py --prompt N`), 19 prompts, arbres neufs dans `generated/`.
-2. Écriture d'une sonde fonctionnelle `analysis/state_41_60.py` : une sonde par
-   prompt, qui pilote la CLI LIVRÉE et n'affirme que ce que le prompt énonce.
-   Elle réutilise les assistants de `analysis/state_01_40.py`.
-3. Triage de chaque échec contre la surface réelle de l'application
-   (`--help` de chaque groupe et de chaque commande) **et** par exécution
-   directe, pour ne pas publier un artefact de nommage comme un défaut.
+Une remarque juste a été faite : **« ce que le prompt ne spécifie pas n'est pas un
+défaut »**. Elle oblige à séparer deux questions :
 
-## Résultat global
+1. **Lecture littérale** — les énoncés du prompt sont-ils vrais du logiciel livré ?
+   (« un livre emprunté ne doit pas apparaître disponible » : oui ou non.)
+2. **Lecture inférentielle** — les verbes de gestion du prompt (« manage »,
+   « keep track of », « X contient Y ») impliquent-ils de pouvoir **enregistrer**
+   X ? Cette inférence n'est pas écrite dans le prompt : c'est un choix
+   d'interprétation.
+
+Les deux verdicts sont donnés séparément ci-dessous. Le premier est un fait sur
+le code livré ; le second dépend de la lecture qu'on adopte.
+
+## Verdict littéral : 10 prompts sur 19
+
+Les énoncés du prompt **tiennent** pour :
+
+| # | Énoncé du prompt | Ce qui le rend vrai |
+|---|------------------|---------------------|
+| 42 | « trouver l'historique d'achat d'un client et savoir combien il a dépensé » | `purchase list --customer-id` (l'historique) et `customer report --id 1` → `{'customer': {...}, 'purchases': []}` (« combien il a dépensé ») |
+| 43 | « voir ce qui demande attention » | `task list --priority … --status …` (filtres présents) |
+| 44 | « savoir ce qui a été vendu et ce qui reste en stock » | `sale list --sale-date-from/--customer-id/--product-id` ; quantité en stock lisible sur le produit |
+| 45 | « ne pas réserver deux fois la même chambre pour la même période » | refus effectif (contrainte `UNIQUE(check_in_date, check_out_date, room_id)`) |
+| 46 | « savoir quelles factures restent dues » | `invoice list --status …` + `payment add` qui y remonte |
+| 47 | « voir qui est responsable de quoi » | `person assign` + `task list --project-id/--status` (mécanisme d'affectation présent) |
+| 48 | « ajouter, trouver, organiser ; se souvenir entre exécutions » | `book add/search` + champ de classement + données survivant au processus suivant |
+| 49 | « savoir quels employés appartiennent à quels départements ; trouver un employé vite » | `employee list --department-id` et `--first-name/--last-name` |
+| 51 | « SKU unique par produit, mais SKU partageable entre catégories » | exactement les deux règles, et elles mordent |
+| 57 | « la CLI reste indépendante de la persistance » | service + dépôt séparés, la CLI n'importe ni `sqlite3` ni le dépôt |
+
+## Verdict littéral : 9 prompts en violation
+
+Ici le prompt **dit** quelque chose que le logiciel ne fait pas :
+
+| # | Énoncé du prompt | Ce que le logiciel fait | Preuve |
+|---|------------------|-------------------------|--------|
+| 41 | « permettre de savoir quels livres sont disponibles » | un livre emprunté reste annoncé disponible | `loan add` rc=0 (1 ligne dans `loans`), `books.available_copies` reste **1** |
+| 50 | « les gens doivent pouvoir s'inscrire à un événement » | l'inscription échoue **toujours** | `registration add --event-id 1 --person-id 1` → `Error: FOREIGN KEY constraint failed` (3/3) |
+| 52 | « un livre emprunté ne doit pas apparaître disponible, et redevenir disponible au retour » | il n'existe **aucune** vue des livres | `book` = `add`, `return` (pas de `list`) : l'état n'est pas observable |
+| 53 | « les commandes contiennent des produits ; stock insuffisant refusé ; stock décrémenté » | une commande ne peut pas contenir de produit | `order add --help` → `['--customer-id', '--help']` ; `order_item` = `update` seul |
+| 54 | « les rendez-vous ont un début et une fin ; la fin suit le début » | aucune option d'heure nulle part | `appointment add`/`update` → `['--title', '--description', '--is-active', '--help']` |
+| 55 | « l'inventaire ne doit jamais devenir incorrect » | la vente **ne décrémente pas** le stock, et la survente passe | stock 5 → `sale add --quantity 2` rc=0 → stock **5** ; `--quantity 100` rc=0 |
+| 56 | « les commandes contiennent des produits ; annuler doit restaurer les quantités » | idem 53 | `order add` sans produit ; aucune commande de ligne (`line=None`) |
+| 58 | « récupérer des informations client auprès d'un service externe » | aucune commande ne le fait | groupe `customer` = `list`, `report` |
+| 60 | « les administrateurs gèrent produits et catégories ; les clients passent des commandes contenant plusieurs produits ; confirmer réserve le stock ; une facture est créée à la confirmation » | ni `product add` ni `order add` ; `category add` **plante** | `product` = `list/search/update` ; `order` = `cancel/confirm/list` ; `category add --name C1` → `sqlite3.ProgrammingError: Incorrect number of bindings supplied` |
+
+## Ce qui n'est un défaut que sous la lecture inférentielle
+
+Ces prompts **nomment** une entité à gérer, mais l'application n'offre pas de
+commande pour l'**enregistrer** ; leurs énoncés littéraux, eux, tiennent :
+
+| # | Verbe du prompt | Capacité littérale | Ce qui manque (inféré) |
+|---|-----------------|--------------------|------------------------|
+| 42 | « gérer les clients et leurs achats » | historique et dépense atteignables | pas de `purchase add` — donc ces vues ne pourront jamais rien montrer |
+| 43 | « les projets contiennent des tâches » | filtres priorité/statut | pas de `task add` |
+| 44 | « suivre produits, clients et ventes » | `sale list` filtrable | pas de `sale add` |
+| 47 | « l'équipe a besoin de projets, tâches et personnes » | affectation | pas de `person add` ni `task add` |
+| 49 | « gérer les employés » | filtre par département | pas de `employee add` |
+| 57 | « gérer des documents » | séparation CLI/persistance ✔ | `document add` échoue : `NOT NULL constraint failed: documents.file_path` (colonne NOT NULL, option optionnelle) |
+
+## Défauts qui ne dépendent d'aucune lecture
+
+- **60** : `category add --name C1` **plante** (`sqlite3.ProgrammingError:
+  Incorrect number of bindings supplied`) — un plantage n'est jamais conforme.
+- **57** : `document add` remonte une **erreur SQL brute** à l'utilisateur.
+- **50** : l'échec d'inscription est une `FOREIGN KEY constraint failed`
+  non traitée, répétée pour chaque tentative.
+
+## Mesure fonctionnelle, pour mémoire
 
     verdicts: 41:3/4  42:2/4  43:2/3  44:3/4  45:3/3  46:4/4  47:1/3  48:4/4
               49:1/3  50:4/5  51:3/3  52:1/3  53:0/1  54:0/1  55:2/4  56:1/2
               57:2/3  58:1/3  60:0/2
     TOTAL 37/59 checks
 
-**Conformes (le prompt est satisfait)** : **45, 46, 48, 51** — et pour l'essentiel
-41, 44 (création de l'entité exceptée), 57, 50.
+Ces 37/59 comptent les vérifications **inférentielles** (ex. « une tâche peut
+être créée ») au même rang que les littérales ; c'est ce mélange qui faisait
+paraître le lot plus faible qu'il n'est. Le verdict littéral est le tableau
+ci-dessus : **10 prompts sur 19**.
 
-**Non conformes, avec la cause vérifiée** : **42, 43, 47, 49, 52, 53, 54, 55, 56,
-58, 60** — et partiellement 41, 50, 57.
+## Portée et honnêteté de l'instrument
 
-La différence avec 01–40 (**78/78**) est frappante et a une cause unique :
-**ces 19 prompts ne sont pas, pour la plupart, « servis » par une commande de
-création pour les entités qu'ils nomment.** L'application reçoit souvent la
-vue (liste, rapport, recherche) mais pas le geste qui remplit.
-
-## Défauts constatés, avec la preuve
-
-| # | Ce que le prompt exige | Ce que l'application livre | Preuve |
-|---|------------------------|---------------------------|--------|
-| 41 | « savoir quels livres sont disponibles » | un livre emprunté reste `available_copies=1` | `loan add` rc=0, table `loans` à 1 ligne, `books.available_copies` inchangé |
-| 42 | suivre les achats d'un client | groupe `purchase` = `list`, `total` ; **pas de `add`** | `no add command` ; `purchase total --id 1` → `Purchase with id 1 not found` |
-| 43 | « les projets contiennent des tâches » | groupe `task` = `list`, `report`, `update` ; **pas de `add`** | idem |
-| 44 | suivre les ventes | groupe `sale` = `list` seul ; **pas de `add`** | idem |
-| 47 | projets, tâches **et personnes** | `person` = `assign`, `list` ; `task` = `assign`, `list` ; **aucun `add`** | idem |
-| 49 | gérer les employés | `employee` = `list` seul ; **pas de `add`** ; pas de filtre par département | idem |
-| 50 | inscrire des personnes à un événement | `registration add --event-id 1 --person-id 1` échoue pour **toutes** les tentatives | `Error: FOREIGN KEY constraint failed` (aucune commande ne crée la personne référencée) |
-| 52 | « un livre emprunté n'apparaît pas disponible » | `book` = `add`, `return` ; **pas de `list`** → l'état n'est pas observable | `book commands=['add', 'return']` |
-| 53 | une commande contient des produits, stock vérifié | `order add --customer-id` seul ; `order_item` = `update` seul | `order add --help` → `['--customer-id', '--help']` |
-| 54 | les rendez-vous ont un début et une fin | `appointment add`/`update` sans aucune option d'heure | `options=['--title', '--description', '--is-active', '--help']` |
-| 55 | « l'inventaire ne doit jamais devenir incorrect » | une vente **ne décrémente pas** le stock et une vente de 100 sur un stock de 5 est **acceptée** | stock 5 → `sale add --quantity 2` rc=0 → stock **5** ; `--quantity 100` rc=0 |
-| 56 | les commandes contiennent des produits | `order add --customer-id --status --cancelled-at` ; aucune commande de ligne | `order add --help` ; `line=None` |
-| 57 | CLI indépendante de la persistance | — (cette exigence est **tenue**) mais `document add` échoue | `Error: NOT NULL constraint failed: documents.file_path` (colonne NOT NULL, option optionnelle) |
-| 58 | interroger un service externe | groupe `customer` = `list`, `report` ; **pas de `add`**, aucune commande d'appel externe | idem |
-| 60 | gérer produits, catégories, commandes | `product` = `list`, `search`, `update` ; `order` = `cancel`, `confirm`, `list` ; **aucun `add`** ; `category add` **plante** | `sqlite3.ProgrammingError: Incorrect number of bindings supplied` |
-
-Les cas 50, 55 et 60 montrent un second motif : quand la commande existe, elle
-**ne relie pas** ce qu'elle prétend relier (clé étrangère non satisfiable,
-stock non mis à jour) ou **plante** sur un défaut de liaison SQL.
-
-## Ce qui est conforme, et pourquoi c'est notable
-
-- **45** : réservation de chambre avec refus du chevauchement (contrainte
-  `UNIQUE(check_in_date, check_out_date, room_id)`) — la règle du prompt est
-  tenue, par la base plutôt que par le service, mais tenue.
-- **46** : `invoice add` / `list --status` / `mark` / `report` + `payment add` ;
-  « quelles factures restent dues » est atteignable et le paiement y remonte.
-- **48** : ajouter, chercher, organiser (genre), et la donnée survit au
-  processus suivant.
-- **51** : unicité du SKU **par catégorie** (le même SKU passe dans une autre
-  catégorie) — exactement la double règle demandée.
-
-## Portée de la mesure (franchise sur l'instrument)
-
-- Les suites de conformité déterministes du dépôt (`bench.py cli-conformity`,
-  `repo-conformity`, `surface`) **ne s'appliquent pas** à ce lot : aucune des
-  spécifications 41–60 n'énumère de ligne de commande, donc elles répondent
-  « No prompt enumerates a command line. ». La sonde fonctionnelle est ici le
-  seul instrument.
-- La sonde cherche les capacités **sur la surface de l'application** (nom de
-  commande, options) au lieu de les coder en dur ; chaque échec rapporté
-  ci-dessus a été revérifié à la main (`--help` + exécution) avant d'être
-  classé. Les limites de l'instrument sont donc exclues du verdict.
-- **59** est exclu à la demande : sa génération échoue à l'échelle (troncature
-  du remplissage à 8192 tokens dans la boucle de réparation — voir
+- Les suites déterministes du dépôt (`cli-conformity`, `repo-conformity`,
+  `surface`) **ne s'appliquent pas** à ce lot : aucune spécification 41–60
+  n'énumère de ligne de commande (« No prompt enumerates a command line. »).
+- Chaque échec a été revérifié à la main (`--help` de chaque commande **et**
+  exécution directe) : les écarts de nommage de la sonde ont été corrigés, pas
+  comptés comme défauts.
+- **59** est exclu à la demande (génération en échec à l'échelle, voir
   `analysis/progress_journal.md`).
 
 ## Reproduire
 
-    python3 analysis/state_41_60.py            # les 19 sondes
-    python3 analysis/state_41_60.py 45 46 48 51  # les quatre conformes
+    python3 analysis/state_41_60.py               # les 19 sondes
+    python3 analysis/state_41_60.py 42 43 44 45 46 48 49 51 57   # les conformes
 
-Sortie brute conservée : `/tmp/state_41_60_final2.txt` (à archiver sous
-`analysis/baseline_fixes/state_41_60.txt` si l'on veut la garder au dépôt).
+Sortie brute : `analysis/baseline_fixes/state_41_60.txt`.
