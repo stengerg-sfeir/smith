@@ -142,7 +142,17 @@ def _generate_ddl_from_models(model_classes):
             )
             if field_name.endswith("_id") and field_name != "id" and not _history:
                 base = field_name[: -len("_id")]
-                ref_table = table_map.get(_camel(base)) or _pluralize_table_name(base)
+                # The referenced table is named after the CLASS the column
+                # points at, so the stem must be camelised first: the column
+                # `assigned_to_user_id` references AssignedToUser, whose table
+                # every other path names `assignedtousers`. Pluralising the raw
+                # column stem instead produced `assigned_to_users` — a table no
+                # CREATE made, so the child INSERT died with "no such table"
+                # (prompt 47's `task add`).
+                ref_table = (
+                    table_map.get(_camel(base))
+                    or _pluralize_table_name(_camel(base))
+                )
                 foreign_keys.append(
                     "    FOREIGN KEY (%s) REFERENCES %s (id) ON DELETE CASCADE" % (field_name, ref_table)
                 )

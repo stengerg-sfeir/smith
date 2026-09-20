@@ -235,6 +235,14 @@ def _repo_columns(ent_design, table_names=None):
         ref = None
         if fname.endswith("_id") and fname != "id":
             base = fname[: -len("_id")]
-            ref = (table_names or {}).get(_camel(base)) or _plural(base)
+            # Same rule as the DDL: the referenced table is named after the
+            # CLASS the column points at, so the stem is camelised before the
+            # plural is formed (`assigned_to_user_id` -> AssignedToUser ->
+            # `assignedtousers`). Pluralising the raw column stem produced
+            # `assigned_to_users`, a table no CREATE made (prompt 47).
+            ref = (
+                (table_names or {}).get(_camel(base))
+                or _pluralize_table_name(_camel(base))
+            )
         cols.append((fname, sql, False, ref))
     return cols
