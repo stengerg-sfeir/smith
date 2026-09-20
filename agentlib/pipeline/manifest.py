@@ -52,6 +52,10 @@ from agentlib.pipeline.amount_rules import extract_amount_ops
 from agentlib.generation.field_guard import apply_field_guards
 from agentlib.generation.state_guard import apply_state_guards
 from agentlib.pipeline.state_rules import extract_state_rules
+from agentlib.pipeline.pair_rules import (
+    apply_time_pair_inputs,
+    extract_time_pairs,
+)
 from agentlib.generation.overlap_guard import apply_overlap_guard
 from agentlib.pipeline.overlap_rules import extract_overlap_rules
 from agentlib.generation.active_guard import apply_active_guard
@@ -987,6 +991,23 @@ def _manifest_first_blocks(prompt_text, verbose=False):
     # A typed ``default`` wrapper is flattened to its scalar value BEFORE any
     # renderer or create-recipe reads it (see _normalise_design_defaults).
     _normalise_design_defaults(entities_by_class)
+
+    # A pair of timestamps the specification COMPARES ("Each appointment must
+    # always end after it starts … start and end time are identical", prompt 54)
+    # is the CALLER's input, never a stamp. The design model marks such a pair
+    # auto:"now" — it reads "a time field" and reaches for datetime.now() — and
+    # every layer then hides it: _derive_options omits auto-now columns from
+    # `add`, the dataclass stamps it, and the service takes neither, so the
+    # caller cannot state the very interval the prompt compares. Cleared HERE,
+    # before the CLI surface is derived from these fields.
+    _time_pairs = extract_time_pairs(prompt_text, entities_by_class)
+    if _time_pairs:
+        if verbose:
+            print("    [models] spec compared time pairs (inputs): %r" % ({
+                _snake(cls): (start.get("name"), end.get("name"))
+                for cls, (start, end) in _time_pairs.items()
+            },))
+        apply_time_pair_inputs(_time_pairs, entities_by_class)
 
     # A total the specification DERIVES from child rows is marked HERE — before
     # the CLI surface is derived — so ``--<total>`` is never offered as an input
