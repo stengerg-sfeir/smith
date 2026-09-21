@@ -1,153 +1,182 @@
-# Agent Smith : Agent de génération de code Python neurosymbolique
+# Esus
 
-**Agent Smith** est un agent de génération de code conçu pour produire des applications Python complètes, testées et robustes à partir de **petits modèles locaux (4B de paramètres)**.
+> Et si le LLM ne devait pas tout décider ?
 
----
+Esus est un prototype expérimental de génération de code qui explore une approche **neuro-symbolique** : utiliser un petit LLM pour les décisions qui nécessitent du raisonnement et confier au logiciel déterministe tout ce qui peut être formalisé, vérifié et reproduit.
 
-Au lieu de reposer sur de gros LLM propriétaires en SaaS et sur des boucles lentes de correction après-coup (*post-hooks*), Agent Smith s'appuie sur une **architecture neurosymbolique** : il contraint strictement le LLM via un pipeline déterministe, des grammaires JSON (GBNF) et des validations AST dès la phase de génération.
+L'objectif n'est pas de forcer un petit modèle à écrire du code comme un grand modèle.
 
-> **Le paradoxe :** un agent construit pour se passer des grands LLM propriétaires a lui-même été développé avec l'aide de grands LLM — Kimi K3, DeepSeek V4 Pro, GPT 5.6 Sol. Ce n'est pas une contradiction mais l'énoncé du problème : le neurosymbolique ne remplace pas les grands modèles, il réduit ce qu'on leur demande. La mesure de ce qui reste à leur demander est dans [`analysis/claude_vs_generator.md`](analysis/claude_vs_generator.md).
+**Au contraire : il s'agit de lui laisser faire ce qu'il fait le mieux.**
 
----
+Le LLM interprète la demande, extrait les intentions et prend des décisions structurées. Un kernel déterministe transforme ensuite ces décisions en code, applique les contraintes connues et vérifie le résultat.
 
-## Pourquoi Agent Smith ?
+## Pourquoi cette approche ?
 
-Les assistants de code IA classiques traitent la génération comme un problème de texte libre. Avec des petits modèles locaux (comme Qwen 4B), cette approche échoue rapidement :
-* **Erreurs de syntaxe :** Oublis d'imports ou indentation cassée.
-* **Hallucinations d'API :** Inventions de méthodes ou de colonnes inexistantes.
-* **Saturation de contexte :** Réinjecter les erreurs de linters dans le prompt consomme du contexte et dégrade le raisonnement.
+Le code est un domaine particulièrement favorable à une approche neuro-symbolique.
 
-**La solution :** Ne jamais laisser le LLM écrire un fichier entier en texte libre.
+Contrairement à de nombreuses tâches confiées aux LLM, le logiciel dispose déjà d'une structure symbolique riche et opérationnelle : types, signatures, AST, interfaces, schémas SQL, contraintes, compilateurs et tests.
 
----
+Certaines décisions qu'un LLM prendrait normalement de manière probabiliste peuvent donc être représentées explicitement et traitées de manière déterministe.
 
-## Architecture Neurosymbolique
+La frontière est volontaire :
 
-Agent Smith utilise le LLM uniquement pour la compréhension sémantique et la logique métier, tandis que le code déterministe (AST Python, rendu par templates) gère la structure exacte.
+- **LLM** : interprétation, raisonnement et décisions sémantiques ;
+- **Kernel** : contrats, structure, génération, câblage et validation ;
+- **Humain** : décisions qui nécessitent réellement un jugement humain.
 
-1. **Phase de Manifeste & Design :** Le LLM analyse le prompt utilisateur sous contrainte JSON pour extraire les entités, les signatures des services et les options de la CLI.
-2. **Génération déterministe du squelette :** `agentlib` génère mécaniquement les modèles, la base de données SQLite et le routage de la CLI Click. Aucune hallucination possible sur la structure.
-3. **Remplissage ciblé des stubs :** Le LLM est appelé uniquement pour remplir des fonctions métier isolées avec un contexte très étroit.
-4. **Valideurs AST :** Les violations de noms ou de syntaxe sont corrigées au niveau de l'AST avant l'écriture du fichier.
+L'objectif n'est pas de supprimer l'incertitude du LLM, mais de **réduire la partie du système qui en dépend**.
 
----
+## Architecture
 
-## Installation & Utilisation
+Esus utilise une chaîne de traitement en plusieurs étapes :
 
-### Prérequis
+1. **Conception** — le LLM transforme la spécification en décisions structurées.
+2. **Rendu** — le kernel déterministe construit la structure connue de l'application.
+3. **LLM & Splice** — le LLM complète les parties qui nécessitent une interprétation métier. Le code produit est vérifié puis réinjecté dans la structure générée.
+4. **CLI & Validation** — le kernel câble l'application et effectue les vérifications déterministes.
 
-**Python.** ≥ 3.10 pour le testeur (`bench.py`), ≥ 3.9 pour le générateur (`agent.py`).
-Développé et mesuré sur CPython 3.14.5. Le détail des raisons est en commentaire dans les
-deux fichiers de dépendances.
+L'élément central de l'architecture est donc la frontière entre la partie **probabiliste** et la partie **déterministe**.
 
-**Paquets.**
-
-* `ruff` — le générateur exécute `ruff check --fix --select E,F,I,W` sur chaque projet
-  produit. Dépendance *souple* (l'appel est protégé par un `try/except`), mais sans lui le
-  code généré garde ses défauts d'ordre d'imports et d'imports inutilisés. Installé par
-  [`requirements.txt`](requirements.txt).
-* `click` — le testeur *exécute* les CLI générés (chacun étant une application click) dans
-  le même interpréteur, donc l'environnement du testeur doit l'avoir. Installé par
-  [`requirements-dev.txt`](requirements-dev.txt).
-
-**Serveur LLM local**, compatible OpenAI, accessible sur `http://localhost:8000/v1`
-(`llama-server`, `vLLM`, …). Version mesurée : **llama.cpp build `9430`** (commit
-`d48a56eff`), installé par Homebrew sur macOS arm64, backend **Metal** activé :
-
-```bash
-brew install llama.cpp
-llama-server --version      # version: 9430 (d48a56eff)
-                            # built with AppleClang 21.0.0.21000099 for Darwin arm64
+```text
+                  ┌──────────────────────┐
+                  │  Prompt utilisateur  │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │         LLM          │
+                  │  Raisonnement        │
+                  │  Intentions          │
+                  │  Décisions structurées│
+                  └──────────┬───────────┘
+                             │
+                    contrats typés
+                     + invariants
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │    Kernel Esus       │
+                  │  Génération          │
+                  │  Validation          │
+                  │  Câblage             │
+                  │  Contraintes         │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │ Application générée  │
+                  └──────────────────────┘
 ```
 
-`server.sh` lance ce serveur (le modèle `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` est attendu à
-la racine du dépôt) ; sur macOS il passe par `caffeinate`. Toutes les options qu'il utilise
-(`--ctx-checkpoints`, `--cache-ram`, `--parallel`, `--log-file`, `--host`, `-sps`, `-ngl`,
-`-ub`, `-c`, `-b`) sont acceptées par ce build ; `--cache-ram` et `--ctx-checkpoints` étant
-récentes, prévois un build du même ordre de grandeur.
+## Les petits modèles
 
-**Le modèle.** `server.sh` attend `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (2,33 Go) à la racine
-du dépôt. Il est publié par **bartowski** ; le fichier distant porte un préfixe `Qwen_`,
-d'où le `-o` qui le renomme au nom attendu :
+Esus a été développé à l'origine comme une expérimentation avec un petit LLM local.
 
-```bash
-curl -L -o Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
-  https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-```
+L'idée est volontairement différente de demander à un modèle de 4B de générer directement une application complète.
 
-Contrôle d'intégrité (2 497 280 736 octets) :
+Le modèle travaille plutôt sur des contextes réduits et produit des décisions structurées. Le kernel déterministe prend ensuite en charge le reste du travail.
 
-```bash
-shasum -a 256 Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-# 2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e
-```
+Cela permet notamment d'expérimenter avec :
 
-Le fichier est ignoré par git (`.gitignore` : `*.gguf`), il n'est donc pas versionné.
+- des modèles locaux de petite taille ;
+- des sorties contraintes ;
+- de la génération de code déterministe ;
+- des contrats et invariants explicites ;
+- de la validation reproductible ;
+- un *Human-in-the-loop* placé au niveau des décisions.
 
-### Installation
+## État du projet
 
-```bash
-git clone git@github.com:stengerg-sfeir/smith.git
-cd smith
-python3 -m pip install -r requirements.txt        # générateur : ruff
-```
+Esus est un **projet expérimental de recherche**, et non un générateur de code prêt pour la production.
 
-Pour installer les outils de dev complémentaires (ajoute `click`, et reprend le
-générateur) :
+Les expérimentations actuelles portent principalement sur des applications Python, notamment des applications CRUD et des outils en ligne de commande.
 
-```bash
-python3 -m pip install -r requirements-dev.txt    # testeur : ruff + click
-```
+La suite de tests contient à la fois des spécifications nommées et des spécifications de benchmark.
 
-### Exécution
+L'objectif n'est pas uniquement de vérifier si les projets générés s'exécutent, mais aussi de distinguer :
 
-**Générer une application à partir d'un prompt :**
-L'entrée principale s'effectue via `agent.py` :
+- la réussite fonctionnelle ;
+- la conformité à la spécification ;
+- les défauts du générateur ;
+- les limites du kernel ;
+- les erreurs du banc de test.
 
-```bash
-bash server.sh                            # dans un autre terminal : le serveur LLM
-python3 agent.py --list                   # lister les prompts disponibles
-python3 agent.py --prompt hello_world
-```
+## Benchmark
 
-**Lancer les suites d'évaluation et de benchmark :**
-L'ensemble des outils de benchmark et de vérification est centralisé dans `bench.py`
-(à lancer depuis la racine du dépôt) :
+Le benchmark nommé actuel contient six spécifications :
 
-```bash
-python3 bench.py --help
-```
+- `hello_world`
+- `cli_tool`
+- `expenses`
+- `inventory`
+- `library_system`
+- `multi_module`
 
-Le détail des quatorze commandes — ce que chacune teste, pourquoi, et comment la lancer
-sur un prompt, un lot, ou tous — est dans **[`BENCH.md`](BENCH.md)**.
+Le dernier passage donne les résultats suivants :
 
----
+| Mesure | Résultat |
+|---|---:|
+| Réussite fonctionnelle | 6 / 6 |
+| Conformité stricte à la spécification | 4 / 6 |
 
-## Analyses & Documentation
+Ces résultats sont expérimentaux. Ils ne constituent pas une affirmation générale selon laquelle Esus serait meilleur que d'autres agents de génération de code.
 
-Le dossier `analysis/` contient un ledger et des rapports datés :
+L'objectif du benchmark est surtout de mesurer les limites de l'architecture et d'identifier les décisions qui pourraient progressivement être déplacées de la partie probabiliste vers le kernel déterministe.
 
-* [`semantic_dispositions.md`](analysis/semantic_dispositions.md) — **le document de
-  référence** : pour chaque défaut sémantique corrigé, le mécanisme qui l'empêche désormais
-  de revenir et la mesure qui le prouve.
-* [`convergence_plan.md`](analysis/convergence_plan.md) — la méthode du chantier (« une loi à
-  la fois »), ses lois et ses preuves datées ; marqué clos.
-* [`named_prompts_analysis.md`](analysis/named_prompts_analysis.md) — ce que les portes du
-  harnais vérifient sur les six prompts nommés.
-* [`named_prompts_report.md`](analysis/named_prompts_report.md) /
-  [`named_prompts_report.json`](analysis/named_prompts_report.json) — le tableau des quatre
-  axes, réécrit à chaque `bench.py named`.
-* [`claude_vs_generator.md`](analysis/claude_vs_generator.md) — comparatif entre la baseline
-  Claude Code et le générateur, **consommation comprise** : les mêmes six spécifications,
-  ce que chacune produit (chars, fichiers) et ce qu'elle coûte (tokens, dollars). Les
-  chiffres viennent de trois artefacts, pas d'un terminal.
-* [`claude_baseline_report.md`](analysis/claude_baseline_report.md) /
-  [`claude_baseline_report_sonnet.md`](analysis/claude_baseline_report_sonnet.md) — les
-  mesures brutes de cette comparaison (Haiku / Sonnet), chacune avec son double
-  exploitable `claude_baseline_report{,_sonnet}.json`.
-* [`small_model_trials.md`](analysis/small_model_trials.md) — trois modèles plus petits que
-  le 4B de référence, et ce qu'ils révèlent.
-* [`generation_cost_profile.md`](analysis/generation_cost_profile.md) /
-  [`generation_cost_profile.json`](analysis/generation_cost_profile.json) — où passe le
-  temps mural d'une génération **et** ce qu'elle consomme (secondes, chars, tokens), phase
-  par phase.
+### Analyses du benchmark
+
+Les résultats détaillés et les comparaisons sont disponibles dans le dépôt :
+
+- [Analyse des benchmarks](analysis/)
+- [Comparaison avec Claude](analysis/claude_vs_generator.md)
+
+La comparaison avec Claude est exploratoire et doit être interprétée avec précaution : les environnements et les mécanismes de test ne sont pas nécessairement identiques.
+
+## D'Agent Smith à Esus
+
+Si vous arrivez ici depuis le premier épisode, vous connaissez peut-être ce projet sous le nom **Agent Smith**.
+
+Smith a simplement changé de corps. 😉
+
+Le projet est le même : seul son nom a changé.
+
+**Esus** fait référence à une divinité gauloise représentée notamment sur le Pilier des Nautes à Paris, associée à l'image d'un artisan travaillant un arbre.
+
+Une référence plutôt appropriée pour un projet dont l'objectif est justement de transformer des décisions abstraites en construction logicielle.
+
+## Philosophie
+
+Esus part d'une idée simple :
+
+> **Le LLM n'a pas besoin de tout faire pour être utile.**
+
+Un agent de génération de code doit aujourd'hui gérer de nombreuses responsabilités : comprendre la demande, choisir une architecture, inventer des abstractions, écrire du code, modifier des fichiers, exécuter des commandes et interpréter les erreurs.
+
+Une partie de ces tâches nécessite effectivement les capacités d'un modèle de langage.
+
+D'autres sont au contraire suffisamment formalisables pour être confiées à du logiciel traditionnel.
+
+Esus explore cette deuxième catégorie.
+
+Le but n'est donc pas de remplacer le LLM, mais de **réduire son périmètre de responsabilité**.
+
+## Pistes d'évolution
+
+Plusieurs pistes sont actuellement explorées :
+
+- extraction des invariants métier par le LLM ;
+- contrats typés entre le LLM et le kernel ;
+- génération et vérification par TDD ;
+- architectures hybrides combinant des modèles généralistes et Esus ;
+- utilisation de MCP ;
+- décodage spéculatif ;
+- nouvelles méthodes d'entraînement et de raisonnement pour les petits modèles ;
+- transformation progressive des décisions récurrentes en primitives déterministes du kernel.
+
+La question de fond reste la même :
+
+> **Quelle partie d'un agent de génération de code doit réellement rester probabiliste ?**
+
+## Licence
+
+Voir le fichier [`LICENSE`](LICENSE) du dépôt.
